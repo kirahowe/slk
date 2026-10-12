@@ -4,16 +4,93 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"slices"
 	"testing"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/gammons/slk/internal/bootstrap"
 	"github.com/gammons/slk/internal/config"
 	"github.com/gammons/slk/internal/service"
 	slk "github.com/gammons/slk/internal/slack"
 	"github.com/gammons/slk/internal/slack/boot"
+	"github.com/gammons/slk/internal/ui"
 	"github.com/gammons/slk/internal/ui/sidebar"
 	"github.com/slack-go/slack"
 )
+
+func TestOnConnectPresenceIncludesRecoveredStarredPeers(t *testing.T) {
+	for _, reconnect := range []bool{false, true} {
+		name := "initial"
+		if reconnect {
+			name = "reconnect"
+		}
+		t.Run(name, func(t *testing.T) {
+			store := service.NewSectionStore()
+			if err := store.Bootstrap(context.Background(), &fakeSectionsClient{
+				sections: []slk.SidebarSection{{ID: "ST", Type: "stars"}},
+				starIDs:  []string{"D2", "DBOT"},
+			}); err != nil {
+				t.Fatal(err)
+			}
+			srv := newFakeSlack(t, map[string]string{
+				"/api/users.getPresence": `{"ok":true,"presence":"active"}`,
+				"/api/dnd.info":          `{"ok":true,"dnd_enabled":false}`,
+			})
+			dndIDs := make(chan []string, 1)
+			done := make(chan struct{})
+			wctx := &WorkspaceContext{
+				Client: newTestClient(t, srv.Server), TeamID: "T1", UserID: "USELF",
+				SectionStore: store,
+				UserNames:    newUserNameStore(map[string]string{"U2": "Alice", "UBOT": "Bot"}),
+				PeerStatus: &peerStatusRefresher{
+					selfID: "USELF", now: time.Now,
+					dndTeamInfo: func(_ context.Context, ids []string) (map[string]slack.DNDStatus, error) {
+						dndIDs <- slices.Clone(ids)
+						return nil, nil
+					},
+				},
+			}
+			setConversations(wctx, []sidebar.ChannelItem{{ID: "D1", Type: "dm", DMUserID: "U1"}})
+			wctx.MarkBotUser("UBOT")
+			h := &rtmEventHandler{
+				wsCtx: wctx, workspaceID: "T1", connected: reconnect,
+				program: sendFunc(func(msg tea.Msg) {
+					if _, ok := msg.(ui.StatusChangeMsg); ok {
+						close(done)
+					}
+				}),
+				resolveConversation: func(_ context.Context, id string) (*slack.Channel, error) {
+					peer := "U2"
+					if id == "DBOT" {
+						peer = "UBOT"
+					}
+					return &slack.Channel{GroupConversation: slack.GroupConversation{
+						Conversation: slack.Conversation{ID: id, IsIM: true, User: peer},
+					}}, nil
+				},
+			}
+			h.OnConnect()
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("presence bootstrap did not finish")
+			}
+			if got := wctx.Channels(); len(got) != 3 {
+				t.Fatalf("recovered channels = %+v, want existing DM, recovered human and bot", got)
+			}
+			select {
+			case got := <-dndIDs:
+				if want := []string{"U1", "U2"}; !slices.Equal(got, want) {
+					t.Fatalf("DND peer IDs = %v, want existing and recovered human peers %v", got, want)
+				}
+			default:
+				t.Fatal("peer DND refresh did not run")
+			}
+		})
+	}
+}
 
 func TestMissingStarredConversations_BootClosedIM(t *testing.T) {
 	res := &bootstrap.Result{IMs: []boot.IM{

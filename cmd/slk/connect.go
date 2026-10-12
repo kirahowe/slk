@@ -483,19 +483,6 @@ func (h *rtmEventHandler) OnConnect() {
 	firstConnect := !h.connected
 	h.connected = true
 	h.program.Send(ui.ConnectionStateMsg{TeamID: h.workspaceID, State: int(statusbar.StateConnected)})
-	if h.wsCtx != nil {
-		// Each connect queues a fetch rather than starting one: during a
-		// flap the runs would otherwise overlap and the slowest, not the
-		// newest, would decide what the status bar shows. A queued run
-		// still sends presence_sub, on the newest socket.
-		wctx, program := h.wsCtx, h.program
-		peerIDs := workspacePresenceIDs(wctx)
-		wctx.selfFetch.Run(func(ctx context.Context) {
-			ctx, cancel := context.WithTimeout(ctx, selfStatusTimeout)
-			defer cancel()
-			bootstrapPresenceAndDND(ctx, wctx, program, peerIDs)
-		})
-	}
 	// Refresh Slack-native section state on reconnect. MaybeRebootstrap
 	// is debounced to once per 30s (Task 6) so a rapid flap doesn't
 	// thunder; a real long-disconnect-then-reconnect refreshes section
@@ -518,6 +505,21 @@ func (h *rtmEventHandler) OnConnect() {
 			h.refreshSectionsForActive()
 		}
 		cancel()
+	}
+	if h.wsCtx != nil {
+		// After the starred reconciliation above, so the peers of starred
+		// DMs it recovered are in the presence set. Each connect queues
+		// a fetch rather than starting one: during a flap the runs would
+		// otherwise overlap and the slowest, not the newest, would decide
+		// what the status bar shows. A queued run still sends
+		// presence_sub, on the newest socket.
+		wctx, program := h.wsCtx, h.program
+		peerIDs := workspacePresenceIDs(wctx)
+		wctx.selfFetch.Run(func(ctx context.Context) {
+			ctx, cancel := context.WithTimeout(ctx, selfStatusTimeout)
+			defer cancel()
+			bootstrapPresenceAndDND(ctx, wctx, program, peerIDs)
+		})
 	}
 
 	// Bounded reconnect catch-up: client.counts, the channel on
