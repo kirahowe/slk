@@ -92,6 +92,58 @@ func TestOnConnectPresenceIncludesRecoveredStarredPeers(t *testing.T) {
 	}
 }
 
+func TestOnConnectDebouncesStarredReconciliation(t *testing.T) {
+	store := service.NewSectionStore()
+	if err := store.Bootstrap(context.Background(), &fakeSectionsClient{
+		sections: []slk.SidebarSection{{ID: "ST", Type: "stars"}},
+		starIDs:  []string{"D2"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	srv := newFakeSlack(t, map[string]string{
+		"/api/users.getPresence": `{"ok":true,"presence":"active"}`,
+		"/api/dnd.info":          `{"ok":true,"dnd_enabled":false}`,
+	})
+	done := make(chan struct{}, 2)
+	calls := 0
+	h := &rtmEventHandler{
+		wsCtx: &WorkspaceContext{
+			Client: newTestClient(t, srv.Server), TeamID: "T1", UserID: "USELF",
+			SectionStore: store,
+		},
+		program: sendFunc(func(msg tea.Msg) {
+			if _, ok := msg.(ui.StatusChangeMsg); ok {
+				done <- struct{}{}
+			}
+		}),
+		resolveConversation: func(context.Context, string) (*slack.Channel, error) {
+			calls++
+			return nil, errors.New("temporarily unavailable")
+		},
+	}
+	for range 2 {
+		h.OnConnect()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("presence bootstrap did not finish")
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("starred metadata lookups during connection flap = %d, want 1", calls)
+	}
+	h.sectionRefreshAt = time.Now().Add(-30 * time.Second)
+	h.OnConnect()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("presence bootstrap did not finish after debounce expired")
+	}
+	if calls != 2 {
+		t.Fatalf("starred metadata lookups after debounce expired = %d, want 2", calls)
+	}
+}
+
 func TestMissingStarredConversations_BootClosedIM(t *testing.T) {
 	res := &bootstrap.Result{IMs: []boot.IM{
 		{ID: "D1", UserID: "U1", IsOrgShared: true},
