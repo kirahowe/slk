@@ -224,8 +224,11 @@ func (h *rtmEventHandler) OnMessage(channelID, userID, ts, text, threadTS, subty
 	// Do this before the active workspace check so inactive workspaces
 	// can still trigger notifications. A change echo (an edit, an unfurl
 	// landing, a preview removed) re-delivers a message that already
-	// had its chance to notify, so it never does.
-	if !changed && h.notifier != nil && h.notifyCfg.Enabled {
+	// had its chance to notify, so it never does. Nor does a join or
+	// leave notice: Slack does not notify for one, and an invitation
+	// join's text names the inviter, which OnMention would take for a
+	// mention of them.
+	if !changed && h.notifier != nil && h.notifyCfg.Enabled && !core.IsSystemNoticeSubtype(subtype) {
 		isActiveWS := h.isActive != nil && h.isActive()
 		activeChID := ""
 		if h.activeChannelID != nil {
@@ -321,8 +324,9 @@ func (h *rtmEventHandler) OnMessage(channelID, userID, ts, text, threadTS, subty
 	isSelfMessage := userID != "" && userID == h.currentUserID
 	// changed is true only for message_changed: a re-delivery of a
 	// message the channel already accounted for. Editing it does not
-	// make the channel unread on Slack.
-	shouldMarkChannel := channelEligible && !isSelfMessage && !changed
+	// make the channel unread on Slack. Nor does a join or leave notice;
+	// excluding it here keeps it out of the mention badge below too.
+	shouldMarkChannel := channelEligible && !isSelfMessage && !changed && !core.IsSystemNoticeSubtype(subtype)
 	if h.db != nil && shouldMarkChannel {
 		if err := h.db.UpdateChannelReadState(channelID, "", true); err != nil {
 			log.Printf("Warning: failed to set has_unread for %s: %v", channelID, err)

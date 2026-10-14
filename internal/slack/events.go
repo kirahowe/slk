@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/debuglog"
 	"github.com/slack-go/slack"
 )
@@ -550,7 +551,13 @@ func dispatchWebSocketEvent(data []byte, handler EventHandler) (rateLimited bool
 		if debuglog.Enabled() {
 			debuglog.WS("message raw fields: %s", topLevelFields(data))
 		}
-		switch msg.SubType {
+		// A system notice is delivered like an ordinary message, with its
+		// subtype kept for the UI to draw it as one.
+		kind := msg.SubType
+		if core.IsSystemNoticeSubtype(kind) {
+			kind = ""
+		}
+		switch kind {
 		case "", "bot_message", "thread_broadcast", "file_share", "me_message":
 			if msg.IsEphemeral {
 				dispatchEphemeral(data, msg, handler)
@@ -562,7 +569,8 @@ func dispatchWebSocketEvent(data []byte, handler EventHandler) (rateLimited bool
 			// label it. file_share is a regular message that has one
 			// or more files attached (Slack's V2 upload flow uses
 			// this subtype). me_message is a /me line; the UI renders it
-			// in italics.
+			// in italics. A system notice (core.IsSystemNoticeSubtype)
+			// is drawn as a muted line, keyed off the subtype.
 			debuglog.WS("message: channel=%s user=%s ts=%s subtype=%q thread_ts=%s files=%d",
 				msg.Channel, msg.User, msg.TS, msg.SubType, msg.ThreadTS, len(msg.Files))
 			handler.OnMessage(msg.Channel, msg.User, msg.TS, msg.Text, msg.ThreadTS, msg.SubType, false, nil, msg.Files, msg.Blocks, msg.Attachments, msg.BotID, msg.Username)

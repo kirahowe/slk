@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/gammons/slk/internal/bubbles/entrylist"
+	"github.com/gammons/slk/internal/core"
 	emojiutil "github.com/gammons/slk/internal/emoji"
 	"github.com/gammons/slk/internal/ui/imgrender"
 	"github.com/gammons/slk/internal/ui/messages/blockkit"
@@ -122,6 +124,30 @@ func BlockkitContext(msg MessageItem, rc *RenderContext, emojiFlushes *[]func(io
 // columns.
 func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOptions) RenderedMessage {
 	var out RenderedMessage
+	// A system notice (a join or leave) is drawn as one muted line, not
+	// as a chat bubble under Slack's system bot. It returns before the
+	// mention check: an invitation join names the inviter, and that is
+	// not a mention of them. Both panes go through here.
+	if core.IsSystemNoticeSubtype(msg.Subtype) {
+		noticeWidth := width - 4
+		if noticeWidth < 20 {
+			noticeWidth = 20
+		}
+		body := RenderSlackMarkdownWith(MessageTextSource(msg), RenderSlackMarkdownOpts{
+			UserNames:    rc.UserNames,
+			ChannelNames: rc.ChannelNames,
+			UserGroups:   rc.UserGroups,
+			Width:        noticeWidth,
+		})
+		// Stripped to plain text before styling: RenderSlackMarkdownWith
+		// restores TextPrimary after a mention or link, and every join or
+		// leave starts with a mention, so only the timestamp would stay
+		// muted. The body's own wrap is undone so the line wraps once, with
+		// the timestamp.
+		plain := strings.Join(strings.Fields(ansi.Strip(body)), " ")
+		out.Content = styles.Timestamp.Render(WordWrap(msg.Timestamp+"  "+plain, noticeWidth))
+		return out
+	}
 	if rc.SelfUserID != "" && msg.UserID != rc.SelfUserID {
 		out.Mention = mention.Classify(msg.Text, rc.SelfUserID)
 	}
