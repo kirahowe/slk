@@ -399,6 +399,7 @@ greppable by name; no line numbers, because these files move.
 | PNG bytes of a given size, to put in the image disk cache without the network | `makeTestPNG(w, h)` in `package blockkit` (`internal/ui/messages/blockkit/image_sixel_test.go`) and in `package messages` (`internal/ui/messages/model_test.go`); `makeTestPNGBytes` in `package ui` (`internal/ui/app_imagepreview_test.go`). One per package, because test files cannot be shared across packages |
 | Load a config from a TOML string | `loadConfigString(t, body)` (`internal/config/config_test.go`, `package config`) |
 | A private `dbus-daemon` for one test (skips when not installed; no service directories, so an unowned name is never activated), a connection to it, and a spec-only Secret Service served on it | `startTestBus(t)`, `connectTestBus(t, addr)`, `serveSecretService(t, addr, svc)` with `specOnlyService()` (`internal/slackdesktop/password_linux_test.go`, `package slackdesktop`, Linux only) |
+| Press Tab or Shift+Tab at the `:` prompt; check the buffer and its status-bar mirror together; is no Tab cycle in progress? | `pressTab(a, shift)`, `assertPrompt(t, a, want)`, `cmdCompletionZero(c)` (`internal/ui/mode_command_test.go`) |
 
 ### Known duplication — do not add to it
 

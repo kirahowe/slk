@@ -167,6 +167,12 @@ type App struct {
 	// every other mode.
 	cmdline string
 
+	// cmdComplete is the Tab-completion cycle in progress at that same
+	// prompt. Owned by mode_command.go; zero outside a Tab cycle — every
+	// plain edit to cmdline and every path that clears it resets this,
+	// so it can never outlive the command line it was built from.
+	cmdComplete cmdCompletion
+
 	// wins is the vim-style window tree subdividing the messages
 	// region; focusedWin is the active window within it. Phase 2:
 	// the focused window renders the single live messages model,
@@ -2248,8 +2254,7 @@ func (a *App) SetMode(mode Mode) {
 	// empty outside ModeCommand" invariant true; idempotent with
 	// exitCommandMode, which clears before calling here.
 	if a.mode == ModeCommand && mode != ModeCommand {
-		a.cmdline = ""
-		a.statusbar.SetCommandLine("")
+		a.clearCmdline()
 	}
 	// Same for the marks list: a global intercept (ctrl+c) leaves
 	// ModeMarks without going through handleMarksMode, and the list

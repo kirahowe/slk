@@ -10,6 +10,8 @@
 | `Enter` | Normal (message) | Open thread |
 | `i` | Normal | Enter insert mode |
 | `Esc` | Insert / Command | Return to normal mode |
+| `:` | Normal | Command prompt (`:ws`, `:marks`, `:sp`, …) |
+| `Tab` / `Shift+Tab` | Command | Complete the command name; press again to cycle through the matches |
 | `Enter` | Insert | Send message |
 | `Shift+Enter` | Insert | Newline |
 | `Ctrl+V` | Insert | Smart paste — image / file path / text (use `Ctrl+V`, not the terminal's `Ctrl+Shift+V`) |
