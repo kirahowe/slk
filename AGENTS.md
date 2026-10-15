@@ -175,6 +175,7 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Case/accent-insensitive fold for matching | `text.Fold(s)` |
 | Is a key one printable rune to type into a query or command line (any script, not only ASCII)? Backspace one whole rune | `text.IsTypedRune(key)`, `text.DropLastRune(s)`; every finder, picker, menu search and the `:` line use them |
 | Slack mrkdwn → plain text | `messages.FlattenMrkdwn`, `messages.FlattenMrkdwnWithUserGroups` |
+| A message's text, including a forwarded message's shared content (alone, or after the comment it was forwarded with) | `messages.MessageCopyText` |
 | Search-term highlighting (ANSI/OSC-safe) | `messages.HighlightSearchTerms`, `messages.SearchHighlightSGR` |
 | Re-assert a background (or background+foreground) after every SGR reset, so nested lipgloss renders don't drop it | `bubbles/ansi.ReapplyAfterResets(text, style)` — the one implementation; `messages.ReapplyBgAfterResets` delegates to it for existing callers. The theme's sequences come from `messages.BgANSI()` / `messages.FgANSI()` |
 | Extract links from message text | `messages.ExtractLinks` |
