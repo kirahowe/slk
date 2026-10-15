@@ -174,6 +174,7 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Display width of a string (emoji-aware) | `emoji.Width(s)` |
 | Case/accent-insensitive fold for matching | `text.Fold(s)` |
 | Slack mrkdwn → plain text | `messages.FlattenMrkdwn`, `messages.FlattenMrkdwnWithUserGroups` |
+| A message's text, including a forwarded message's shared content (alone, or after the comment it was forwarded with) | `messages.MessageCopyText` |
 | Search-term highlighting (ANSI/OSC-safe) | `messages.HighlightSearchTerms`, `messages.SearchHighlightSGR` |
 | Re-assert a background (or background+foreground) after every SGR reset, so nested lipgloss renders don't drop it | `bubbles/ansi.ReapplyAfterResets(text, style)` — the one implementation; `messages.ReapplyBgAfterResets` delegates to it for existing callers. The theme's sequences come from `messages.BgANSI()` / `messages.FgANSI()`. A kitty image placement (inline image emoji) resets only the foreground (`\x1b[39m`); `bubbles/ansi.ReapplyAfterFgResets(text, fg)` restores it |
 | Draw one styled string over a line from a display column, keeping the line's escapes, border and background on both sides (a clipped image's halfblock fallback over its placeholder row) | `bubbles/ansi.Graft(line, insert, col)`. The insert always lands at `col` and no cell moves: a wide character cut by either edge becomes spaces. `blockkit.SpliceSixelFallbacks` and the channel pane's partly visible sixel images use it |
