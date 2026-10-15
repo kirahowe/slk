@@ -49,20 +49,23 @@ func (a *App) exitCommandMode() {
 
 // setCmdline replaces the command line and mirrors it into the status
 // bar, so the prompt and the buffer cannot disagree. It also drops any
-// Tab cycle: the line it was built for is gone.
+// Tab cycle, and with it the completion list the cycle was showing: the
+// line they were matched against is gone.
 func (a *App) setCmdline(line string) {
 	a.cmdline = line
 	a.cmdComplete = cmdCompletion{}
 	a.statusbar.SetCommandLine(":" + line)
+	a.statusbar.SetCommandCandidates(nil, 0)
 }
 
 // clearCmdline drops the command line and the prompt with it; leaving
 // ModeCommand by any path goes through here, so the status bar cannot
-// keep rendering a stale ':' line.
+// keep rendering a stale ':' line or a stale completion list.
 func (a *App) clearCmdline() {
 	a.cmdline = ""
 	a.cmdComplete = cmdCompletion{}
 	a.statusbar.SetCommandLine("")
+	a.statusbar.SetCommandCandidates(nil, 0)
 }
 
 // matchingCommands returns the sorted names in the commands registry
@@ -87,6 +90,7 @@ func matchingCommands(prefix string) []string {
 func completeCommandName(a *App, backwards bool) {
 	if strings.Contains(a.cmdline, " ") {
 		a.cmdComplete = cmdCompletion{}
+		a.statusbar.SetCommandCandidates(nil, 0)
 		return
 	}
 	if c := a.cmdComplete; c.idx < len(c.matches) && c.matches[c.idx] == a.cmdline {
@@ -97,11 +101,13 @@ func completeCommandName(a *App, backwards bool) {
 		next %= len(c.matches)
 		a.setCmdline(c.matches[next])
 		a.cmdComplete = cmdCompletion{matches: c.matches, idx: next}
+		a.showCommandCandidates(c.matches, next)
 		return
 	}
 	matches := matchingCommands(a.cmdline)
 	if len(matches) == 0 {
 		a.cmdComplete = cmdCompletion{}
+		a.statusbar.SetCommandCandidates(nil, 0)
 		return
 	}
 	idx := 0
@@ -110,6 +116,18 @@ func completeCommandName(a *App, backwards bool) {
 	}
 	a.setCmdline(matches[idx])
 	a.cmdComplete = cmdCompletion{matches: matches, idx: idx}
+	a.showCommandCandidates(matches, idx)
+}
+
+// showCommandCandidates mirrors a fresh match list into the status bar's
+// wildmenu. A single match adds nothing to the prompt -- the name it
+// completed is already on screen -- so only a real choice is shown.
+func (a *App) showCommandCandidates(matches []string, idx int) {
+	if len(matches) < 2 {
+		a.statusbar.SetCommandCandidates(nil, 0)
+		return
+	}
+	a.statusbar.SetCommandCandidates(matches, idx)
 }
 
 func handleCommandMode(a *App, msg tea.KeyMsg) tea.Cmd {

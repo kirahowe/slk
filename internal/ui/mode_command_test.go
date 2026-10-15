@@ -5,6 +5,10 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/gammons/slk/internal/config"
+	"github.com/gammons/slk/internal/ui/styles"
 )
 
 func typeCommand(a *App, s string) {
@@ -275,6 +279,17 @@ func assertPrompt(t *testing.T, a *App, want string) {
 	}
 }
 
+// afterPrompt returns the stripped status-bar text from just after the prompt
+// for line (the ":line▌" segment) to the end, so a test can assert on what the
+// bar puts beside it.
+func afterPrompt(plain, line string) (string, bool) {
+	i := strings.Index(plain, ":"+line+"▌")
+	if i < 0 {
+		return "", false
+	}
+	return plain[i+len(":"+line+"▌"):], true
+}
+
 // tabStep is one Tab press in a completion walk: shift selects
 // Shift+Tab, want is the command line the prompt must hold afterwards.
 type tabStep struct {
@@ -349,8 +364,11 @@ func TestCommandMode_TabCompletesName(t *testing.T) {
 
 // TestCommandMode_TabThroughAppUpdate drives completion the way a user
 // does, every key through App.Update from normal mode, so a key-routing
-// change that never lets Tab reach the prompt fails here too.
+// change that never lets Tab reach the prompt fails here too. After each
+// step it checks the list beside the prompt and which name is highlighted.
 func TestCommandMode_TabThroughAppUpdate(t *testing.T) {
+	styles.Apply("dark", config.Theme{})
+	t.Cleanup(func() { styles.Apply("dark", config.Theme{}) })
 	a := NewApp()
 	for _, r := range ":o" {
 		a.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
@@ -365,6 +383,16 @@ func TestCommandMode_TabThroughAppUpdate(t *testing.T) {
 		}
 		a.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: mod})
 		assertPrompt(t, a, s.want)
+
+		out := a.statusbar.View(120)
+		if rest, ok := afterPrompt(ansi.Strip(out), s.want); !ok || !strings.HasPrefix(rest, "  on  only") {
+			t.Errorf("after Tab to %s, the candidates should follow the prompt:\n%s", s.want, ansi.Strip(out))
+		}
+		other := map[string]string{"on": "only", "only": "on"}[s.want]
+		if !strings.Contains(out, styles.SelectionStyle().Render(s.want)) ||
+			strings.Contains(out, styles.SelectionStyle().Render(other)) {
+			t.Errorf("after Tab to %s, only %s should be highlighted:\n%q", s.want, s.want, out)
+		}
 	}
 }
 
@@ -444,6 +472,80 @@ func TestCommandMode_TabStateClearedOnModeChange(t *testing.T) {
 	a.enterCommandMode()
 	if !cmdCompletionZero(a.cmdComplete) {
 		t.Errorf("cmdComplete = %+v after re-entering, want the zero value", a.cmdComplete)
+	}
+}
+
+// TestCommandMode_TabShowsCandidatesInTheStatusBar is the task's wildmenu
+// case: Tab at ":o" completes to "on" and puts the whole match list beside
+// the prompt, in match order, so the user can see what the cycle will visit.
+func TestCommandMode_TabShowsCandidatesInTheStatusBar(t *testing.T) {
+	a := NewApp()
+	a.enterCommandMode()
+	typeCommand(a, "o")
+	pressTab(a, false)
+	assertPrompt(t, a, "on")
+
+	plain := ansi.Strip(a.statusbar.View(120))
+	rest, ok := afterPrompt(plain, "on")
+	if !ok {
+		t.Fatalf("prompt :on▌ missing from the bar:\n%s", plain)
+	}
+	if !strings.Contains(rest, "on  only") {
+		t.Fatalf("candidates not listed in match order with the two-space gap after the prompt:\n%s", plain)
+	}
+}
+
+// TestCommandMode_TypingDropsCandidates pins that the list belongs to the
+// line the Tab was pressed on: any edit drops it with the cycle, so the bar
+// cannot keep advertising matches for a prefix that is gone.
+func TestCommandMode_TypingDropsCandidates(t *testing.T) {
+	a := NewApp()
+	a.enterCommandMode()
+	typeCommand(a, "o")
+	pressTab(a, false)
+	if out := ansi.Strip(a.statusbar.View(120)); !strings.Contains(out, "only") {
+		t.Fatalf("precondition: candidates should be listed:\n%s", out)
+	}
+
+	typeCommand(a, "l")
+	assertPrompt(t, a, "onl")
+	if out := ansi.Strip(a.statusbar.View(120)); strings.Contains(out, "only") {
+		t.Fatalf("candidates survived an edit to the prompt:\n%s", out)
+	}
+}
+
+// TestCommandMode_SingleMatchShowsNoCandidateList pins the "more than one
+// match" rule: ":act" completes to the only name it could be, and repeating
+// it inside the prompt would add nothing.
+func TestCommandMode_SingleMatchShowsNoCandidateList(t *testing.T) {
+	a := NewApp()
+	a.enterCommandMode()
+	typeCommand(a, "act")
+	pressTab(a, false)
+	assertPrompt(t, a, "activity")
+
+	if n := strings.Count(ansi.Strip(a.statusbar.View(120)), "activity"); n != 1 {
+		t.Fatalf("single-match completion shows the name %d times, want once:\n%s",
+			n, ansi.Strip(a.statusbar.View(120)))
+	}
+}
+
+// TestCommandMode_CandidatesClearedOnExit keeps the bar's wildmenu honest
+// across prompts: leaving command mode must drop the list with the prompt,
+// so re-entering does not show the previous command's matches.
+func TestCommandMode_CandidatesClearedOnExit(t *testing.T) {
+	a := NewApp()
+	a.enterCommandMode()
+	typeCommand(a, "o")
+	pressTab(a, false)
+	if out := ansi.Strip(a.statusbar.View(120)); !strings.Contains(out, "only") {
+		t.Fatalf("precondition: candidates should be listed:\n%s", out)
+	}
+
+	_ = handleCommandMode(a, tea.KeyPressMsg{Code: tea.KeyEscape})
+	a.enterCommandMode()
+	if out := ansi.Strip(a.statusbar.View(120)); strings.Contains(out, "only") {
+		t.Fatalf("candidates survived exiting and re-entering command mode:\n%s", out)
 	}
 }
 

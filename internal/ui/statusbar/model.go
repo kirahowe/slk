@@ -3,6 +3,7 @@ package statusbar
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -35,9 +36,14 @@ type Model struct {
 	syncing     bool      // true while a background cache-verify fetch is in flight
 	helpHint    string    // muted text rendered in the gap area; empty disables
 	commandLine string    // "" == inactive; otherwise the :prompt shown in place of channel/workspace
-	search      string    // search segment ("/query  3/17" indicator / live prompt); "" hides
-	update      string    // persistent update-available note (e.g. "↑ 0.26.2"); "" hides
-	version     int64
+	// commandCandidates is the :prompt's Tab-completion list (vim's
+	// wildmenu), never non-empty while commandLine is ""; the name at
+	// commandCandidateIdx is the one the prompt currently holds.
+	commandCandidates   []string
+	commandCandidateIdx int
+	search              string // search segment ("/query  3/17" indicator / live prompt); "" hides
+	update              string // persistent update-available note (e.g. "↑ 0.26.2"); "" hides
+	version             int64
 }
 
 // Version returns a counter that increments any time the View() output could
@@ -183,7 +189,16 @@ func (m *Model) SetHelpHint(s string) {
 // while non-empty. Pass "" to restore the normal segments. The caller
 // owns the ':' prefix; View appends a block-cursor glyph.
 func (m *Model) SetCommandLine(s string) {
-	if m.commandLine != s {
+	changed := m.commandLine != s
+	// The candidate list belongs to the prompt that produced it, so
+	// clearing the prompt drops it in the same step; it can never outlive
+	// the line it was matched against.
+	if s == "" && (m.commandCandidates != nil || m.commandCandidateIdx != 0) {
+		m.commandCandidates = nil
+		m.commandCandidateIdx = 0
+		changed = true
+	}
+	if changed {
 		m.commandLine = s
 		m.dirty()
 	}
@@ -197,6 +212,21 @@ func (m *Model) SetUpdateNotice(s string) {
 		m.update = s
 		m.dirty()
 	}
+}
+
+// SetCommandCandidates sets the completion list shown next to the active
+// :prompt (vim's wildmenu), with the name the prompt currently holds at
+// idx. Pass nil to hide it. The slice is copied, so the caller keeps
+// ownership of its own; the version bumps only when the names or idx
+// change, so setting the same list and cursor again does not re-render the
+// bar.
+func (m *Model) SetCommandCandidates(names []string, idx int) {
+	if slices.Equal(m.commandCandidates, names) && m.commandCandidateIdx == idx {
+		return
+	}
+	m.commandCandidates = slices.Clone(names)
+	m.commandCandidateIdx = idx
+	m.dirty()
 }
 
 // SetToast displays an arbitrary string in the right-side toast slot. Pass ""
@@ -316,16 +346,6 @@ func (m Model) View(width int) string {
 			Render(m.update)
 	}
 
-	// The :command prompt owns the left side while active (the
-	// channel/workspace/search segments return when it clears).
-	var left string
-	if m.commandLine != "" {
-		cmdInfo := styles.StatusBar.Render(fmt.Sprintf(" %s▌ ", m.commandLine))
-		left = lipgloss.JoinHorizontal(lipgloss.Center, modeLabel, cmdInfo)
-	} else {
-		left = lipgloss.JoinHorizontal(lipgloss.Center, modeLabel, channelInfo, wsInfo, searchInfo)
-	}
-
 	// Render separators and trailing padding with the SurfaceDark background so
 	// the right-side pills read as one continuous bar even when the terminal's
 	// default background differs from the theme's surface_dark color (e.g. a
@@ -346,13 +366,33 @@ func (m Model) View(width int) string {
 	}
 	rightContent := buildRight(rightParts)
 
+	// rightGutter is the one column the rightmost pill leaves free: the
+	// rightmost panel's right border occupies the last column on the
+	// content rows above the bar.
+	const rightGutter = 1
+
+	// The :command prompt owns the left side while active (the
+	// channel/workspace/search segments return when it clears). Its
+	// Tab-completion list follows the prompt -- vim's wildmenu -- and is
+	// budgeted the room the prompt leaves before the right-side pills, so
+	// it can never push the bar past width.
+	var left string
+	if m.commandLine != "" {
+		cmdInfo := styles.StatusBar.Render(fmt.Sprintf(" %s▌ ", m.commandLine))
+		room := width - rightGutter - lipgloss.Width(modeLabel) -
+			lipgloss.Width(cmdInfo) - lipgloss.Width(rightContent)
+		left = lipgloss.JoinHorizontal(lipgloss.Center, modeLabel, cmdInfo,
+			m.commandCandidatesView(room))
+	} else {
+		left = lipgloss.JoinHorizontal(lipgloss.Center, modeLabel, channelInfo, wsInfo, searchInfo)
+	}
+
 	// Right-align so the rightmost segment ends at column (width-1),
 	// matching the inner right edge of the message-pane / thread-pane
 	// compose box (which ends 1 column before the screen edge -- the
 	// rightmost panel's right border occupies that last column on
 	// content rows above). Without this gap, the connection indicator
 	// overhangs visually past the compose box.
-	const rightGutter = 1
 	gap := width - rightGutter - lipgloss.Width(left) - lipgloss.Width(rightContent)
 	if updatePart != "" {
 		// The update note is the first thing to go: it only appears when
@@ -407,6 +447,94 @@ func (m Model) View(width int) string {
 	rightPad := spacer.Render(strings.Repeat(" ", rightGutter))
 
 	return lipgloss.JoinHorizontal(lipgloss.Center, left, filler, rightContent, rightPad)
+}
+
+// commandCandidatesView renders the :prompt's Tab-completion list (vim's
+// wildmenu) in room columns, or "" when there is no list to show. The
+// current name carries the selection highlight; the rest keep the bar's
+// colours, so the list reads as part of the prompt rather than a new
+// surface. Names are separated by two spaces.
+//
+// room is what the mode label, the prompt and the right-side pills left
+// over, so a long list can never widen the bar past the terminal: names
+// are dropped from the left until everything from the current one onward
+// fits, and a "< " prefix marks the drop. The current name is the anchor
+// -- the user is cycling to it -- so it is never dropped; when even it has
+// no room, nothing is drawn at all.
+func (m Model) commandCandidatesView(room int) string {
+	n := len(m.commandCandidates)
+	if n == 0 || room <= 0 {
+		return ""
+	}
+	idx := m.commandCandidateIdx
+	if idx < 0 || idx >= n {
+		idx = 0
+	}
+	// The bar's own style carries Padding(0, 1); the list spaces its names
+	// itself, so only its colours are wanted here.
+	plain := styles.StatusBar.UnsetPadding()
+	rendered := make([]string, n)
+	widths := make([]int, n)
+	for i, name := range m.commandCandidates {
+		if i == idx {
+			rendered[i] = styles.SelectionStyle().Render(name)
+		} else {
+			rendered[i] = plain.Render(name)
+		}
+		widths[i] = lipgloss.Width(rendered[i])
+	}
+
+	// Two spaces separate the entries; when names to the left of the window
+	// were dropped, a "< " prefix (its own trailing space included) marks
+	// them.
+	const marker = "< "
+	markerWidth := lipgloss.Width(marker)
+
+	// windowWidth is the rendered width of names[start:end]: the names, two
+	// spaces between each pair, and the marker when names[0] is hidden.
+	windowWidth := func(start, end int) int {
+		w := 0
+		for i := start; i < end; i++ {
+			w += widths[i]
+		}
+		if end > start {
+			w += 2 * (end - start - 1)
+		}
+		if start > 0 {
+			w += markerWidth
+		}
+		return w
+	}
+
+	// The current name is the anchor — the user is cycling to it — so it is
+	// never dropped. If even it (with the marker, when names before it are
+	// hidden) has no room, the list is not drawn at all: a truncated command
+	// name would name nothing the user could type.
+	if windowWidth(idx, idx+1) > room {
+		return ""
+	}
+
+	start, end := idx, idx+1
+	// Grow forward first: the names just past the current one are the ones
+	// Tab reaches next.
+	for end < n && windowWidth(start, end+1) <= room {
+		end++
+	}
+	// Then take whatever room is left on the left, the current name still
+	// anchored.
+	for start > 0 && windowWidth(start-1, end) <= room {
+		start--
+	}
+
+	// The gap between entries carries the bar's background explicitly, the
+	// way the right-side separators do: a bare "  " would leave the
+	// terminal's default colour showing through on a themed bar.
+	gap := lipgloss.NewStyle().Background(styles.SurfaceDark).Render("  ")
+	joined := strings.Join(rendered[start:end], gap)
+	if start > 0 {
+		return plain.Render(marker) + joined
+	}
+	return joined
 }
 
 // formatDND renders the DND segment with an optional countdown to the
