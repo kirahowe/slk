@@ -301,7 +301,8 @@ func run() error {
 	tokens, err := tokenStore.List()
 	if err != nil || len(tokens) == 0 {
 		// No workspaces configured -- launch onboarding automatically
-		if err := addWorkspace(false); err != nil {
+		cfg, err = configAfterOnboarding(configPath, cfg, func() error { return addWorkspace(false) })
+		if err != nil {
 			return err
 		}
 		// Reload tokens after onboarding
