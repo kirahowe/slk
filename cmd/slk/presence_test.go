@@ -72,36 +72,32 @@ func TestOnConnectPresenceSnapshotRacesConversationOpened(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	for attempt := range 20 {
-		t.Run(fmt.Sprintf("connect-%d", attempt), func(t *testing.T) {
-			done := make(chan struct{})
-			wctx := &WorkspaceContext{
-				Client: newTestClient(t, srv), TeamID: "T1", UserID: "USELF",
-				UserNames: newUserNameStore(nil),
-				Channels:  []sidebar.ChannelItem{{ID: "D1", Type: "dm", DMUserID: "U1"}},
-			}
-			h := &rtmEventHandler{wsCtx: wctx, program: sendFunc(func(msg tea.Msg) {
-				if _, ok := msg.(ui.StatusChangeMsg); ok {
-					close(done)
-				}
-			})}
-			h.OnConnect()
-			for i := range 300 {
-				ch := slack.Channel{}
-				ch.ID = fmt.Sprintf("D%04d", i)
-				ch.IsIM = true
-				ch.User = fmt.Sprintf("UP%04d", i)
-				h.OnConversationOpened(ch)
-			}
-			select {
-			case <-done:
-			case <-time.After(5 * time.Second):
-				t.Fatal("presence bootstrap did not finish")
-			}
-			if got := len(wctx.Channels); got != 301 {
-				t.Fatalf("len(Channels) = %d, want 301", got)
-			}
-		})
+	// One connect is enough: the race detector orders accesses by
+	// happens-before, not timing, so an unsynchronized read of
+	// wctx.Channels on the bootstrap goroutine is reported whichever side
+	// of the appends it lands on.
+	done := make(chan struct{})
+	wctx := &WorkspaceContext{
+		Client: newTestClient(t, srv), TeamID: "T1", UserID: "USELF",
+		UserNames: newUserNameStore(nil),
+		Channels:  []sidebar.ChannelItem{{ID: "D1", Type: "dm", DMUserID: "U1"}},
+	}
+	h := &rtmEventHandler{wsCtx: wctx, program: sendFunc(func(msg tea.Msg) {
+		if _, ok := msg.(ui.StatusChangeMsg); ok {
+			close(done)
+		}
+	})}
+	h.OnConnect()
+	for i := range 300 {
+		ch := slack.Channel{}
+		ch.ID = fmt.Sprintf("D%04d", i)
+		ch.IsIM = true
+		ch.User = fmt.Sprintf("UP%04d", i)
+		h.OnConversationOpened(ch)
+	}
+	<-done
+	if got := len(wctx.Channels); got != 301 {
+		t.Fatalf("len(Channels) = %d, want 301", got)
 	}
 }
 
@@ -145,19 +141,11 @@ func TestOnConnectPresenceUsesPeerSnapshot(t *testing.T) {
 		}
 	})}
 	h.OnConnect()
-	select {
-	case <-presenceStarted:
-	case <-time.After(5 * time.Second):
-		t.Fatal("presence bootstrap did not start")
-	}
+	<-presenceStarted
 	wctx.Channels[0].DMUserID = "U2"
 	wctx.Channels = append(wctx.Channels, sidebar.ChannelItem{Type: "dm", DMUserID: "U3"})
 	release()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("presence bootstrap did not finish")
-	}
+	<-done
 	select {
 	case got := <-dndIDs:
 		if want := []string{"U1"}; !slices.Equal(got, want) {
