@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/styles"
@@ -57,29 +56,6 @@ func unreadDotStyle() lipgloss.Style {
 // themes, mirroring the sidebar's "channel link" convention.
 func channelNameStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(styles.Primary).Bold(true)
-}
-
-// thickLeftBorder mirrors the messages/threadsview convention: a 1-column
-// left border using "▌" that marks the selected row.
-var thickLeftBorder = lipgloss.Border{Left: "▌"}
-
-func borderInvisStyle() lipgloss.Style {
-	return lipgloss.NewStyle().
-		BorderStyle(thickLeftBorder).BorderLeft(true).
-		BorderForeground(styles.Background).
-		BorderBackground(styles.Background)
-}
-
-func borderSelectStyle(focused bool) lipgloss.Style {
-	return lipgloss.NewStyle().
-		BorderStyle(thickLeftBorder).BorderLeft(true).
-		BorderForeground(styles.SelectionBorderColor(focused)).
-		BorderBackground(styles.SelectionTintColor(focused)).
-		Background(styles.SelectionTintColor(focused))
-}
-
-func borderFillStyle() lipgloss.Style {
-	return lipgloss.NewStyle().Background(styles.Background)
 }
 
 // Model holds the activity-list state.
@@ -646,7 +622,7 @@ func (m *Model) renderCard(it core.ActivityItem, width int, selected bool) (stri
 	}
 	line2 += bodyStyle().Render(preview)
 
-	return m.wrapLine(line1, contentWidth, selected), m.wrapLine(line2, contentWidth, selected)
+	return messages.CardLine(line1, contentWidth, selected, m.focused), messages.CardLine(line2, contentWidth, selected, m.focused)
 }
 
 // contextLabel renders the natural-language activity context for line 1:
@@ -732,29 +708,6 @@ func layoutLine(left, right string, width int) string {
 		return clipToWidth(left, width)
 	}
 	return left + strings.Repeat(" ", width-lw-rw) + right
-}
-
-// wrapLine clips a rendered line to contentWidth and applies the selection
-// border + background fill (shared by both card lines so selection spans
-// the whole card).
-func (m *Model) wrapLine(line string, contentWidth int, selected bool) string {
-	line = clipToWidth(line, contentWidth)
-	// Each styled span ends in a reset that drops the row's background;
-	// restore it so the row is filled edge to edge.
-	bg := messages.BgANSI()
-	if selected {
-		bg = messages.SelectionTintBgANSI(m.focused)
-	}
-	line = messages.ReapplyBgAfterResets(line, bg)
-	borderStyle := borderInvisStyle()
-	fill := borderFillStyle().Width(contentWidth)
-	if selected {
-		borderStyle = borderSelectStyle(m.focused)
-		fill = lipgloss.NewStyle().
-			Background(styles.SelectionTintColor(m.focused)).
-			Width(contentWidth)
-	}
-	return borderStyle.Render(fill.Render(line))
 }
 
 // activityGlyph returns the leading glyph for a row keyed on the item type:
@@ -854,12 +807,4 @@ func formatRelTimeAt(ts string, now time.Time) string {
 
 // clipToWidth truncates an already-styled string to at most `width` display
 // columns (trailing ellipsis) without padding short strings.
-func clipToWidth(s string, width int) string {
-	if width <= 0 {
-		return ""
-	}
-	if lipgloss.Width(s) <= width {
-		return s
-	}
-	return ansi.Truncate(s, width, "…")
-}
+func clipToWidth(s string, width int) string { return messages.ClipToWidth(s, width) }
