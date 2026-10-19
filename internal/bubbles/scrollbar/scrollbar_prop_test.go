@@ -1,8 +1,10 @@
 package scrollbar
 
 import (
+	"fmt"
 	"image/color"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -146,6 +148,32 @@ func TestOverlay(t *testing.T) {
 			}
 			if len(plain) < len(want) || plain[len(plain)-len(want):] != want {
 				t.Fatalf("row %d does not end in %q: %q", i, want, plain)
+			}
+		}
+	})
+}
+
+// padCells returns exactly what lipgloss renders for an n-cell pad in
+// the background, for any background (truecolor, ANSI, none) and any
+// sequence of widths sharing one cache. Overlay only pads a row narrower
+// than the gutter, so n >= 1; lipgloss renders Width(0) as a bare SGR
+// pair, which the cache never has to reproduce.
+func TestPadCellsMatchesRender(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		var bg color.Color
+		switch rapid.IntRange(0, 3).Draw(t, "kind") {
+		case 0:
+			bg = lipgloss.Color(fmt.Sprintf("#%06x", rapid.IntRange(0, 0xffffff).Draw(t, "rgb")))
+		case 1:
+			bg = lipgloss.Color(strconv.Itoa(rapid.IntRange(0, 255).Draw(t, "ansi")))
+		case 2:
+			bg = lipgloss.NoColor{}
+		}
+		var c padCache
+		for _, n := range rapid.SliceOfN(rapid.IntRange(1, 300), 1, 8).Draw(t, "widths") {
+			want := lipgloss.NewStyle().Background(bg).Width(n).Render("")
+			if got := padCells(&c, bg, n); got != want {
+				t.Fatalf("bg=%v n=%d: got %q, want %q", bg, n, got, want)
 			}
 		}
 	})
