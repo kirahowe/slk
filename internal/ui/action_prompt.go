@@ -281,11 +281,10 @@ func (a *App) closeOffscreenActionPrompt() tea.Cmd {
 func toastCmd(text string) tea.Cmd { return func() tea.Msg { return ToastMsg{Text: text} } }
 
 // selectedMessageInFocus returns the selected message in the focused pane
-// and the ref that finds it again. In the activity and threads views the
-// messages-pane slot shows a list, so there is no selected message.
+// and the ref that finds it again.
 func (a *App) selectedMessageInFocus() (messages.MessageItem, actionPromptRef, bool) {
 	p, channelID, ok := a.focusedContentPane()
-	if !ok || (a.focusedPanel == PanelMessages && (a.view == ViewActivity || a.view == ViewThreads)) {
+	if !ok {
 		return messages.MessageItem{}, actionPromptRef{}, false
 	}
 	msg, ok := p.SelectedMessage()

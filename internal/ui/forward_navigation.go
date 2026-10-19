@@ -14,26 +14,15 @@ import (
 // exactly one Slack archive permalink, so ordinary messages containing links
 // keep their existing Enter behavior.
 func (a *App) openForwardedSelected() (tea.Cmd, bool) {
-	var text string
-	switch a.focusedPanel {
-	case PanelMessages:
-		if a.view == ViewThreads {
-			return nil, false
-		}
-		msg, ok := a.messagepane.SelectedMessage()
-		if !ok {
-			return nil, false
-		}
-		text = msg.Text
-	case PanelThread:
-		reply := a.threadPanel.SelectedReply()
-		if reply == nil {
-			return nil, false
-		}
-		text = reply.Text
-	default:
+	p, _, ok := a.focusedContentPane()
+	if !ok {
 		return nil, false
 	}
+	msg, ok := p.SelectedMessage()
+	if !ok {
+		return nil, false
+	}
+	text := msg.Text
 
 	links := messages.ExtractLinks(text)
 	if len(links) != 1 || strings.TrimSpace(text) != "<"+links[0].URL+">" {

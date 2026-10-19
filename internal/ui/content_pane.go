@@ -49,10 +49,15 @@ func (a *App) contentPaneFor(panel Panel) contentPane {
 
 // focusedContentPane returns the focused message pane and the channel its
 // messages belong to (reactions and pickers need it). ok is false when
-// neither message pane has focus.
+// neither message pane has focus, and in the Threads and Activity views
+// with the list focused: the list takes the channel pane's place, and the
+// channel pane behind it still holds a channel the user cannot see.
 func (a *App) focusedContentPane() (contentPane, string, bool) {
 	switch a.focusedPanel {
 	case PanelMessages:
+		if a.view != ViewChannels {
+			return nil, "", false
+		}
 		return a.messagepane, a.activeChannelID, true
 	case PanelThread:
 		return a.threadPanel, a.threadPanel.ChannelID(), true

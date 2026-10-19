@@ -25,9 +25,6 @@ type messageForwardedMsg struct {
 }
 
 func (a *App) beginForwardOfSelected() tea.Cmd {
-	if a.view == ViewThreads && a.focusedPanel == PanelMessages {
-		return nil // The Threads list is not the hidden channel message pane.
-	}
 	channelID, ts, _, _, _, ok := a.selectedMessageContext()
 	if !ok || channelID == "" || ts == "" || a.activeTeamID == "" {
 		return nil
