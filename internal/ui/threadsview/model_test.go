@@ -1,6 +1,7 @@
 package threadsview
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -681,5 +682,53 @@ func TestPatchUserName_RecordsNameInOwnMap(t *testing.T) {
 	m.PatchUserName("U1", "alice")
 	if !strings.Contains(m.View(20, 60), "alice") {
 		t.Error("View does not show the patched name")
+	}
+}
+
+var sgrBgRe = regexp.MustCompile(`\x1b\[[0-9;]*?48;2;(\d+;\d+;\d+)[0-9;]*m|\x1b\[0?m`)
+
+// bgBefore returns the truecolor background in effect where sub first
+// appears in line: "" after a reset, or when sub is missing.
+func bgBefore(line, sub string) string {
+	i := strings.Index(line, sub)
+	if i < 0 {
+		return ""
+	}
+	bg := ""
+	for _, m := range sgrBgRe.FindAllStringSubmatch(line[:i], -1) {
+		bg = m[1]
+	}
+	return bg
+}
+
+// The selected card is tinted edge to edge. The channel name, the dots
+// and the unread mark are styled spans, and each ends in a reset; the
+// text after one must still sit on the selection tint, not the panel
+// background.
+func TestSelectedCardKeepsTintAfterStyledSpans(t *testing.T) {
+	styles.Apply("dark", config.Theme{})
+	t.Cleanup(func() { styles.Apply("dark", config.Theme{}) })
+
+	for _, focused := range []bool{true, false} {
+		m := New(map[string]string{"U1": "alice", "U2": "bob"}, "USELF")
+		m.SetSummaries(sampleSummaries())
+		m.SetFocused(focused)
+		r, g, b, _ := styles.SelectionTintColor(focused).RGBA()
+		tint := itoaU8(uint8(r>>8)) + ";" + itoaU8(uint8(g>>8)) + ";" + itoaU8(uint8(b>>8))
+
+		lines := m.renderCard(m.summaries[0], 60, true)
+		for _, c := range []struct {
+			line int
+			text string
+		}{
+			{0, "general"}, {0, "alice"}, {0, "ago"}, {0, "●"},
+			{1, "hello world"},
+			{2, "3 replies"}, {2, "bob"},
+		} {
+			if got := bgBefore(lines[c.line], c.text); got != tint {
+				t.Errorf("focused=%v: background behind %q = %q, want the selection tint %s\n%q",
+					focused, c.text, got, tint, lines[c.line])
+			}
+		}
 	}
 }

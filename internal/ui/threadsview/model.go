@@ -49,39 +49,6 @@ func channelNameStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(styles.Primary).Bold(true)
 }
 
-// thickLeftBorder mirrors the messages package convention: a 1-column-wide
-// left border using "▌". Selected rows render with Accent (green) foreground;
-// non-selected rows render with the panel background so the column is
-// reserved (keeps content alignment uniform) but invisible.
-var thickLeftBorder = lipgloss.Border{Left: "▌"}
-
-func borderInvisStyle() lipgloss.Style {
-	return lipgloss.NewStyle().
-		BorderStyle(thickLeftBorder).BorderLeft(true).
-		BorderForeground(styles.Background).
-		BorderBackground(styles.Background)
-}
-
-// borderSelectStyle returns the bordered style for the selected card.
-// focused drives both the border foreground (Accent vs TextMuted) and
-// the row background (focused tint vs unfocused tint), matching the
-// "you're acting on this" language used by the messages and thread
-// panels.
-func borderSelectStyle(focused bool) lipgloss.Style {
-	return lipgloss.NewStyle().
-		BorderStyle(thickLeftBorder).BorderLeft(true).
-		BorderForeground(styles.SelectionBorderColor(focused)).
-		BorderBackground(styles.SelectionTintColor(focused)).
-		Background(styles.SelectionTintColor(focused))
-}
-
-// borderFillStyle returns the row-fill style for unselected cards
-// (themed Background). Selected cards use a SelectionTintColor fill
-// inside renderCard so the tint reaches the right edge.
-func borderFillStyle() lipgloss.Style {
-	return lipgloss.NewStyle().Background(styles.Background)
-}
-
 // Model holds the threads-list state.
 type Model struct {
 	summaries    []core.ThreadSummary
@@ -735,24 +702,11 @@ func (m *Model) renderCard(s core.ThreadSummary, width int, selected bool) []str
 	footerText := "  " + strconv.Itoa(s.ReplyCount) + " " + replyWord + " · last by " + lastBy + " " + formatRelTime(s.LastReplyTS)
 	footerText = clipToWidth(footerText, contentWidth)
 
-	// Pick border + fill (themed Background for unselected; tinted
-	// SelectionTintColor for selected so trailing whitespace carries
-	// the tint to the right edge — same per-variant fill pattern used
-	// in internal/ui/messages/model.go).
-	borderStyle := borderInvisStyle()
-	fill := borderFillStyle().Width(contentWidth)
-	if selected {
-		borderStyle = borderSelectStyle(m.focused)
-		fill = lipgloss.NewStyle().
-			Background(styles.SelectionTintColor(m.focused)).
-			Width(contentWidth)
+	return []string{
+		messages.CardLine(header, contentWidth, selected, m.focused),
+		messages.CardLine(previewLine, contentWidth, selected, m.focused),
+		messages.CardLine(mutedStyle().Render(footerText), contentWidth, selected, m.focused),
 	}
-
-	headerOut := borderStyle.Render(fill.Render(header))
-	previewOut := borderStyle.Render(fill.Render(previewLine))
-	footerOut := borderStyle.Render(fill.Foreground(styles.TextMuted).Render(footerText))
-
-	return []string{headerOut, previewOut, footerOut}
 }
 
 // channelGlyph returns the leading glyph for a channel row, matching the
@@ -822,12 +776,4 @@ func formatRelTimeAt(ts string, now time.Time) string {
 // Padding is left to the caller's width-bounded style.Render so background
 // fills correctly. lipgloss.Width measures display columns even with
 // embedded ANSI escapes.
-func clipToWidth(s string, width int) string {
-	if width <= 0 {
-		return ""
-	}
-	if lipgloss.Width(s) <= width {
-		return s
-	}
-	return ansi.Truncate(s, width, "…")
-}
+func clipToWidth(s string, width int) string { return messages.ClipToWidth(s, width) }
