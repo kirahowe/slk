@@ -394,6 +394,7 @@ greppable by name; no line numbers, because these files move.
 | Keep a width property clear of the base+VS16 disagreement (#301) | `proptest.NoVS16(s)`; the messages pane's narrower `stripASCIIVS16` covers only an ASCII base |
 | Run the fuzz targets | `scripts/fuzz.sh [fuzztime] [pattern]`, `make fuzz` |
 | Load a config from a TOML string | `loadConfigString(t, body)` (`internal/config/config_test.go`, `package config`) |
+| A private `dbus-daemon` for one test (skips when not installed; no service directories, so an unowned name is never activated), a connection to it, and a spec-only Secret Service served on it | `startTestBus(t)`, `connectTestBus(t, addr)`, `serveSecretService(t, addr, svc)` with `specOnlyService()` (`internal/slackdesktop/password_linux_test.go`, `package slackdesktop`, Linux only) |
 
 ### Known duplication — do not add to it
 
