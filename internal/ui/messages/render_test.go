@@ -646,6 +646,27 @@ func TestCommonMark_Blockquote(t *testing.T) {
 	}
 }
 
+// TestCommonMark_BlockquoteInlineFormatting: inline markup inside a
+// quote converts as it does outside one, instead of exporting raw mrkdwn.
+func TestCommonMark_BlockquoteInlineFormatting(t *testing.T) {
+	in := "&gt; *bold* ~gone~ <https://example.com|docs> <@U1> in <#C2|general> :smile: `*code*`"
+	got := SlackMrkdwnToCommonMark(in, map[string]string{"U1": "alice"}, nil)
+	want := "> **bold** ~~gone~~ [docs](https://example.com) @alice in #general 😄 `*code*`"
+	if got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+}
+
+// TestCommonMark_BlockquoteEscapedMarkupStaysLiteral: entities decode
+// after the markup is converted, so text the author typed as "<@U1>"
+// inside a quote is not exported as a mention.
+func TestCommonMark_BlockquoteEscapedMarkupStaysLiteral(t *testing.T) {
+	got := SlackMrkdwnToCommonMark("&gt; typed &lt;@U1&gt; literally", map[string]string{"U1": "alice"}, nil)
+	if want := "> typed <@U1> literally"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
 func TestRenderEmojiTokensInline_ImageModeOff(t *testing.T) {
 	// With image mode off, the helper returns the literal text of
 	// each token verbatim — including the :name: form of unresolved

@@ -971,6 +971,7 @@ func SlackMrkdwnToCommonMarkWithUserGroups(text string, userNames map[string]str
 		if strings.HasPrefix(line, "&gt; ") || strings.HasPrefix(line, "> ") {
 			quoted := strings.TrimPrefix(line, "&gt; ")
 			quoted = strings.TrimPrefix(quoted, "> ")
+			quoted = slackMrkdwnToCommonMarkInline(quoted, userNames, channelNames, userGroups)
 			quoted = slackEntityDecoder.Replace(quoted)
 			line = "> " + quoted
 		} else {
