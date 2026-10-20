@@ -1,0 +1,11 @@
+{:id 1
+ :title "Read wctx.Channels only on its owning goroutine"
+ :status :ready
+ :type :bug
+ :priority :p1
+ :created "2026-10-20"
+ :updated "2026-10-20"
+ :tags #{}
+ :blocked-by #{}
+ :related #{}
+ :details "1-read-wctx-channels-only-on-its-owning-goroutine.md"}
