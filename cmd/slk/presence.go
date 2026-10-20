@@ -88,10 +88,12 @@ func subscribeWorkspacePresence(wctx *WorkspaceContext, ids []string) {
 // workspacePresenceIDs returns the deduped list of user IDs to subscribe
 // for presence: the authenticated user plus every 1:1 DM peer. Group DMs
 // and app/bot DMs (which carry no human presence dot in the sidebar) are
-// skipped. Pure function for testability.
+// skipped. Reads the published snapshot, so any goroutine may call it.
+// Pure function for testability.
 func workspacePresenceIDs(wctx *WorkspaceContext) []string {
 	seen := make(map[string]struct{})
-	ids := make([]string, 0, len(wctx.Channels)+1)
+	channels := wctx.Channels()
+	ids := make([]string, 0, len(channels)+1)
 	add := func(uid string) {
 		if uid == "" {
 			return
@@ -103,7 +105,7 @@ func workspacePresenceIDs(wctx *WorkspaceContext) []string {
 		ids = append(ids, uid)
 	}
 	add(wctx.UserID) // self — keeps the self presence subscription intact
-	for _, ch := range wctx.Channels {
+	for _, ch := range channels {
 		if ch.Type == "dm" {
 			add(ch.DMUserID)
 		}

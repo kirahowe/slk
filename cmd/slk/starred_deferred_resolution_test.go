@@ -22,11 +22,11 @@ func TestResolvedPeerQueueCoalescesWithoutDroppingPeers(t *testing.T) {
 	r := newUserResolver("T1", nil, nil, nil, nil, nil, nil)
 	names := newUserNameStore(map[string]string{"U1": "Alice", "U2": "Bob"})
 	wctx := &WorkspaceContext{UserResolver: r, UserNames: names,
-		Channels: []sidebar.ChannelItem{
+		channels: []sidebar.ChannelItem{
 			{ID: "D1", Name: "U1", Type: "dm", DMUserID: "U1"},
 			{ID: "D2", Name: "U2", Type: "dm", DMUserID: "U2"},
 		},
-		FinderItems: []core.ChannelFinderItem{
+		finderItems: []core.ChannelFinderItem{
 			{ID: "D1", Name: "U1", Type: "dm", Joined: true},
 			{ID: "D2", Name: "U2", Type: "dm", Joined: true},
 		},
@@ -42,8 +42,8 @@ func TestResolvedPeerQueueCoalescesWithoutDroppingPeers(t *testing.T) {
 	<-h.PendingEvents()
 	h.OnPendingEvents()
 	for i, want := range []string{"Alice", "Bob"} {
-		if wctx.Channels[i].Name != want || wctx.FinderItems[i].Name != want {
-			t.Fatalf("coalesced repair lost %s: %+v / %+v", want, wctx.Channels[i], wctx.FinderItems[i])
+		if wctx.channels[i].Name != want || wctx.finderItems[i].Name != want {
+			t.Fatalf("coalesced repair lost %s: %+v / %+v", want, wctx.channels[i], wctx.finderItems[i])
 		}
 	}
 	r.resolvedPeers.Range(func(key, _ any) bool {
@@ -59,7 +59,7 @@ func TestResolvedPeerDrainSkipsUsersWithoutDMRows(t *testing.T) {
 	}
 	r := newUserResolver("T1", nil, db, nil, nil, nil, nil)
 	wctx := &WorkspaceContext{UserResolver: r, UserNames: newUserNameStore(map[string]string{"U1": "Alice"}),
-		Channels: []sidebar.ChannelItem{{ID: "D1", Name: "U1", Type: "dm", DMUserID: "U1"}},
+		channels: []sidebar.ChannelItem{{ID: "D1", Name: "U1", Type: "dm", DMUserID: "U1"}},
 	}
 	h := &rtmEventHandler{wsCtx: wctx, db: db}
 	r.queueResolvedPeer("U_OTHER")
@@ -69,7 +69,7 @@ func TestResolvedPeerDrainSkipsUsersWithoutDMRows(t *testing.T) {
 	if wctx.IsBotUser("U_OTHER") {
 		t.Fatal("drain read and imported a cached profile with no DM row")
 	}
-	if wctx.Channels[0].Name != "Alice" {
+	if wctx.channels[0].Name != "Alice" {
 		t.Fatal("drain skipped an existing DM peer")
 	}
 	if _, pending := r.resolvedPeers.Load("U_OTHER"); pending {
@@ -109,20 +109,20 @@ func TestDMSweepFallbackRepairsInactiveWorkspace(t *testing.T) {
 	r := newUserResolver("T1", nil, db, nil, nil, &fakeBatcher{}, nil)
 	wctx := &WorkspaceContext{TeamID: "T1", Client: client, UserResolver: r, UserNames: newUserNameStore(nil),
 		UnresolvedDMs: []UnresolvedDM{{ChannelID: "D1", UserID: "U1"}},
-		Channels:      []sidebar.ChannelItem{{ID: "D1", Name: "U1", Type: "dm", DMUserID: "U1"}},
-		FinderItems:   []core.ChannelFinderItem{{ID: "D1", Name: "U1", Type: "dm", Joined: true}},
+		channels:      []sidebar.ChannelItem{{ID: "D1", Name: "U1", Type: "dm", DMUserID: "U1"}},
+		finderItems:   []core.ChannelFinderItem{{ID: "D1", Name: "U1", Type: "dm", Joined: true}},
 	}
 	h := &rtmEventHandler{wsCtx: wctx, db: db, isActive: func() bool { return false }}
 	resolveDMNames(wctx, db, nil, nil) // edge misses; per-user fallback resolves
-	if wctx.Channels[0].Name != "U1" || wctx.FinderItems[0].Name != "U1" {
+	if wctx.channels[0].Name != "U1" || wctx.finderItems[0].Name != "U1" {
 		t.Fatal("background sweep mutated conversation snapshots")
 	}
 	<-h.PendingEvents() // no deadline, a hang is reported by go test -timeout: the sweep fallback queues a repair without a UI sender
 	h.OnPendingEvents()
-	if item := wctx.Channels[0]; item.Name != "Build Bot" || item.Type != "app" || item.Status.Text != "Ready" {
+	if item := wctx.channels[0]; item.Name != "Build Bot" || item.Type != "app" || item.Status.Text != "Ready" {
 		t.Fatalf("inactive sidebar = %+v", item)
 	}
-	if item := wctx.FinderItems[0]; item.Name != "Build Bot" || item.Type != "app" {
+	if item := wctx.finderItems[0]; item.Name != "Build Bot" || item.Type != "app" {
 		t.Fatalf("inactive finder = %+v", item)
 	}
 }
@@ -207,14 +207,14 @@ func TestStarredDeferredResolutionRepairsRowsWithoutReconnect(t *testing.T) {
 					// This is the reconnect recovery pass. Its failed profile lookup
 					// must not prevent adding the conversation with its fallback name.
 					h.reconcileStarredConversations(ctx)
-					if len(wctx.Channels) != 1 || len(wctx.FinderItems) != 1 || wctx.Channels[0].Name != "U1" || wctx.FinderItems[0].Name != "U1" {
-						t.Fatalf("initial recovery = %+v / %+v", wctx.Channels, wctx.FinderItems)
+					if len(wctx.channels) != 1 || len(wctx.finderItems) != 1 || wctx.channels[0].Name != "U1" || wctx.finderItems[0].Name != "U1" {
+						t.Fatalf("initial recovery = %+v / %+v", wctx.channels, wctx.finderItems)
 					}
 					if len(wctx.UnresolvedDMs) != 0 {
 						t.Fatal("recovered row unexpectedly belongs to the startup sweep")
 					}
-					wctx.FinderItems[0].LastVisited = 99
-					before := wctx.Channels[0]
+					wctx.finderItems[0].LastVisited = 99
+					before := wctx.channels[0]
 					sender.sent = nil
 					// Production must schedule the retry for this quiet peer itself:
 					// no message, membership lookup, or manual Request triggers it.
@@ -222,20 +222,20 @@ func TestStarredDeferredResolutionRepairsRowsWithoutReconnect(t *testing.T) {
 					<-watch.done // no deadline, a hang is reported by go test -timeout: the background profile lookup completes
 					// The background goroutine may update synchronized profile state,
 					// but must leave the conversation slices to the event owner.
-					if wctx.Channels[0] != before || wctx.FinderItems[0].Name != "U1" || len(sender.sent) != 0 {
+					if wctx.channels[0] != before || wctx.finderItems[0].Name != "U1" || len(sender.sent) != 0 {
 						t.Fatal("background resolution mutated conversation snapshots directly")
 					}
 					pending := slk.PendingEventHandler(h)
 					<-pending.PendingEvents() // no deadline, a hang is reported by go test -timeout: a successful resolution queues a repair
 					pending.OnPendingEvents() // no second OnConnect/reconciliation
-					item, finder := wctx.Channels[0], wctx.FinderItems[0]
+					item, finder := wctx.channels[0], wctx.finderItems[0]
 					if item.Name != "Build Bot" || item.Type != "app" || item.Status.Text != "Ready" || item.Section != before.Section || item.SectionOrder != before.SectionOrder || item.ChannelOrder != before.ChannelOrder {
 						t.Fatalf("repaired sidebar = %+v", item)
 					}
 					if finder.Name != "Build Bot" || finder.Type != "app" || finder.LastVisited != 99 || !finder.Joined {
 						t.Fatalf("repaired finder = %+v", finder)
 					}
-					if len(wctx.Channels) != 1 || len(wctx.FinderItems) != 1 || h.channelNames["D1"] != "Build Bot" || h.channelTypes["D1"] != "app" {
+					if len(wctx.channels) != 1 || len(wctx.finderItems) != 1 || h.channelNames["D1"] != "Build Bot" || h.channelTypes["D1"] != "app" {
 						t.Fatal("repair duplicated rows or left stale notifier metadata")
 					}
 					cached, err := db.GetChannel("D1")

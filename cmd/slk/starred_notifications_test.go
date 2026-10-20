@@ -75,8 +75,8 @@ func TestStarredPeerBatchCancellationAndRetry(t *testing.T) {
 		return &slack.Channel{GroupConversation: slack.GroupConversation{Conversation: slack.Conversation{ID: id, IsIM: true, User: "U" + id[1:]}}}, nil
 	}}
 	h.reconcileStarredConversations(ctx)
-	if len(wctx.Channels) != 2 || wctx.Channels[0].Name != "U1" {
-		t.Fatalf("canceled batch lost rows: %+v", wctx.Channels)
+	if len(wctx.channels) != 2 || wctx.channels[0].Name != "U1" {
+		t.Fatalf("canceled batch lost rows: %+v", wctx.channels)
 	}
 	releaseRetry()
 	// No deadline: a canceled budget that never schedules the background
@@ -90,8 +90,8 @@ func TestStarredPeerBatchCancellationAndRetry(t *testing.T) {
 	if metadata != 2 || batches != 2 {
 		t.Fatalf("metadata=%d batches=%d, want 2 each without another reconnect", metadata, batches)
 	}
-	if wctx.Channels[0].Name != "Alice" || wctx.FinderItems[1].Name != "Bob" || wctx.Channels[1].Type != "app" {
-		t.Fatalf("batch retry left stale rows: %+v / %+v", wctx.Channels, wctx.FinderItems)
+	if wctx.channels[0].Name != "Alice" || wctx.finderItems[1].Name != "Bob" || wctx.channels[1].Type != "app" {
+		t.Fatalf("batch retry left stale rows: %+v / %+v", wctx.channels, wctx.finderItems)
 	}
 	srv.mu.Lock()
 	fallbacks := len(srv.reqs)

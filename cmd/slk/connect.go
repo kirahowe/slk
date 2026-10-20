@@ -380,9 +380,9 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 			}
 			seedDMFromCache(db, ch.User, &item, &finderItem)
 		}
-		wctx.Channels = append(wctx.Channels, item)
+		wctx.channels = append(wctx.channels, item)
 		finderItem.LastVisited = wctx.LastVisitedByChannel[ch.ID]
-		wctx.FinderItems = append(wctx.FinderItems, finderItem)
+		wctx.finderItems = append(wctx.finderItems, finderItem)
 	}
 
 	// Unread counts come from the boot response rather than a second
@@ -426,12 +426,12 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 		}
 	}
 	mutedItemCount := 0
-	for _, c := range wctx.Channels {
+	for _, c := range wctx.channels {
 		if c.IsMuted {
 			mutedItemCount++
 		}
 	}
-	log.Printf("workspace %s: %d/%d channel items marked IsMuted after build", token.TeamName, mutedItemCount, len(wctx.Channels))
+	log.Printf("workspace %s: %d/%d channel items marked IsMuted after build", token.TeamName, mutedItemCount, len(wctx.channels))
 
 	// Bootstrap-time mute summary so a user can grep
 	// `[cache] workspace_unread_bootstrap` after launch and see how
@@ -443,13 +443,13 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 	// alongside the DB write path in updateReadStateFromCounts.
 	if debuglog.Enabled() {
 		var mutedChans int
-		for _, ch := range wctx.Channels {
+		for _, ch := range wctx.channels {
 			if ch.IsMuted {
 				mutedChans++
 			}
 		}
 		debuglog.Cache("workspace_unread_bootstrap: team=%s total=%d muted=%d threads_has_unreads=%v threads_unread=%d",
-			token.TeamName, len(wctx.Channels), mutedChans, res.Counts.Threads.HasUnreads, res.Counts.Threads.UnreadCount)
+			token.TeamName, len(wctx.channels), mutedChans, res.Counts.Threads.HasUnreads, res.Counts.Threads.UnreadCount)
 	}
 
 	// Finder items are built alongside the sidebar items in the loop above
@@ -459,6 +459,10 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 	// demand by the finder's debounced channels/search -- see
 	// searchChannelsRemote -- rather than enumerated up front.
 
+	// Publish before the workspace reaches anything concurrent: the
+	// router, the UI's callbacks and the event owner's first event.
+	wctx.publishChannels()
+	wctx.publishFinderItems()
 	return wctx, nil
 }
 
@@ -482,9 +486,9 @@ func (h *rtmEventHandler) OnConnect() {
 	// Run synchronously on the event owner. This briefly blocks
 	// inbound event delivery during the bootstrap HTTP call, but that
 	// cost is bounded — at most one call per 30s per workspace — and
-	// avoids racing wsCtx.Channels mutations against the same loop's
+	// avoids racing wsCtx.channels mutations against the same loop's
 	// next event (which could be an OnConversationOpened that also
-	// touches wsCtx.Channels).
+	// touches wsCtx.channels).
 	if h.wsCtx != nil && h.wsCtx.SectionStore != nil && h.wsCtx.Client != nil {
 		// Bound section refresh and missing-row hydration together so a slow
 		// workspace cannot indefinitely stall serialized WebSocket delivery.

@@ -85,7 +85,7 @@ func (h *rtmEventHandler) reconcileStarredConversations(ctx context.Context) {
 	for _, id := range starredIDs {
 		starred[id] = true
 	}
-	known := make([]string, 0, len(h.wsCtx.Channels))
+	known := make([]string, 0, len(h.wsCtx.channels))
 	var peers []string
 	seenPeers := make(map[string]bool)
 	addPeer := func(id string) {
@@ -94,7 +94,7 @@ func (h *rtmEventHandler) reconcileStarredConversations(ctx context.Context) {
 			peers = append(peers, id)
 		}
 	}
-	for _, item := range h.wsCtx.Channels {
+	for _, item := range h.wsCtx.channels {
 		known = append(known, item.ID)
 		if starred[item.ID] {
 			addPeer(item.DMUserID)

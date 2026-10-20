@@ -45,15 +45,15 @@ func TestReconcileStarredConversations_UncachedPeer(t *testing.T) {
 			}
 			h.reconcileStarredConversations(context.Background())
 			h.reconcileStarredConversations(context.Background())
-			if calls.Load() != 1 || len(wctx.Channels) != 1 || len(wctx.FinderItems) != 1 {
-				t.Fatalf("calls=%d channels=%+v finder=%+v", calls.Load(), wctx.Channels, wctx.FinderItems)
+			if calls.Load() != 1 || len(wctx.channels) != 1 || len(wctx.finderItems) != 1 {
+				t.Fatalf("calls=%d channels=%+v finder=%+v", calls.Load(), wctx.channels, wctx.finderItems)
 			}
-			item := wctx.Channels[0]
+			item := wctx.channels[0]
 			if item.Name != "Build Bot" || item.Section != "ST" || item.Type != "app" || item.DMUserID != "U1" || item.Status.Text != "Ready" {
 				t.Fatalf("hydrated item = %+v", item)
 			}
-			if wctx.FinderItems[0].Name != "Build Bot" || wctx.FinderItems[0].Type != "app" {
-				t.Fatalf("finder = %+v", wctx.FinderItems[0])
+			if wctx.finderItems[0].Name != "Build Bot" || wctx.finderItems[0].Type != "app" {
+				t.Fatalf("finder = %+v", wctx.finderItems[0])
 			}
 			if name, _ := names.Get("U1"); name != "Build Bot" {
 				t.Fatalf("switch snapshot name = %s", name)
@@ -80,7 +80,7 @@ func TestReconcileStarredConversations_UncachedPeer(t *testing.T) {
 
 func TestStarredSectionRefreshClearsObsoleteMembership(t *testing.T) {
 	store := service.NewSectionStore()
-	wctx := &WorkspaceContext{SectionStore: store, Channels: []sidebar.ChannelItem{
+	wctx := &WorkspaceContext{SectionStore: store, channels: []sidebar.ChannelItem{
 		{ID: "D1", Name: "Alice", Type: "dm"}, {ID: "C1", Name: "general", Type: "channel"},
 	}}
 	sender := &captureSender{}
@@ -90,7 +90,7 @@ func TestStarredSectionRefreshClearsObsoleteMembership(t *testing.T) {
 			t.Fatal(err)
 		}
 		h.refreshSectionsForActive()
-		for _, item := range wctx.Channels {
+		for _, item := range wctx.channels {
 			want := ""
 			for _, id := range ids {
 				if item.ID == id {
@@ -104,10 +104,10 @@ func TestStarredSectionRefreshClearsObsoleteMembership(t *testing.T) {
 		// Publication must not alias the workspace's mutable snapshot.
 		msg := sender.sent[len(sender.sent)-1].(ui.SectionsRefreshedMsg)
 		msg.Channels[0].Name = "UI-owned name"
-		if wctx.Channels[0].Name != "Alice" {
+		if wctx.channels[0].Name != "Alice" {
 			t.Fatal("refresh exposed workspace slice")
 		}
-		if len(wctx.Channels) != 2 {
+		if len(wctx.channels) != 2 {
 			t.Fatal("refresh duplicated a conversation")
 		}
 	}

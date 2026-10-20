@@ -19,11 +19,11 @@ func TestConversationOpenRefreshesFinderWithoutLosingVisits(t *testing.T) {
 			}
 			wctx := &WorkspaceContext{
 				UserNames:            newUserNameStore(map[string]string{"U1": "Alice"}),
-				Channels:             []sidebar.ChannelItem{{ID: "D1", Name: "U1", Type: "dm", DMUserID: "U1"}},
+				channels:             []sidebar.ChannelItem{{ID: "D1", Name: "U1", Type: "dm", DMUserID: "U1"}},
 				LastVisitedByChannel: map[string]int64{"D1": 10},
 			}
 			if !missing {
-				wctx.FinderItems = []core.ChannelFinderItem{{ID: "D1", Name: "U1", Type: "dm", Joined: true, LastVisited: 99}}
+				wctx.finderItems = []core.ChannelFinderItem{{ID: "D1", Name: "U1", Type: "dm", Joined: true, LastVisited: 99}}
 			}
 			sender := &captureSender{}
 			h := &rtmEventHandler{workspaceID: "T1", wsCtx: wctx, db: db, program: sender}
@@ -33,10 +33,10 @@ func TestConversationOpenRefreshesFinderWithoutLosingVisits(t *testing.T) {
 			if missing {
 				wantVisit = 10
 			}
-			if len(wctx.FinderItems) != 1 || len(wctx.Channels) != 1 {
-				t.Fatalf("open duplicated/lost snapshots: %+v / %+v", wctx.Channels, wctx.FinderItems)
+			if len(wctx.finderItems) != 1 || len(wctx.channels) != 1 {
+				t.Fatalf("open duplicated/lost snapshots: %+v / %+v", wctx.channels, wctx.finderItems)
 			}
-			finder := wctx.FinderItems[0]
+			finder := wctx.finderItems[0]
 			if finder.Name != "Alice" || finder.Type != "dm" || finder.Presence != "active" || finder.LastVisited != wantVisit {
 				t.Fatalf("open left stale finder or visits: %+v", finder)
 			}

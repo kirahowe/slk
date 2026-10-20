@@ -63,7 +63,12 @@ func TestWorkspaceReadySnapshotsPrecedeEventOwner(t *testing.T) {
 		if !ok || pkg.Name != "slices" {
 			continue
 		}
-		source, ok := call.Args[0].(*ast.SelectorExpr)
+		// The source is the published snapshot getter, wctx.Channels().
+		getter, ok := call.Args[0].(*ast.CallExpr)
+		if !ok {
+			continue
+		}
+		source, ok := getter.Fun.(*ast.SelectorExpr)
 		if ok && source.Sel.Name == key.Name {
 			cloned[key.Name] = true
 		}

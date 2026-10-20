@@ -42,16 +42,17 @@ func (h *rtmEventHandler) addConversation(ch slack.Channel) (sidebar.ChannelItem
 	// live on ChannelItem; the read-state DB (per workspace) is the
 	// single source of truth and is unaffected by this in-memory upsert.
 	replaced := false
-	for i := range h.wsCtx.Channels {
-		if h.wsCtx.Channels[i].ID == item.ID {
-			h.wsCtx.Channels[i] = item
+	for i := range h.wsCtx.channels {
+		if h.wsCtx.channels[i].ID == item.ID {
+			h.wsCtx.channels[i] = item
 			replaced = true
 			break
 		}
 	}
 	if !replaced {
-		h.wsCtx.Channels = append(h.wsCtx.Channels, item)
+		h.wsCtx.channels = append(h.wsCtx.channels, item)
 	}
+	h.wsCtx.publishChannels()
 	// Refresh rather than merely dedupe: a duplicate open may carry a
 	// resolved name, presence or app classification that the finder lacks.
 	finderItem, _ = h.upsertFinderItem(finderItem)
@@ -65,18 +66,20 @@ func (h *rtmEventHandler) addConversation(ch slack.Channel) (sidebar.ChannelItem
 // its live LastVisited value; only a new row uses the startup visit snapshot.
 // Callers must be on the serialized event owner, like addConversation.
 func (h *rtmEventHandler) upsertFinderItem(item core.ChannelFinderItem) (core.ChannelFinderItem, bool) {
-	for i, existing := range h.wsCtx.FinderItems {
+	for i, existing := range h.wsCtx.finderItems {
 		if existing.ID == item.ID {
 			item.LastVisited = existing.LastVisited
 			if item == existing {
 				return item, false
 			}
-			h.wsCtx.FinderItems[i] = item
+			h.wsCtx.finderItems[i] = item
+			h.wsCtx.publishFinderItems()
 			return item, true
 		}
 	}
 	item.LastVisited = h.wsCtx.LastVisitedByChannel[item.ID]
-	h.wsCtx.FinderItems = append(h.wsCtx.FinderItems, item)
+	h.wsCtx.finderItems = append(h.wsCtx.finderItems, item)
+	h.wsCtx.publishFinderItems()
 	return item, true
 }
 
@@ -103,7 +106,7 @@ func (h *rtmEventHandler) refreshDMPeerFromCache(userID string) {
 	if !ok {
 		return
 	}
-	for i, item := range h.wsCtx.Channels {
+	for i, item := range h.wsCtx.channels {
 		if item.DMUserID != userID || (item.Type != "dm" && item.Type != "app") {
 			continue
 		}
@@ -124,7 +127,8 @@ func (h *rtmEventHandler) refreshDMPeerFromCache(userID string) {
 		if updated == item && !finderChanged {
 			continue
 		}
-		h.wsCtx.Channels[i] = updated
+		h.wsCtx.channels[i] = updated
+		h.wsCtx.publishChannels()
 		if h.db != nil && updated.Type != item.Type {
 			if cached, err := h.db.GetChannel(item.ID); err == nil {
 				cached.Type = updated.Type
@@ -152,7 +156,7 @@ func (h *rtmEventHandler) publishConversation(item sidebar.ChannelItem, finderIt
 		return
 	}
 	if h.isActive != nil && !h.isActive() {
-		// addConversation already updated wctx.Channels; defer the
+		// addConversation already updated wctx.channels; defer the
 		// UI message until the user switches into this workspace.
 		return
 	}

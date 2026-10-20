@@ -15,7 +15,7 @@ import (
 // A workspace is lit when its own sidebar would show something unread,
 // and the sidebar has two such signals:
 //
-//   - channels: some channel in wctx.Channels is
+//   - channels: some channel in wctx.Channels() is
 //     ChannelItem.IsVisiblyUnread, the predicate the sidebar dot,
 //     UnreadChannelCount and $SLK_UNREAD share, so a muted channel
 //     never lights the rail.
@@ -23,7 +23,7 @@ import (
 //     cache.ListSubscribedThreads has an Unread row, which is what the
 //     Threads badge counts. A thread reply never sets the channel's
 //     has_unread (OnMessage's channelEligible), so this is the only way
-//     a thread reaches the dot. Channel mute and wctx.Channels
+//     a thread reaches the dot. Channel mute and wctx.Channels()
 //     membership do not apply to it, as they do not to the badge.
 //
 // In production unread is db.UnreadChannels, teamIDs the configured
@@ -39,11 +39,11 @@ import (
 // OnMessage's authorID, so "" matches none): nothing to check against,
 // so MuteStore.Ready's conservative default applies and last session's
 // dots survive boot. A channel row whose channel is not in
-// wctx.Channels never lights: the sidebar cannot show it, so there is
+// wctx.Channels() never lights: the sidebar cannot show it, so there is
 // no row to explain a dot and no keystroke to clear it.
 //
-// wctx.Channels is read on the UI goroutine without synchronization,
-// the way wireCallbacks' Lookup callback already reads it (#208).
+// wctx.Channels() is the published snapshot, safe to read on the UI
+// goroutine while the event owner adds conversations.
 func railUnreadWorkspaces(unread []cache.UnreadChannel, teamIDs []string, byID func(teamID string) *WorkspaceContext, threadsUnread func(teamID, selfUserID string) bool) []string {
 	var out []string
 	lit := map[string]bool{}
@@ -74,13 +74,13 @@ func railUnreadWorkspaces(unread []cache.UnreadChannel, teamIDs []string, byID f
 
 // railRowLights reports whether one unread row lights its workspace's
 // dot. The nil-wctx branch is the "unknown, so light it" case
-// railUnreadWorkspaces documents; a channel absent from wctx.Channels
+// railUnreadWorkspaces documents; a channel absent from wctx.Channels()
 // is the "cannot be shown, so never light it" case.
 func railRowLights(u cache.UnreadChannel, wctx *WorkspaceContext) bool {
 	if wctx == nil {
 		return true
 	}
-	for _, item := range wctx.Channels {
+	for _, item := range wctx.Channels() {
 		if item.ID == u.ChannelID {
 			return item.IsVisiblyUnread(u.State)
 		}

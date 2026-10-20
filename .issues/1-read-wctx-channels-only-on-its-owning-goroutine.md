@@ -45,16 +45,68 @@ reach the mutable slice, enforced by the compiler rather than a comment:
 
 ## Acceptance criteria
 
-- No goroutine other than the event owner reads the mutable slice; the
+- [x] No goroutine other than the event owner reads the mutable slice; the
   type system makes it hard to do by accident (unexported field or
   equivalent).
-- A `-race` test for each off-owner reader (switch + `RefreshPeerDND`,
+  - Receipt: fields are unexported `channels`/`finderItems`; same package, so
+    `TestOwnerSlicesStayOnTheOwnerPath` enforces the owner-file list.
+- [x] A `-race` test for each off-owner reader (switch + `RefreshPeerDND`,
   `Lookup`, rail unread) that runs it concurrently with
   `OnConversationOpened`. Each is shown to fail on the old code (record
   the result here). No wall-clock waits; one run, not retry loops.
-- `FinderItems` audited; fixed the same way if it has the same race, or
+  - Receipt: `cmd/slk/channels_race_test.go`; four tests failed with DATA
+    RACE on the old code (see Log), pass now. Fixed iteration counts, blocks
+    on a done channel.
+- [x] `FinderItems` audited; fixed the same way if it has the same race, or
   the reason it is safe recorded here.
-- Full gate passes: `go build ./...`, `go vet ./...`, `gofmt -l .` empty,
+  - Receipt: same race (upsertFinderItem vs Lookup); fixed with
+    `FinderItems()` snapshot. See Log.
+- [x] Full gate passes: `go build ./...`, `go vet ./...`, `gofmt -l .` empty,
   `golangci-lint run`, `go test -race -count=1 ./...`.
+  - Receipt: all five green, see Log.
 
 ## Log
+
+### 2026-10-20 fix
+
+Design. `WorkspaceContext.Channels` and `FinderItems` are now the
+unexported `channels` and `finderItems`, owned by the event goroutine (and
+`connectWorkspace` before the socket starts). The owner publishes a cloned
+snapshot into `atomic.Pointer`s (`publishChannels`, `publishFinderItems`,
+`workspace.go`) after each mutation: `addConversation`, `upsertFinderItem`,
+`refreshDMPeerFromCache`, `refreshMutedForActive`, `refreshSectionsForActive`,
+and once at the end of `connectWorkspace`. Off-owner readers call the
+getters `Channels()` and `FinderItems()`. The four readers were extracted
+unchanged into named functions so tests can call them: `lookupConversation`
+(Lookup callback), `switchLists` (workspace switch; clones the finder
+snapshot because the UI owns what it is handed), `workspacePresenceIDs`
+(RefreshPeerDND and OnConnect), `railUnreadWorkspaces`/`railRowLights`.
+`main.go` also snapshots for the notification name maps and the
+WorkspaceReadyMsg clones.
+
+Compiler limits. Everything is `package main`, so an unexported field does
+not keep other files out. `TestOwnerSlicesStayOnTheOwnerPath` parses the
+non-test files and fails if any file outside a listed owner set names the
+fields (and if a listed file stops using them).
+
+Fail-before evidence (`go test -race -count=1 ./cmd/slk -run ConversationOpened`
+on the old fields, with the readers extracted): all four failed with
+DATA RACE reports (8 in total):
+- TestSwitchListsRacesConversationOpened: FAIL
+- TestPresenceIDsRaceConversationOpened: FAIL
+- TestLookupConversationRacesConversationOpened: FAIL (the report includes
+  the `upsertFinderItem` append at conversations.go:79, so FinderItems races)
+- TestRailUnreadRacesConversationOpened: FAIL
+After the change all four pass.
+
+FinderItems verdict. It had the same race: `upsertFinderItem` appends and
+overwrites on the owner, `Lookup` and the switch read it off-owner. The
+switch also handed the live slice to the UI inside WorkspaceSwitchedMsg, so
+an in-place owner write could land in the UI's copy. Fixed the same way.
+
+Gate: go build, go vet, gofmt -l (empty), golangci-lint (0 issues), and
+go test -race -count=1 ./... all pass.
+
+Open: no behavioural bugs found. Test literals that seed `channels`
+directly must call `publishChannels()` before exercising a snapshot reader
+(done in the existing tests that needed it).

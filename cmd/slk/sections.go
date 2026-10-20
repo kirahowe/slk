@@ -37,10 +37,10 @@ func (a sectionsProviderAdapter) OrderedSlackSections() []sidebar.SectionMeta {
 	return out
 }
 
-// refreshSectionsForActive re-syncs every wctx.Channels item's Section
+// refreshSectionsForActive re-syncs every wctx.channels item's Section
 // field with the current SectionStore state, then (if this workspace
 // is active) posts a SectionsRefreshedMsg so the App rebuckets the
-// sidebar. Inactive workspaces still get their wctx.Channels mutated
+// sidebar. Inactive workspaces still get their wctx.channels mutated
 // in place; the user sees the refresh on next workspace switch.
 //
 // Called from the four channel-section WS event handlers after they've
@@ -58,8 +58,8 @@ func (h *rtmEventHandler) refreshSectionsForActive() {
 	// section have Section reset to "" — letting the sidebar's Slack
 	// mode bucket them via type-default fallback (Task 8) or the
 	// config-glob path if Slack mode isn't active.
-	for i := range h.wsCtx.Channels {
-		item := &h.wsCtx.Channels[i]
+	for i := range h.wsCtx.channels {
+		item := &h.wsCtx.channels[i]
 		if id, ok := store.SectionForChannel(item.ID); ok {
 			item.Section = id
 		} else {
@@ -69,6 +69,7 @@ func (h *rtmEventHandler) refreshSectionsForActive() {
 		// comes from the provider); reset to 0 for consistency.
 		item.SectionOrder = 0
 	}
+	h.wsCtx.publishChannels()
 	if h.program == nil {
 		return
 	}
@@ -77,8 +78,8 @@ func (h *rtmEventHandler) refreshSectionsForActive() {
 	}
 	// Send a copy so the App can mutate without racing the workspace's
 	// mutator path.
-	channelsCopy := make([]sidebar.ChannelItem, len(h.wsCtx.Channels))
-	copy(channelsCopy, h.wsCtx.Channels)
+	channelsCopy := make([]sidebar.ChannelItem, len(h.wsCtx.channels))
+	copy(channelsCopy, h.wsCtx.channels)
 	h.program.Send(ui.SectionsRefreshedMsg{
 		TeamID:   h.workspaceID,
 		Channels: channelsCopy,

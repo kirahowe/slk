@@ -85,8 +85,8 @@ func TestInactiveStarredResolutionPreservesWorkspaceCacheClassification(t *testi
 func TestConversationDeduplicationRefreshesFinder(t *testing.T) {
 	wctx := &WorkspaceContext{
 		UserNames:   newUserNameStore(map[string]string{"U1": "Alice"}),
-		Channels:    []sidebar.ChannelItem{{ID: "D1", Name: "U1", Type: "dm", DMUserID: "U1"}},
-		FinderItems: []core.ChannelFinderItem{{ID: "D1", Name: "U1", Type: "dm", Joined: true, LastVisited: 99}},
+		channels:    []sidebar.ChannelItem{{ID: "D1", Name: "U1", Type: "dm", DMUserID: "U1"}},
+		finderItems: []core.ChannelFinderItem{{ID: "D1", Name: "U1", Type: "dm", Joined: true, LastVisited: 99}},
 		// The finder can hold a newer visit than the startup snapshot.
 		LastVisitedByChannel: map[string]int64{"D1": 10},
 	}
@@ -94,8 +94,8 @@ func TestConversationDeduplicationRefreshesFinder(t *testing.T) {
 	h := &rtmEventHandler{wsCtx: wctx}
 	ch := slack.Channel{GroupConversation: slack.GroupConversation{Conversation: slack.Conversation{ID: "D1", IsIM: true, User: "U1"}}}
 	_, finder, ok := h.addConversation(ch)
-	if !ok || len(wctx.FinderItems) != 1 || wctx.FinderItems[0].Name != "Alice" || wctx.FinderItems[0].Type != "app" || finder.LastVisited != 99 || finder != wctx.FinderItems[0] {
-		t.Fatalf("duplicate open left stale or duplicate finder data: %+v, returned %+v", wctx.FinderItems, finder)
+	if !ok || len(wctx.finderItems) != 1 || wctx.finderItems[0].Name != "Alice" || wctx.finderItems[0].Type != "app" || finder.LastVisited != 99 || finder != wctx.finderItems[0] {
+		t.Fatalf("duplicate open left stale or duplicate finder data: %+v, returned %+v", wctx.finderItems, finder)
 	}
 }
 
@@ -104,22 +104,22 @@ func TestRefreshDMPeerRepairsFinderIndependently(t *testing.T) {
 		t.Run(map[bool]string{false: "stale finder", true: "missing finder"}[missing], func(t *testing.T) {
 			wctx := &WorkspaceContext{
 				TeamID: "T1", UserNames: newUserNameStore(map[string]string{"U1": "Alice"}),
-				Channels:             []sidebar.ChannelItem{{ID: "D1", Name: "Alice", Type: "dm", DMUserID: "U1", Section: "ST", SectionOrder: 2, ChannelOrder: 3}},
+				channels:             []sidebar.ChannelItem{{ID: "D1", Name: "Alice", Type: "dm", DMUserID: "U1", Section: "ST", SectionOrder: 2, ChannelOrder: 3}},
 				LastVisitedByChannel: map[string]int64{"D1": 99},
 			}
 			if !missing {
-				wctx.FinderItems = []core.ChannelFinderItem{{ID: "D1", Name: "U1", Type: "app", Joined: true, LastVisited: 99}}
+				wctx.finderItems = []core.ChannelFinderItem{{ID: "D1", Name: "U1", Type: "app", Joined: true, LastVisited: 99}}
 			}
 			sender := &captureSender{}
 			h := &rtmEventHandler{workspaceID: "T1", wsCtx: wctx, program: sender}
 			h.refreshDMPeerFromCache("U1")
-			if len(wctx.FinderItems) != 1 || wctx.FinderItems[0].Name != "Alice" || wctx.FinderItems[0].Type != "dm" || wctx.FinderItems[0].LastVisited != 99 {
-				t.Fatalf("correct sidebar suppressed finder repair: %+v", wctx.FinderItems)
+			if len(wctx.finderItems) != 1 || wctx.finderItems[0].Name != "Alice" || wctx.finderItems[0].Type != "dm" || wctx.finderItems[0].LastVisited != 99 {
+				t.Fatalf("correct sidebar suppressed finder repair: %+v", wctx.finderItems)
 			}
 			if len(sender.sent) != 1 {
 				t.Fatalf("finder-only repair publications = %d, want 1", len(sender.sent))
 			}
-			if item := wctx.Channels[0]; item.Section != "ST" || item.SectionOrder != 2 || item.ChannelOrder != 3 {
+			if item := wctx.channels[0]; item.Section != "ST" || item.SectionOrder != 2 || item.ChannelOrder != 3 {
 				t.Fatalf("repair lost section/order metadata: %+v", item)
 			}
 			h.refreshDMPeerFromCache("U1")
@@ -129,7 +129,7 @@ func TestRefreshDMPeerRepairsFinderIndependently(t *testing.T) {
 			app := ui.NewApp()
 			app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 			app.Update(ui.WorkspaceSwitchedMsg{TeamID: "other"})
-			app.Update(ui.WorkspaceSwitchedMsg{TeamID: "T1", Channels: wctx.Channels, FinderItems: wctx.FinderItems})
+			app.Update(ui.WorkspaceSwitchedMsg{TeamID: "T1", Channels: wctx.Channels(), FinderItems: wctx.FinderItems()})
 			app.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
 			if view := app.View().Content; !strings.Contains(view, "Alice") || strings.Contains(view, "U1") {
 				t.Fatalf("switch restored a stale finder: %s", view)
@@ -146,17 +146,17 @@ func TestRefreshDMPeerUpdatesCachedStatusWithoutRename(t *testing.T) {
 	// DND is not in the profile cache and must survive a status-only repair.
 	old := peerstatus.Status{Text: "Old status", DND: true, Huddle: "in_a_huddle"}
 	wctx := &WorkspaceContext{UserNames: newUserNameStore(map[string]string{"U1": "Alice"}),
-		Channels:    []sidebar.ChannelItem{{ID: "D1", Name: "Alice", Type: "dm", DMUserID: "U1", Presence: "away", Status: old}},
-		FinderItems: []core.ChannelFinderItem{{ID: "D1", Name: "Alice", Type: "dm", Presence: "away", Joined: true, LastVisited: 99}},
+		channels:    []sidebar.ChannelItem{{ID: "D1", Name: "Alice", Type: "dm", DMUserID: "U1", Presence: "away", Status: old}},
+		finderItems: []core.ChannelFinderItem{{ID: "D1", Name: "Alice", Type: "dm", Presence: "away", Joined: true, LastVisited: 99}},
 	}
 	sender := &captureSender{}
 	h := &rtmEventHandler{wsCtx: wctx, db: db, program: sender}
 	h.refreshDMPeerFromCache("U1")
 	want := peerstatus.Status{Text: "Fresh status", DND: true, Huddle: "default_unset"}
-	if item := wctx.Channels[0]; item.Status != want || item.Presence != "active" {
+	if item := wctx.channels[0]; item.Status != want || item.Presence != "active" {
 		t.Fatalf("same-name repair lost status/presence/DND: %+v", item)
 	}
-	if finder := wctx.FinderItems[0]; finder.Presence != "active" || finder.LastVisited != 99 {
+	if finder := wctx.finderItems[0]; finder.Presence != "active" || finder.LastVisited != 99 {
 		t.Fatalf("same-name finder repair = %+v", finder)
 	}
 	if len(sender.sent) != 1 || sender.sent[0].(ui.ConversationOpenedMsg).Item.Status != want {
@@ -187,8 +187,8 @@ func TestStarredProfileRetryPersistsFreshStatus(t *testing.T) {
 				t.Fatal(err)
 			}
 			wctx := &WorkspaceContext{TeamID: "T1", SectionStore: store, UserNames: newUserNameStore(nil),
-				Channels:    []sidebar.ChannelItem{{ID: "D1", Name: "U1", Type: "dm", DMUserID: "U1"}},
-				FinderItems: []core.ChannelFinderItem{{ID: "D1", Name: "U1", Type: "dm", Joined: true}},
+				channels:    []sidebar.ChannelItem{{ID: "D1", Name: "U1", Type: "dm", DMUserID: "U1"}},
+				finderItems: []core.ChannelFinderItem{{ID: "D1", Name: "U1", Type: "dm", Joined: true}},
 			}
 			var notices []tea.Msg
 			wctx.UserResolver = newUserResolver("T1", newTestClient(t, srv), db, nil, func(m tea.Msg) { notices = append(notices, m) }, nil, nil)
@@ -199,8 +199,8 @@ func TestStarredProfileRetryPersistsFreshStatus(t *testing.T) {
 			cached, err := db.GetUser("U1")
 			want := peerstatus.Status{}.WithStatus(tc.profile.StatusEmoji, tc.profile.StatusText, statusExpiry(int64(tc.profile.StatusExpiration))).WithHuddle(tc.profile.HuddleState, statusExpiry(int64(tc.profile.HuddleStateExpirationTS)))
 			got := peerstatus.Status{}.WithStatus(cached.StatusEmoji, cached.StatusText, statusExpiry(cached.StatusExpiration)).WithHuddle(cached.HuddleState, statusExpiry(cached.HuddleExpiration))
-			if err != nil || got != want || wctx.Channels[0].Status != want {
-				t.Fatalf("retry restored stale status: cache=%+v row=%+v want=%+v err=%v", got, wctx.Channels[0].Status, want, err)
+			if err != nil || got != want || wctx.channels[0].Status != want {
+				t.Fatalf("retry restored stale status: cache=%+v row=%+v want=%+v err=%v", got, wctx.channels[0].Status, want, err)
 			}
 			if len(sender.sent) != 1 || sender.sent[0].(ui.ConversationOpenedMsg).Item.Status != want {
 				t.Fatalf("row publication restored stale status: %+v", sender.sent)

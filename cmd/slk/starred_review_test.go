@@ -69,11 +69,11 @@ func TestStarredRecoveredPeerRetries(t *testing.T) {
 				}
 			}
 			h.reconcileStarredConversations(ctx)
-			if len(wctx.Channels) != 1 || len(wctx.FinderItems) != 1 {
-				t.Fatalf("first insertion: %+v / %+v", wctx.Channels, wctx.FinderItems)
+			if len(wctx.channels) != 1 || len(wctx.finderItems) != 1 {
+				t.Fatalf("first insertion: %+v / %+v", wctx.channels, wctx.finderItems)
 			}
-			if mode != "delayed bot classification" && wctx.Channels[0].Name != "U1" {
-				t.Fatalf("failed lookup row = %+v", wctx.Channels[0])
+			if mode != "delayed bot classification" && wctx.channels[0].Name != "U1" {
+				t.Fatalf("failed lookup row = %+v", wctx.channels[0])
 			}
 			if mode == "cache later filled" || mode == "delayed bot classification" || mode == "inactive workspace" {
 				if err := db.UpsertUser(cache.User{ID: "U1", WorkspaceID: "T1", DisplayName: "Alice", IsBot: true}); err != nil {
@@ -86,10 +86,10 @@ func TestStarredRecoveredPeerRetries(t *testing.T) {
 			}
 			wctx.UserResolver.inflight.Delete("U1")
 			h.reconcileStarredConversations(context.Background())
-			if metadataCalls != 1 || len(wctx.Channels) != 1 || len(wctx.FinderItems) != 1 {
+			if metadataCalls != 1 || len(wctx.channels) != 1 || len(wctx.finderItems) != 1 {
 				t.Fatalf("retry duplicated/looked up row: metadata=%d", metadataCalls)
 			}
-			item, finder := wctx.Channels[0], wctx.FinderItems[0]
+			item, finder := wctx.channels[0], wctx.finderItems[0]
 			if item.Name != "Alice" || finder.Name != "Alice" || item.Type != "app" || finder.Type != "app" || item.Section != "ST" {
 				t.Fatalf("retry left stale workspace/switch snapshots: %+v / %+v", item, finder)
 			}
@@ -113,8 +113,8 @@ func TestStarredRecoveredPeerRetries(t *testing.T) {
 				app := ui.NewApp()
 				app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 				app.Update(ui.WorkspaceSwitchedMsg{TeamID: "other"})
-				app.Update(ui.WorkspaceSwitchedMsg{TeamID: "T1", Channels: wctx.Channels,
-					FinderItems: wctx.FinderItems, SectionsProvider: sectionsProviderAdapter{store: store}})
+				app.Update(ui.WorkspaceSwitchedMsg{TeamID: "T1", Channels: wctx.Channels(),
+					FinderItems: wctx.FinderItems(), SectionsProvider: sectionsProviderAdapter{store: store}})
 				if view := app.View().Content; !strings.Contains(view, "Alice") {
 					t.Fatalf("workspace switch did not render repaired peer: %s", view)
 				}
@@ -159,15 +159,15 @@ func TestStarredReconciliationConcurrentDMSweep(t *testing.T) {
 		defer wg.Done()
 		<-start
 		for i := 0; i < 64; i++ {
-			wctx.Channels = nil
-			wctx.FinderItems = nil
+			wctx.channels = nil
+			wctx.finderItems = nil
 			h.reconcileStarredConversations(context.Background())
 			buildChannelItem(ch, wctx, h.cfg, "T1")
 		}
 	}()
 	close(start)
 	wg.Wait()
-	if len(wctx.Channels) != 1 || wctx.Channels[0].Type != "app" {
-		t.Fatalf("classification after concurrent sweep: %+v", wctx.Channels)
+	if len(wctx.channels) != 1 || wctx.channels[0].Type != "app" {
+		t.Fatalf("classification after concurrent sweep: %+v", wctx.channels)
 	}
 }

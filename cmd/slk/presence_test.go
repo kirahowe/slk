@@ -19,7 +19,7 @@ import (
 func TestWorkspacePresenceIDs(t *testing.T) {
 	wctx := &WorkspaceContext{
 		UserID: "USELF",
-		Channels: []sidebar.ChannelItem{
+		channels: []sidebar.ChannelItem{
 			{Type: "dm", DMUserID: "U1"},
 			{Type: "channel"}, // not a DM — skipped
 			{Type: "dm", DMUserID: "U2"},
@@ -29,6 +29,7 @@ func TestWorkspacePresenceIDs(t *testing.T) {
 			{Type: "dm", DMUserID: ""},       // malformed — skipped
 		},
 	}
+	wctx.publishChannels()
 
 	got := workspacePresenceIDs(wctx)
 	want := []string{"USELF", "U1", "U2"} // self first, then DM peers in order, deduped
@@ -45,13 +46,14 @@ func TestWorkspacePresenceIDs(t *testing.T) {
 func TestWorkspacePresenceIDsOwnsSnapshot(t *testing.T) {
 	wctx := &WorkspaceContext{
 		UserID: "USELF",
-		Channels: []sidebar.ChannelItem{
+		channels: []sidebar.ChannelItem{
 			{Type: "dm", DMUserID: "U1"},
 		},
 	}
+	wctx.publishChannels()
 	ids := workspacePresenceIDs(wctx)
-	wctx.Channels[0].DMUserID = "U2"
-	wctx.Channels = append(wctx.Channels, sidebar.ChannelItem{Type: "dm", DMUserID: "U3"})
+	wctx.channels[0].DMUserID = "U2"
+	wctx.channels = append(wctx.channels, sidebar.ChannelItem{Type: "dm", DMUserID: "U3"})
 	if want := []string{"USELF", "U1"}; !slices.Equal(ids, want) {
 		t.Fatalf("snapshot = %v, want %v", ids, want)
 	}
@@ -74,14 +76,15 @@ func TestOnConnectPresenceSnapshotRacesConversationOpened(t *testing.T) {
 
 	// One connect is enough: the race detector orders accesses by
 	// happens-before, not timing, so an unsynchronized read of
-	// wctx.Channels on the bootstrap goroutine is reported whichever side
+	// wctx.channels on the bootstrap goroutine is reported whichever side
 	// of the appends it lands on.
 	done := make(chan struct{})
 	wctx := &WorkspaceContext{
 		Client: newTestClient(t, srv), TeamID: "T1", UserID: "USELF",
 		UserNames: newUserNameStore(nil),
-		Channels:  []sidebar.ChannelItem{{ID: "D1", Type: "dm", DMUserID: "U1"}},
+		channels:  []sidebar.ChannelItem{{ID: "D1", Type: "dm", DMUserID: "U1"}},
 	}
+	wctx.publishChannels()
 	h := &rtmEventHandler{wsCtx: wctx, program: sendFunc(func(msg tea.Msg) {
 		if _, ok := msg.(ui.StatusChangeMsg); ok {
 			close(done)
@@ -96,7 +99,7 @@ func TestOnConnectPresenceSnapshotRacesConversationOpened(t *testing.T) {
 		h.OnConversationOpened(ch)
 	}
 	<-done
-	if got := len(wctx.Channels); got != 301 {
+	if got := len(wctx.channels); got != 301 {
 		t.Fatalf("len(Channels) = %d, want 301", got)
 	}
 }
@@ -126,7 +129,7 @@ func TestOnConnectPresenceUsesPeerSnapshot(t *testing.T) {
 	defer release()
 	wctx := &WorkspaceContext{
 		Client: newTestClient(t, srv), TeamID: "T1", UserID: "USELF",
-		Channels: []sidebar.ChannelItem{{Type: "dm", DMUserID: "U1"}},
+		channels: []sidebar.ChannelItem{{Type: "dm", DMUserID: "U1"}},
 		PeerStatus: &peerStatusRefresher{
 			selfID: "USELF", now: time.Now,
 			dndTeamInfo: func(_ context.Context, ids []string) (map[string]slack.DNDStatus, error) {
@@ -135,6 +138,7 @@ func TestOnConnectPresenceUsesPeerSnapshot(t *testing.T) {
 			},
 		},
 	}
+	wctx.publishChannels()
 	h := &rtmEventHandler{wsCtx: wctx, program: sendFunc(func(msg tea.Msg) {
 		if _, ok := msg.(ui.StatusChangeMsg); ok {
 			close(done)
@@ -142,8 +146,8 @@ func TestOnConnectPresenceUsesPeerSnapshot(t *testing.T) {
 	})}
 	h.OnConnect()
 	<-presenceStarted
-	wctx.Channels[0].DMUserID = "U2"
-	wctx.Channels = append(wctx.Channels, sidebar.ChannelItem{Type: "dm", DMUserID: "U3"})
+	wctx.channels[0].DMUserID = "U2"
+	wctx.channels = append(wctx.channels, sidebar.ChannelItem{Type: "dm", DMUserID: "U3"})
 	release()
 	<-done
 	select {

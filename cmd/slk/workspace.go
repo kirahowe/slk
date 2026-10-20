@@ -1,6 +1,7 @@
 package main
 
 import (
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -10,6 +11,7 @@ import (
 	slackclient "github.com/gammons/slk/internal/slack"
 	"github.com/gammons/slk/internal/slack/edge"
 	"github.com/gammons/slk/internal/slack/membership"
+	"github.com/gammons/slk/internal/ui/peerstatus"
 	"github.com/gammons/slk/internal/ui/sidebar"
 )
 
@@ -93,12 +95,26 @@ type WorkspaceContext struct {
 	// successful sync; false after a failed one. The UI uses it to
 	// decide whether to draw the "Threads list unavailable" banner.
 	SubscriptionsAvailable bool
-	Channels               []sidebar.ChannelItem
-	// FinderItems is the list shown in the Ctrl+P finder: the channels
+	// channels is the sidebar list, owned by the WebSocket event
+	// goroutine (OnConversationOpened, the membership, mute and section
+	// refreshes), and by connectWorkspace before the socket starts. The
+	// owner mutates it in place. Nothing else may touch it: every other
+	// goroutine (tea.Cmds, the UI's callbacks) reads Channels(), the
+	// snapshot publishChannels stores after each mutation.
+	// TestOwnerSlicesStayOnTheOwnerPath fails on any other file that
+	// names this field.
+	channels []sidebar.ChannelItem
+	// finderItems is the list shown in the Ctrl+P finder: the channels
 	// the user has joined. Channels they have not joined are not held
 	// here at all — they arrive per query from the finder's debounced
-	// channels/search and live only in the finder component.
-	FinderItems   []core.ChannelFinderItem
+	// channels/search and live only in the finder component. Owned and
+	// published exactly like channels (publishFinderItems, FinderItems()).
+	finderItems []core.ChannelFinderItem
+	// channelsSnap and finderSnap hold the published snapshots: freshly
+	// cloned slices that are never mutated after Store, the same shape
+	// as customEmoji and userGroups below.
+	channelsSnap  atomic.Pointer[[]sidebar.ChannelItem]
+	finderSnap    atomic.Pointer[[]core.ChannelFinderItem]
 	TeamID        string
 	TeamName      string
 	UserID        string
@@ -283,4 +299,64 @@ func mostRecentlyVisitedChannel(visits map[string]int64) string {
 		}
 	}
 	return bestID
+}
+
+// Channels returns the published snapshot of the sidebar list, empty
+// before the first publish. Any goroutine may call it. The caller must
+// not mutate the slice, and the owner never does: each publish is a
+// fresh copy.
+func (w *WorkspaceContext) Channels() []sidebar.ChannelItem {
+	if p := w.channelsSnap.Load(); p != nil {
+		return *p
+	}
+	return nil
+}
+
+// FinderItems returns the published snapshot of the finder list, empty
+// before the first publish. Same rules as Channels.
+func (w *WorkspaceContext) FinderItems() []core.ChannelFinderItem {
+	if p := w.finderSnap.Load(); p != nil {
+		return *p
+	}
+	return nil
+}
+
+// publishChannels stores a copy of the owner's sidebar list for
+// Channels. Call it on the owner after every mutation, and before
+// handing the workspace to anything concurrent.
+func (w *WorkspaceContext) publishChannels() {
+	snap := slices.Clone(w.channels)
+	w.channelsSnap.Store(&snap)
+}
+
+// publishFinderItems stores a copy of the owner's finder list for
+// FinderItems. Same rules as publishChannels.
+func (w *WorkspaceContext) publishFinderItems() {
+	snap := slices.Clone(w.finderItems)
+	w.finderSnap.Store(&snap)
+}
+
+// lookupConversation resolves a conversation ID to its name and type
+// from the workspace's sidebar items, then its finder items (which
+// cover DMs and group DMs that are not in the sidebar yet). It runs on
+// the UI goroutine.
+func lookupConversation(wctx *WorkspaceContext, channelID string) (name, chType string, ok bool) {
+	for _, ch := range wctx.Channels() {
+		if ch.ID == channelID {
+			return ch.Name, ch.Type, true
+		}
+	}
+	for _, it := range wctx.FinderItems() {
+		if it.ID == channelID {
+			return it.Name, it.Type, true
+		}
+	}
+	return "", "", false
+}
+
+// switchLists returns the sidebar and finder lists a workspace switch
+// hands the UI. It runs inside a tea.Cmd, off the event owner. Both are
+// the UI's from then on, so neither shares the published snapshot.
+func switchLists(wctx *WorkspaceContext, statuses map[string]peerstatus.Status) ([]sidebar.ChannelItem, []core.ChannelFinderItem) {
+	return withPeerStatuses(wctx.Channels(), statuses), slices.Clone(wctx.FinderItems())
 }

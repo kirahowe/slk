@@ -74,9 +74,10 @@ func genRailFixture() *rapid.Generator[railFixture] {
 				w := &WorkspaceContext{UserID: "USELF"}
 				for _, c := range []string{"C1", "C2", "C3"} {
 					if rapid.Bool().Draw(t, "has") {
-						w.Channels = append(w.Channels, sidebar.ChannelItem{ID: c, IsMuted: rapid.Bool().Draw(t, "muted")})
+						w.channels = append(w.channels, sidebar.ChannelItem{ID: c, IsMuted: rapid.Bool().Draw(t, "muted")})
 					}
 				}
+				w.publishChannels()
 				ctxs[id] = w
 			}
 		}
@@ -144,7 +145,7 @@ func TestRailRowLightsMatchesReference(t *testing.T) {
 			want := true
 			if w != nil {
 				want = false
-				for _, c := range w.Channels {
+				for _, c := range w.channels {
 					if c.ID == u.ChannelID {
 						want = !c.IsMuted && u.State.HasUnread
 					}

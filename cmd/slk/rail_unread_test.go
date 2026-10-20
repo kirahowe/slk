@@ -23,6 +23,11 @@ func unreadRow(workspaceID, channelID string) cache.UnreadChannel {
 }
 
 func railLookup(all map[string]*WorkspaceContext) func(string) *WorkspaceContext {
+	// Literals seed the owner's slices; publish them as connect would.
+	for _, w := range all {
+		w.publishChannels()
+		w.publishFinderItems()
+	}
 	return func(teamID string) *WorkspaceContext { return all[teamID] }
 }
 
@@ -64,7 +69,7 @@ func TestRailUnreadWorkspaces(t *testing.T) {
 			name:   "muted channel does not light the rail",
 			unread: []cache.UnreadChannel{unreadRow("T1", "C1")},
 			all: map[string]*WorkspaceContext{
-				"T1": {Channels: []sidebar.ChannelItem{{ID: "C1", IsMuted: true}}},
+				"T1": {channels: []sidebar.ChannelItem{{ID: "C1", IsMuted: true}}},
 			},
 			want: nil,
 		},
@@ -74,7 +79,7 @@ func TestRailUnreadWorkspaces(t *testing.T) {
 			name:   "muted and unmuted unread together still light",
 			unread: []cache.UnreadChannel{unreadRow("T1", "C1"), unreadRow("T1", "C2")},
 			all: map[string]*WorkspaceContext{
-				"T1": {Channels: []sidebar.ChannelItem{{ID: "C1", IsMuted: true}, {ID: "C2"}}},
+				"T1": {channels: []sidebar.ChannelItem{{ID: "C1", IsMuted: true}, {ID: "C2"}}},
 			},
 			want: []string{"T1"},
 		},
@@ -82,8 +87,8 @@ func TestRailUnreadWorkspaces(t *testing.T) {
 			name:   "each workspace once, in row order",
 			unread: []cache.UnreadChannel{unreadRow("T1", "C1"), unreadRow("T1", "C2"), unreadRow("T2", "C3")},
 			all: map[string]*WorkspaceContext{
-				"T1": {Channels: []sidebar.ChannelItem{{ID: "C1"}, {ID: "C2"}}},
-				"T2": {Channels: []sidebar.ChannelItem{{ID: "C3"}}},
+				"T1": {channels: []sidebar.ChannelItem{{ID: "C1"}, {ID: "C2"}}},
+				"T2": {channels: []sidebar.ChannelItem{{ID: "C3"}}},
 			},
 			want: []string{"T1", "T2"},
 		},
@@ -109,7 +114,7 @@ func TestRailUnreadWorkspaces(t *testing.T) {
 			name:   "unread row for a channel not in the workspace list does not light",
 			unread: []cache.UnreadChannel{unreadRow("T1", "C9")},
 			all: map[string]*WorkspaceContext{
-				"T1": {Channels: []sidebar.ChannelItem{{ID: "C1"}}},
+				"T1": {channels: []sidebar.ChannelItem{{ID: "C1"}}},
 			},
 			want: nil,
 		},
@@ -117,7 +122,7 @@ func TestRailUnreadWorkspaces(t *testing.T) {
 			name:   "unlisted row next to a listed unread still lights",
 			unread: []cache.UnreadChannel{unreadRow("T1", "C1"), unreadRow("T1", "C9")},
 			all: map[string]*WorkspaceContext{
-				"T1": {Channels: []sidebar.ChannelItem{{ID: "C1"}}},
+				"T1": {channels: []sidebar.ChannelItem{{ID: "C1"}}},
 			},
 			want: []string{"T1"},
 		},
@@ -151,7 +156,8 @@ func TestRailUnreadWorkspaces_MuteStoreNotReady(t *testing.T) {
 		},
 	}
 	item, _ := buildChannelItem(ch, wctx, config.Config{}, "T1")
-	wctx.Channels = []sidebar.ChannelItem{item}
+	wctx.channels = []sidebar.ChannelItem{item}
+	wctx.publishChannels()
 	all := map[string]*WorkspaceContext{"T1": wctx}
 	unread := []cache.UnreadChannel{unreadRow("T1", "C1")}
 
@@ -160,7 +166,8 @@ func TestRailUnreadWorkspaces_MuteStoreNotReady(t *testing.T) {
 	}
 
 	wctx.MuteStore.ApplyPrefChange("muted_channels", "C1")
-	wctx.Channels[0].IsMuted = wctx.MuteStore.IsMuted("C1")
+	wctx.channels[0].IsMuted = wctx.MuteStore.IsMuted("C1")
+	wctx.publishChannels()
 	if got := railUnreadWorkspaces(unread, nil, railLookup(all), noThreadsUnread); got != nil {
 		t.Fatalf("store ready and C1 muted: got %v, want none", got)
 	}
@@ -172,10 +179,10 @@ func TestRailUnreadWorkspaces_MuteStoreNotReady(t *testing.T) {
 // which is the invariant OtherUnreadCount's doc comment promises.
 func TestRailUnreadWorkspaces_RailAndTitleAgree(t *testing.T) {
 	all := map[string]*WorkspaceContext{
-		"T1": {Channels: []sidebar.ChannelItem{{ID: "C1", IsMuted: true}}},
-		"T2": {Channels: []sidebar.ChannelItem{{ID: "C2"}}},
-		"T3": {Channels: []sidebar.ChannelItem{{ID: "C3", IsMuted: true}, {ID: "C4"}}},
-		"T4": {Channels: []sidebar.ChannelItem{{ID: "C5"}}},
+		"T1": {channels: []sidebar.ChannelItem{{ID: "C1", IsMuted: true}}},
+		"T2": {channels: []sidebar.ChannelItem{{ID: "C2"}}},
+		"T3": {channels: []sidebar.ChannelItem{{ID: "C3", IsMuted: true}, {ID: "C4"}}},
+		"T4": {channels: []sidebar.ChannelItem{{ID: "C5"}}},
 	}
 	unread := []cache.UnreadChannel{
 		unreadRow("T1", "C1"), unreadRow("T2", "C2"), unreadRow("T3", "C3"), unreadRow("T3", "C4"),
@@ -238,10 +245,10 @@ func TestRailUnreadWorkspaces_ArchivedChannelInCache(t *testing.T) {
 	}
 	for _, ch := range bootConversations(res) {
 		item, _ := buildChannelItem(ch, wctx, config.Config{}, "T1")
-		wctx.Channels = append(wctx.Channels, item)
+		wctx.channels = append(wctx.channels, item)
 	}
-	if len(wctx.Channels) != 1 || wctx.Channels[0].ID != "C1" {
-		t.Fatalf("sidebar list = %+v; want only C1 (bootConversations drops archived)", wctx.Channels)
+	if len(wctx.channels) != 1 || wctx.channels[0].ID != "C1" {
+		t.Fatalf("sidebar list = %+v; want only C1 (bootConversations drops archived)", wctx.channels)
 	}
 
 	if err := db.ReplaceWorkspaceReadState("T1", []cache.ChannelReadStateUpdate{
@@ -317,7 +324,7 @@ func TestRailUnreadWorkspaces_Threads(t *testing.T) {
 			// #207's membership rule is for channel rows: a channel the
 			// sidebar cannot show has no dot to explain. It does not
 			// apply to threads, because the Threads badge does not
-			// filter on wctx.Channels either; the thread is on screen
+			// filter on wctx.channels either; the thread is on screen
 			// in the Threads view whether or not its channel is listed.
 			name:        "thread in a channel absent from the workspace list still lights",
 			lastRead:    "1700000150.000000",
@@ -340,7 +347,7 @@ func TestRailUnreadWorkspaces_Threads(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			db := newTestDB(t)
 			seedSubscribedThread(t, db, tc.lastRead, tc.latestReply, tc.replies...)
-			all := map[string]*WorkspaceContext{"T1": {UserID: self, Channels: tc.channels}}
+			all := map[string]*WorkspaceContext{"T1": {UserID: self, channels: tc.channels}}
 			got := railUnreadWorkspaces(tc.unread, []string{"T1"}, railLookup(all), railThreadsUnread(db))
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("railUnreadWorkspaces = %v, want %v", got, tc.want)

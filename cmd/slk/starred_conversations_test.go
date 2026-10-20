@@ -144,7 +144,7 @@ func TestReconcileStarredConversations_ReconnectInactive(t *testing.T) {
 	if err := store.Bootstrap(context.Background(), &fakeSectionsClient{sections: []slk.SidebarSection{{ID: "ST", Type: "stars", ChannelIDs: []string{"D1"}}}}); err != nil {
 		t.Fatal(err)
 	}
-	wctx := &WorkspaceContext{SectionStore: store, UserNames: newUserNameStore(map[string]string{"U1": "Alice"}), Channels: []sidebar.ChannelItem{{ID: "C1"}}}
+	wctx := &WorkspaceContext{SectionStore: store, UserNames: newUserNameStore(map[string]string{"U1": "Alice"}), channels: []sidebar.ChannelItem{{ID: "C1"}}}
 	sender := &captureSender{}
 	h := &rtmEventHandler{wsCtx: wctx, workspaceID: "T1", program: sender, isActive: func() bool { return false }, channelNames: map[string]string{}, channelTypes: map[string]string{}}
 	calls := 0
@@ -155,11 +155,11 @@ func TestReconcileStarredConversations_ReconnectInactive(t *testing.T) {
 	h.reconcileStarredConversations(context.Background())
 	h.reconcileStarredConversations(context.Background())
 	h.refreshSectionsForActive()
-	if calls != 1 || len(wctx.Channels) != 2 || len(wctx.FinderItems) != 1 {
-		t.Fatalf("calls=%d channels=%+v finder=%+v", calls, wctx.Channels, wctx.FinderItems)
+	if calls != 1 || len(wctx.channels) != 2 || len(wctx.finderItems) != 1 {
+		t.Fatalf("calls=%d channels=%+v finder=%+v", calls, wctx.channels, wctx.finderItems)
 	}
-	if wctx.Channels[1].Section != "ST" || wctx.Channels[1].Name != "Alice" || h.channelTypes["D1"] != "dm" {
-		t.Fatalf("DM = %+v", wctx.Channels[1])
+	if wctx.channels[1].Section != "ST" || wctx.channels[1].Name != "Alice" || h.channelTypes["D1"] != "dm" {
+		t.Fatalf("DM = %+v", wctx.channels[1])
 	}
 	if len(sender.sent) != 0 {
 		t.Fatalf("inactive workspace sent UI messages: %+v", sender.sent)

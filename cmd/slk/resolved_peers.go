@@ -34,7 +34,7 @@ func (h *rtmEventHandler) OnPendingEvents() {
 	// Most resolved authors/members have no DM row. Filter once per drain
 	// before any SQLite reads or per-peer conversation scans.
 	dmPeers := make(map[string]struct{})
-	for _, item := range h.wsCtx.Channels {
+	for _, item := range h.wsCtx.channels {
 		if item.DMUserID != "" && (item.Type == "dm" || item.Type == "app") {
 			dmPeers[item.DMUserID] = struct{}{}
 		}

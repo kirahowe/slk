@@ -3,7 +3,7 @@
 
 ## Open
 
-### Ready
+### Review
 
 | ID | Title | Type | Priority |
 | --- | --- | --- | --- |

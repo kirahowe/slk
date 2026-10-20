@@ -146,6 +146,17 @@ that no longer exists. Do not trust it.** Current structural documentation:
   read and map write`, which bubbletea cannot recover from; it crashed slk on
   2026-10-02 via the user-name map (see `cmd/slk/usernames.go`). Engine state
   several goroutines write is locked (`userNameStore`) instead.
+- **A slice the event owner mutates is read elsewhere only through its
+  snapshot.** `WorkspaceContext.channels` and `finderItems` are written in
+  place by the WebSocket event goroutine (and by `connectWorkspace` before the
+  socket starts). Tea.Cmds (workspace switch, `RefreshPeerDND`) and the UI's
+  callbacks (`Lookup`, `railUnreadWorkspaces`) read `Channels()` and
+  `FinderItems()`, which return a copy published through `atomic.Pointer`
+  after each mutation (`publishChannels`, `publishFinderItems`) and never
+  written again. A new mutation site publishes; a new off-owner reader calls
+  the getter. `TestOwnerSlicesStayOnTheOwnerPath` fails when a file outside
+  the owner list names the fields, and `channels_race_test.go` runs each
+  reader against `OnConversationOpened` under `-race`.
 
 ## Shared code — check here before writing a helper
 
@@ -213,6 +224,7 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Cache a message from a WebSocket event (which carries no reply count or latest reply, and an empty thread_ts for a parent) without wiping what a fetch stored for a thread parent | `(*cache.DB).UpsertLiveMessage`; `UpsertMessage` overwrites every column, for fetched rows |
 | Drop cached thread replies a complete `conversations.replies` response no longer contains (missed deletes, Slackbot ephemerals) | `(*cache.DB).PruneThreadReplies(channelID, threadTS, returnedTS, fetchStartUnix)`; soft-deletes, never touches the parent or rows cached after the fetch began |
 | Peer custom status, DND and huddle rendering | `ui/peerstatus` (`Status`, glyph/expiry/summary methods); `messages.AuthorStatusSuffix` for author headers |
+| A workspace's sidebar and finder lists from any goroutine but the event owner (tea.Cmds, UI callbacks) | `wctx.Channels()` / `wctx.FinderItems()`, the published snapshots; never the unexported `channels` / `finderItems`. After mutating those on the owner, `publishChannels()` / `publishFinderItems()`. Hand a snapshot to the UI as `slices.Clone` (see `switchLists`). `lookupConversation(wctx, id)` is the ID to name/type lookup |
 | Workspace app/bot classification, from any goroutine | `WorkspaceContext.IsBotUser` / `MarkBotUser`; private synchronized set, never directly read/write a plain bot-ID map |
 | Usergroup map helpers | `usergroups.Copy`, `usergroups.Equal`, `usergroups.Display` |
 | A workspace's user ID → display name, from any goroutine in `cmd/slk` | `wctx.UserNames` (`*userNameStore`: `Get`/`Set`, `MentionedNames(text)` for one message; `lookupUserCached` / `resolveUserCached` add the SQLite fallback). Just `Set`: hand the UI the map from `SnapshotForUI()` and pass only its version to `NotifyFrom`, which makes every later new or changed name reach the UI as `UserResolvedMsg`. Never keep or read the map you handed over |

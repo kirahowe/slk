@@ -29,8 +29,8 @@ func TestOnConversationOpened_AppendsAndSends(t *testing.T) {
 	wctx := &WorkspaceContext{
 		UserNames:         newUserNameStore(nil),
 		UserNamesByHandle: map[string]string{},
-		Channels:          []sidebar.ChannelItem{{ID: "C1", Name: "general", Type: "channel"}},
-		FinderItems:       []core.ChannelFinderItem{{ID: "C1", Name: "general", Type: "channel", Joined: true}},
+		channels:          []sidebar.ChannelItem{{ID: "C1", Name: "general", Type: "channel"}},
+		finderItems:       []core.ChannelFinderItem{{ID: "C1", Name: "general", Type: "channel", Joined: true}},
 	}
 	h := &rtmEventHandler{
 		wsCtx:        wctx,
@@ -48,14 +48,14 @@ func TestOnConversationOpened_AppendsAndSends(t *testing.T) {
 	}
 	h.OnConversationOpened(ch)
 
-	if len(wctx.Channels) != 2 {
-		t.Errorf("len(Channels) = %d, want 2", len(wctx.Channels))
+	if len(wctx.channels) != 2 {
+		t.Errorf("len(Channels) = %d, want 2", len(wctx.channels))
 	}
 	if h.channelTypes["G1"] != "group_dm" {
 		t.Errorf("channelTypes[G1] = %q, want group_dm", h.channelTypes["G1"])
 	}
-	if len(wctx.FinderItems) != 2 {
-		t.Errorf("len(FinderItems) = %d, want 2", len(wctx.FinderItems))
+	if len(wctx.finderItems) != 2 {
+		t.Errorf("len(FinderItems) = %d, want 2", len(wctx.finderItems))
 	}
 }
 
@@ -87,10 +87,10 @@ func TestOnConversationOpened_SeedsDMStatusFromCache(t *testing.T) {
 		},
 	})
 
-	if len(wctx.Channels) != 1 {
-		t.Fatalf("len(Channels) = %d, want 1", len(wctx.Channels))
+	if len(wctx.channels) != 1 {
+		t.Fatalf("len(Channels) = %d, want 1", len(wctx.channels))
 	}
-	if got := wctx.Channels[0].Status; got.Emoji != ":calendar:" || got.Text != "In a meeting" {
+	if got := wctx.channels[0].Status; got.Emoji != ":calendar:" || got.Text != "In a meeting" {
 		t.Errorf("opened DM status = %+v, want the cached status", got)
 	}
 }
@@ -109,11 +109,11 @@ func TestOnConversationOpened_DedupesByID(t *testing.T) {
 	wctx := &WorkspaceContext{
 		UserNames:         newUserNameStore(nil),
 		UserNamesByHandle: map[string]string{"alice": "Alice", "bob": "Bob"},
-		Channels: []sidebar.ChannelItem{
+		channels: []sidebar.ChannelItem{
 			{ID: "G1", Name: "old", Type: "group_dm"},
 		},
 		// Seed FinderItems so we can assert dedupe doesn't double-add.
-		FinderItems: []core.ChannelFinderItem{
+		finderItems: []core.ChannelFinderItem{
 			{ID: "G1", Name: "old", Type: "group_dm", Joined: true},
 		},
 	}
@@ -132,19 +132,19 @@ func TestOnConversationOpened_DedupesByID(t *testing.T) {
 	}
 	h.OnConversationOpened(ch)
 
-	if len(wctx.Channels) != 1 {
-		t.Errorf("len(Channels) = %d, want 1 (deduped on ID)", len(wctx.Channels))
+	if len(wctx.channels) != 1 {
+		t.Errorf("len(Channels) = %d, want 1 (deduped on ID)", len(wctx.channels))
 	}
-	if wctx.Channels[0].Name != "Alice, Bob" {
-		t.Errorf("Name = %q, want %q (updated descriptive field)", wctx.Channels[0].Name, "Alice, Bob")
+	if wctx.channels[0].Name != "Alice, Bob" {
+		t.Errorf("Name = %q, want %q (updated descriptive field)", wctx.channels[0].Name, "Alice, Bob")
 	}
-	if len(wctx.FinderItems) != 1 {
-		t.Errorf("len(FinderItems) = %d, want 1 (dedupe must not double-add)", len(wctx.FinderItems))
+	if len(wctx.finderItems) != 1 {
+		t.Errorf("len(FinderItems) = %d, want 1 (dedupe must not double-add)", len(wctx.finderItems))
 	}
 }
 
 // TestOnConversationOpened_InactiveWorkspace_PersistsContext verifies that
-// when the workspace is inactive, the handler still mutates wsCtx.Channels
+// when the workspace is inactive, the handler still mutates wsCtx.channels
 // (so a workspace switch later picks up the new conversation) and does not
 // panic. The program-send half of the gate is verified by code inspection
 // of the isActive check; injecting a fake tea.Program for end-to-end
@@ -174,8 +174,8 @@ func TestOnConversationOpened_InactiveWorkspace_PersistsContext(t *testing.T) {
 	}
 	h.OnConversationOpened(ch)
 
-	if len(wctx.Channels) != 1 || wctx.Channels[0].ID != "G1" {
-		t.Errorf("inactive workspace context not updated: %+v", wctx.Channels)
+	if len(wctx.channels) != 1 || wctx.channels[0].ID != "G1" {
+		t.Errorf("inactive workspace context not updated: %+v", wctx.channels)
 	}
 	if h.channelTypes["G1"] != "group_dm" {
 		t.Errorf("channelTypes not mirrored on inactive workspace: %q", h.channelTypes["G1"])
@@ -185,7 +185,7 @@ func TestOnConversationOpened_InactiveWorkspace_PersistsContext(t *testing.T) {
 // The OnMessage read-state matrix below replaces the pre-Task-10 trio
 // (InactiveWorkspace_BumpsChannelUnreadCount, ...ThreadReplyDoesNotBumpChannel,
 // ...ThreadBroadcastBumpsChannel), which asserted against the now-removed
-// wctx.Channels[i].UnreadCount in-memory bump. The DB-backed assertions
+// wctx.channels[i].UnreadCount in-memory bump. The DB-backed assertions
 // here exercise the actual contract (UpdateChannelReadState writes).
 // The active/inactive channel dimension is kept as a pair because the
 // write used to be gated on it; it now runs unconditionally, and the
@@ -444,8 +444,8 @@ func TestOnMessage_UnknownConversation_AddsItUnread(t *testing.T) {
 	if lookups != 1 {
 		t.Errorf("lookups = %d, want 1", lookups)
 	}
-	if len(wctx.Channels) != 1 || wctx.Channels[0].ID != "G9" || wctx.Channels[0].Type != "group_dm" {
-		t.Fatalf("Channels = %+v, want the group DM G9", wctx.Channels)
+	if len(wctx.channels) != 1 || wctx.channels[0].ID != "G9" || wctx.channels[0].Type != "group_dm" {
+		t.Fatalf("Channels = %+v, want the group DM G9", wctx.channels)
 	}
 	if want := []string{"opened unread=true", "message", "message"}; !slices.Equal(sent, want) {
 		t.Errorf("sent = %q, want %q", sent, want)
@@ -491,18 +491,18 @@ func TestOnMessage_UnknownConversation_RetryDependsOnFailure(t *testing.T) {
 			msg("1.001")
 			msg("1.002")
 			if !tc.backsOff {
-				if lookups != 2 || len(wctx.Channels) != 1 {
-					t.Errorf("lookups = %d, Channels = %d; want 2 and the DM", lookups, len(wctx.Channels))
+				if lookups != 2 || len(wctx.channels) != 1 {
+					t.Errorf("lookups = %d, Channels = %d; want 2 and the DM", lookups, len(wctx.channels))
 				}
 				return
 			}
-			if lookups != 1 || len(wctx.Channels) != 0 {
-				t.Fatalf("within the wait: lookups = %d, Channels = %d; want 1 and none", lookups, len(wctx.Channels))
+			if lookups != 1 || len(wctx.channels) != 0 {
+				t.Fatalf("within the wait: lookups = %d, Channels = %d; want 1 and none", lookups, len(wctx.channels))
 			}
 			h.lookupRetryAt["D9"] = time.Now().Add(-time.Second)
 			msg("1.003")
-			if lookups != 2 || len(wctx.Channels) != 1 || wctx.Channels[0].Type != "dm" {
-				t.Errorf("after the wait: lookups = %d, Channels = %+v; want 2 and the DM D9", lookups, wctx.Channels)
+			if lookups != 2 || len(wctx.channels) != 1 || wctx.channels[0].Type != "dm" {
+				t.Errorf("after the wait: lookups = %d, Channels = %+v; want 2 and the DM D9", lookups, wctx.channels)
 			}
 		})
 	}
@@ -856,7 +856,7 @@ func TestMuteRefreshMsg(t *testing.T) {
 	}
 	sr.Channels[0].IsMuted = false
 	if !channels[0].IsMuted {
-		t.Error("active: the message shares the handler's slice; the App would be mutating wctx.Channels")
+		t.Error("active: the message shares the handler's slice; the App would be mutating wctx.channels")
 	}
 
 	msg = muteRefreshMsg(false, "T1", channels)

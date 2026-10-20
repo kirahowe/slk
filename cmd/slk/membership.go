@@ -9,7 +9,7 @@ import (
 
 // OnPrefChange handles user-pref mutations from the WebSocket. Currently
 // the only pref slk reacts to is muted_channels: the MuteStore is
-// updated and (when the set actually changed) every wctx.Channels item's
+// updated and (when the set actually changed) every wctx.channels item's
 // IsMuted flag is recomputed and the active sidebar is asked to
 // re-render. Other prefs are ignored — add a case here when slk grows
 // support for them.
@@ -46,7 +46,7 @@ func (h *rtmEventHandler) OnMemberLeft(channelID, userID string) {
 	h.wsCtx.Membership.ApplyLeave(channelID, userID)
 }
 
-// refreshMutedForActive walks wctx.Channels, refreshes each item's
+// refreshMutedForActive walks wctx.channels, refreshes each item's
 // IsMuted flag from the current MuteStore, and posts the message
 // muteRefreshMsg chooses so the UI re-derives whatever it showed from
 // those flags. Mirrors refreshSectionsForActive but for the mute
@@ -56,21 +56,22 @@ func (h *rtmEventHandler) refreshMutedForActive() {
 		return
 	}
 	store := h.wsCtx.MuteStore
-	for i := range h.wsCtx.Channels {
-		chID := h.wsCtx.Channels[i].ID
-		before := h.wsCtx.Channels[i].IsMuted
+	for i := range h.wsCtx.channels {
+		chID := h.wsCtx.channels[i].ID
+		before := h.wsCtx.channels[i].IsMuted
 		after := store.IsMuted(chID)
 		if before != after {
 			debuglog.Cache("refreshMutedForActive: channel=%s name=%q muted_before=%v muted_after=%v",
-				chID, h.wsCtx.Channels[i].Name, before, after)
+				chID, h.wsCtx.channels[i].Name, before, after)
 		}
-		h.wsCtx.Channels[i].IsMuted = after
+		h.wsCtx.channels[i].IsMuted = after
 	}
+	h.wsCtx.publishChannels()
 	if h.program == nil {
 		return
 	}
 	active := h.isActive == nil || h.isActive()
-	h.program.Send(muteRefreshMsg(active, h.workspaceID, h.wsCtx.Channels))
+	h.program.Send(muteRefreshMsg(active, h.workspaceID, h.wsCtx.channels))
 }
 
 // muteRefreshMsg is the message refreshMutedForActive posts after the

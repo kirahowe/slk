@@ -771,21 +771,7 @@ func run() error {
 				if wctx == nil {
 					return "", "", false
 				}
-				// Sidebar (joined channels + Slack-native sections).
-				for _, ch := range wctx.Channels {
-					if ch.ID == chIDStr {
-						return ch.Name, ch.Type, true
-					}
-				}
-				// Finder items (joined + browseable). Covers DMs/group DMs
-				// that aren't in the sidebar pre-conversation, and any
-				// browseable public channels.
-				for _, it := range wctx.FinderItems {
-					if it.ID == chIDStr {
-						return it.Name, it.Type, true
-					}
-				}
-				return "", "", false
+				return lookupConversation(wctx, chIDStr)
 			},
 			ReadCache: func(channelID ids.ChannelID) []messages.MessageItem {
 				wctx := router.Active()
@@ -1458,7 +1444,7 @@ func run() error {
 		// network.
 		statuses := cachedPeerStatuses(db, wctx.TeamID)
 		wctx.PeerStatus.SeedHuddles(statuses)
-		channels := withPeerStatuses(wctx.Channels, statuses)
+		channels, finderItems := switchLists(wctx, statuses)
 
 		snap := workspacesStore.Snapshot()
 		// switchNames goes to the UI, which owns (and writes) it from
@@ -1471,7 +1457,7 @@ func run() error {
 			Theme:        snap.ResolveTheme(teamID),
 			SidebarWidth: snap.ResolveWidth(teamID),
 			Channels:     channels,
-			FinderItems:  wctx.FinderItems,
+			FinderItems:  finderItems,
 			// A private copy: the UI must never share a map with the
 			// engine's goroutines (see userNameStore).
 			UserNames:        switchNames,
@@ -1625,9 +1611,10 @@ func run() error {
 			}
 
 			// Build channel lookup maps for notifications
-			channelNames := make(map[string]string, len(wctx.Channels))
-			channelTypes := make(map[string]string, len(wctx.Channels))
-			for _, ch := range wctx.Channels {
+			readyChannels := wctx.Channels()
+			channelNames := make(map[string]string, len(readyChannels))
+			channelTypes := make(map[string]string, len(readyChannels))
+			for _, ch := range readyChannels {
 				channelNames[ch.ID] = ch.Name
 				channelTypes[ch.ID] = ch.Type
 			}
@@ -1696,8 +1683,8 @@ func run() error {
 				Theme:        cfgSnap.ResolveTheme(wctx.TeamID),
 				SidebarWidth: cfgSnap.ResolveWidth(wctx.TeamID),
 				// Detach both UI snapshots before the event owner starts.
-				Channels:    slices.Clone(wctx.Channels),
-				FinderItems: slices.Clone(wctx.FinderItems),
+				Channels:    slices.Clone(wctx.Channels()),
+				FinderItems: slices.Clone(wctx.FinderItems()),
 				// A private copy: the UI must never share a map with
 				// the engine's goroutines (see userNameStore).
 				UserNames:        readyNames,
