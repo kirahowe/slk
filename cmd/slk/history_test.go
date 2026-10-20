@@ -139,6 +139,9 @@ func TestEveryHistoryPathCarriesTheEditedMark(t *testing.T) {
 	h := &rtmEventHandler{db: db, wsCtx: &WorkspaceContext{}, isActive: func() bool { return true },
 		activeChannelID: func() string { return "C5" }}
 	h.OnMessage("C5", "U1", plain, "plain", "", "", false, nil, nil, slack.Blocks{}, nil, "", "")
+	// A change echo updates a cached row and never creates one, so the
+	// message arrives first.
+	h.OnMessage("C5", "U1", edited, "original", "", "", false, nil, nil, slack.Blocks{}, nil, "", "")
 	h.OnMessage("C5", "U1", edited, "changed", "", "", true, &slack.Edited{User: "U1", Timestamp: "1700000009.000000"}, nil, slack.Blocks{}, nil, "", "")
 	check("loadCachedMessages after the WebSocket", loadCachedMessages(db, "USELF", "C5", names, "15:04", nil))
 }

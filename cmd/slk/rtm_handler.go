@@ -141,33 +141,40 @@ func (h *rtmEventHandler) OnMessage(channelID, userID, ts, text, threadTS, subty
 	// Guard against nil db so handlers constructed in tests (without
 	// real persistence) don't panic.
 	if h.db != nil {
-		synthetic := slack.Message{Msg: slack.Msg{
-			Type:            "message",
-			Timestamp:       ts,
-			User:            authorID,
-			Text:            text,
-			ThreadTimestamp: threadTS,
-			SubType:         subtype,
-			Edited:          edited,
-			Files:           files,
-			Blocks:          blocks,
-			Attachments:     attachments,
-		}}
-		rawBytes, _ := json.Marshal(synthetic)
-		// UpsertLiveMessage: the event has no reply count or latest
-		// reply, so a cached parent keeps the ones its fetch stored.
-		h.db.UpsertLiveMessage(cache.Message{
-			TS:          ts,
-			ChannelID:   channelID,
-			WorkspaceID: h.workspaceID,
-			UserID:      authorID,
-			Text:        text,
-			ThreadTS:    threadTS,
-			Subtype:     subtype,
-			EditedAt:    editedAt(edited),
-			RawJSON:     string(rawBytes),
-			CreatedAt:   time.Now().Unix(),
-		})
+		// A change echo carries only content; caching it whole would
+		// reset the subtype of a broadcast and the author of a bot
+		// message (see cacheChange).
+		if changed {
+			h.cacheChange(channelID, ts, text, threadTS, edited, files, blocks, attachments)
+		} else {
+			synthetic := slack.Message{Msg: slack.Msg{
+				Type:            "message",
+				Timestamp:       ts,
+				User:            authorID,
+				Text:            text,
+				ThreadTimestamp: threadTS,
+				SubType:         subtype,
+				Edited:          edited,
+				Files:           files,
+				Blocks:          blocks,
+				Attachments:     attachments,
+			}}
+			rawBytes, _ := json.Marshal(synthetic)
+			// UpsertLiveMessage: the event has no reply count or latest
+			// reply, so a cached parent keeps the ones its fetch stored.
+			h.db.UpsertLiveMessage(cache.Message{
+				TS:          ts,
+				ChannelID:   channelID,
+				WorkspaceID: h.workspaceID,
+				UserID:      authorID,
+				Text:        text,
+				ThreadTS:    threadTS,
+				Subtype:     subtype,
+				EditedAt:    editedAt(edited),
+				RawJSON:     string(rawBytes),
+				CreatedAt:   time.Now().Unix(),
+			})
+		}
 		if err := h.db.SetChannelSyncedAt(channelID, time.Now().Unix()); err != nil {
 			debuglog.Cache("OnMessage: SetChannelSyncedAt %s: %v", channelID, err)
 		}
@@ -375,6 +382,40 @@ func (h *rtmEventHandler) OnMessage(channelID, userID, ts, text, threadTS, subty
 		h.workspaceID, channelID, ts, subtype, threadTS)
 	if h.program != nil {
 		h.program.Send(ui.NewMessageMsg{TeamID: h.workspaceID, ChannelID: channelID, Changed: changed, Message: item})
+	}
+}
+
+// cacheChange writes a message_changed echo (an edit, an unfurl
+// landing, a preview removed) to the cache. What reaches OnMessage of
+// it is partial: no reply count, and the dispatcher passes no subtype. So it
+// changes only the content of the cached row (ApplyMessageChange) and
+// keeps the reply count of a thread parent and the subtype of a
+// broadcast, which a reload from cache reads back. The echo's thread_ts
+// only fills a row that has none. An edit's mark is written; a change
+// that is not an edit keeps the mark the row has.
+//
+// A change for a message the cache does not hold is not written: the
+// next fetch that reaches it caches the whole message.
+func (h *rtmEventHandler) cacheChange(channelID, ts, text, threadTS string, edited *slack.Edited, files []slack.File, blocks slack.Blocks, attachments []slack.Attachment) {
+	change := cache.MessageChange{Text: text, ThreadTS: threadTS, EditedAt: editedAt(edited)}
+	if edited != nil {
+		change.Edited, _ = json.Marshal(edited)
+	}
+	if len(files) > 0 {
+		change.Files, _ = json.Marshal(files)
+	}
+	if len(blocks.BlockSet) > 0 {
+		change.Blocks, _ = json.Marshal(blocks)
+	}
+	if len(attachments) > 0 {
+		change.Attachments, _ = json.Marshal(attachments)
+	}
+	found, err := h.db.ApplyMessageChange(channelID, ts, change)
+	switch {
+	case err != nil:
+		debuglog.Cache("OnMessage: team=%s channel=%s ts=%s change not cached: %v", h.workspaceID, channelID, ts, err)
+	case !found:
+		debuglog.Cache("OnMessage: team=%s channel=%s ts=%s change for no live cached row, not cached", h.workspaceID, channelID, ts)
 	}
 }
 
