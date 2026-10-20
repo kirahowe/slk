@@ -110,3 +110,12 @@ go test -race -count=1 ./... all pass.
 Open: no behavioural bugs found. Test literals that seed `channels`
 directly must call `publishChannels()` before exercising a snapshot reader
 (done in the existing tests that needed it).
+
+Review (main session, 2026-10-20). Checked independently that the four race
+tests catch the bug: with `Channels()` and `FinderItems()` returning the
+live slices instead of the snapshots, all four fail under `-race`; with the
+snapshots they pass. `withPeerStatuses` clones before writing, so the
+switch never writes into a published snapshot. The guard test was
+file-level, so a `go` statement or `tea.Cmd` inside an owner file could
+still read the slices; it now rejects both, shown by adding one of each to
+connect.go and watching it fail.

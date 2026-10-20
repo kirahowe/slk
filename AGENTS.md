@@ -155,7 +155,8 @@ that no longer exists. Do not trust it.** Current structural documentation:
   after each mutation (`publishChannels`, `publishFinderItems`) and never
   written again. A new mutation site publishes; a new off-owner reader calls
   the getter. `TestOwnerSlicesStayOnTheOwnerPath` fails when a file outside
-  the owner list names the fields, and `channels_race_test.go` runs each
+  the owner list names the fields, or a `go` statement or `tea.Cmd` inside
+  one does, and `channels_race_test.go` runs each
   reader against `OnConversationOpened` under `-race`.
 
 ## Shared code — check here before writing a helper

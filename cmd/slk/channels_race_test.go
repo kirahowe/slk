@@ -102,6 +102,8 @@ func setConversations(w *WorkspaceContext, items []sidebar.ChannelItem) {
 // Same package, so the compiler cannot enforce it; this test does. A
 // file that legitimately runs on the owner is added to the list with a
 // reason, and an entry that no longer names the fields must be removed.
+// Inside an owner file, a go statement or a tea.Cmd literal still runs
+// off the owner, so the fields may not appear in either.
 func TestOwnerSlicesStayOnTheOwnerPath(t *testing.T) {
 	owner := map[string]string{
 		"workspace.go":             "declares the fields and publishes the snapshots",
@@ -126,14 +128,22 @@ func TestOwnerSlicesStayOnTheOwnerPath(t *testing.T) {
 			t.Fatal(err)
 		}
 		ast.Inspect(file, func(n ast.Node) bool {
-			sel, ok := n.(*ast.SelectorExpr)
-			if !ok || (sel.Sel.Name != "channels" && sel.Sel.Name != "finderItems") {
-				return true
+			if field, ok := ownerSliceRef(n); ok {
+				if _, ok := owner[name]; !ok {
+					t.Errorf("%s names WorkspaceContext.%s: only the event owner's files may; read Channels() or FinderItems() instead", name, field)
+				}
+				used[name] = true
 			}
-			if _, ok := owner[name]; !ok {
-				t.Errorf("%s names WorkspaceContext.%s: only the event owner's files may; read Channels() or FinderItems() instead", name, sel.Sel.Name)
+			// Even in an owner file, a goroutine or a tea.Cmd runs off
+			// the owner, so neither may reach the slices.
+			if body, what := offOwnerBody(n); body != nil {
+				ast.Inspect(body, func(n ast.Node) bool {
+					if field, ok := ownerSliceRef(n); ok {
+						t.Errorf("%s names WorkspaceContext.%s inside %s, which runs off the event owner; read Channels() or FinderItems() instead", name, field, what)
+					}
+					return true
+				})
 			}
-			used[name] = true
 			return true
 		})
 	}
@@ -142,4 +152,34 @@ func TestOwnerSlicesStayOnTheOwnerPath(t *testing.T) {
 			t.Errorf("%s is listed as an owner file but no longer names the slices; remove it", name)
 		}
 	}
+}
+
+// ownerSliceRef reports whether n selects one of the owner's slices.
+func ownerSliceRef(n ast.Node) (string, bool) {
+	sel, ok := n.(*ast.SelectorExpr)
+	if !ok || (sel.Sel.Name != "channels" && sel.Sel.Name != "finderItems") {
+		return "", false
+	}
+	return sel.Sel.Name, true
+}
+
+// offOwnerBody returns the code n starts off the event owner: the call
+// of a go statement, or a func literal returning tea.Msg (a tea.Cmd,
+// which bubbletea runs on its own goroutine).
+func offOwnerBody(n ast.Node) (ast.Node, string) {
+	switch n := n.(type) {
+	case *ast.GoStmt:
+		return n.Call, "a go statement"
+	case *ast.FuncLit:
+		res := n.Type.Results
+		if res == nil || len(res.List) != 1 {
+			return nil, ""
+		}
+		if sel, ok := res.List[0].Type.(*ast.SelectorExpr); ok && sel.Sel.Name == "Msg" {
+			if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "tea" {
+				return n.Body, "a tea.Cmd"
+			}
+		}
+	}
+	return nil, ""
 }
