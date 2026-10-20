@@ -1,6 +1,6 @@
 {:id 1
  :title "Read wctx.Channels only on its owning goroutine"
- :status :review
+ :status :done
  :type :bug
  :priority :p1
  :created "2026-10-20"

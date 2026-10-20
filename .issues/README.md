@@ -3,15 +3,13 @@
 
 ## Open
 
-### Review
+_none_
+
+## Done
 
 | ID | Title | Type | Priority |
 | --- | --- | --- | --- |
 | [1](1-read-wctx-channels-only-on-its-owning-goroutine.md) | Read wctx.Channels only on its owning goroutine | bug | P1 |
-
-## Done
-
-_none_
 
 ## Dropped
 

@@ -8,6 +8,16 @@ Earlier history, up to v0.26.2, is in [upstream's releases](https://github.com/g
 
 ## [Unreleased]
 
+## [0.29.2] - 2026-10-20
+
+### Fixed
+
+- Fixed data races on each workspace's sidebar and finder lists. Switching
+  workspaces, looking up a conversation's name and drawing the workspace
+  rail's unread dots read them while new conversations were being added. A
+  workspace switch could also hand the finder a list that later changed
+  under it.
+
 ## [0.29.1] - 2026-10-20
 
 ### Fixed
