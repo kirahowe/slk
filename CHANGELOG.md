@@ -8,6 +8,26 @@ Earlier history, up to v0.26.2, is in [upstream's releases](https://github.com/g
 
 ## [Unreleased]
 
+## [0.29.1] - 2026-10-20
+
+### Fixed
+
+- In the Threads and Activity views, message keys no longer act on a message
+  you can't see. The list sits where the channel pane goes, but the pane
+  behind it kept its last channel and selection, so `L` listed that
+  message's reactions and keys such as `r`, `E`, `D`, `y` and `o` acted on
+  it. In Activity, Enter on a row could open a forwarded link from it.
+- On the selected card in the Threads list, the selection tint now runs the
+  full width of the line. Text after the channel name used to sit on the
+  terminal's background.
+- Fixed a data race on connect and reconnect: presence setup read the list
+  of conversations while newly opened DMs were being added to it. From
+  upstream #307.
+
+### Changed
+
+- The scrollbar draws about twice as fast in long panes. From upstream #322.
+
 ## [0.29.0] - 2026-10-15
 
 ### Changed
