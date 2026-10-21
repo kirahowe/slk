@@ -810,6 +810,16 @@ func dispatchWebSocketEvent(data []byte, handler EventHandler) {
 	case "reconnect_url":
 		// Could store for reconnection; ignoring for now
 
+	case "pong":
+		// The answer to keepAlive's ping. Its arrival has already reset
+		// the read deadline, which is all it is for.
+
+	case "error":
+		// The gateway reports a refusal here, e.g. {"msg":"Ratelimited",
+		// "code":17} when connections arrive too fast, and closes the
+		// socket a few seconds later.
+		debuglog.WS("gateway error: %s", string(data))
+
 	default:
 		// Ignore other event types. When debug logging is on, dump them
 		// to the [ws] category so we can reverse-engineer undocumented

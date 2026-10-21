@@ -131,6 +131,10 @@ type Client struct {
 	// pageTimeout bounds each request of a paginated call (pageCtx);
 	// zero means defaultPageTimeout.
 	pageTimeout time.Duration
+
+	// pingInterval is how often keepAlive pings the WebSocket; zero
+	// means defaultPingInterval.
+	pingInterval time.Duration
 }
 
 // defaultPageTimeout bounds one request of a paginated call.
@@ -458,9 +462,13 @@ func (c *Client) StartWebSocket(handler EventHandler) error {
 	c.wsDone = make(chan struct{})
 
 	// Detect dead connections: set a read deadline that resets on every
-	// incoming message or pong. Slack sends pings ~every 30s, so a 60s
-	// deadline gives plenty of margin. Without this, ReadMessage blocks
-	// forever on a silently-dropped TCP connection (e.g., wifi disconnect).
+	// incoming message or pong. Without this, ReadMessage blocks forever
+	// on a silently-dropped TCP connection (e.g., wifi disconnect).
+	//
+	// Slack's own WebSocket pings are minutes apart, so the deadline is
+	// kept alive by keepAlive's application pings, which the gateway
+	// answers with a pong frame. Before keepAlive, any workspace quiet
+	// for a minute dropped its socket and reconnected (2026-10-21).
 	const wsTimeout = 60 * time.Second
 	conn.SetReadDeadline(time.Now().Add(wsTimeout))
 	conn.SetPongHandler(func(string) error {
@@ -483,10 +491,10 @@ func (c *Client) StartWebSocket(handler EventHandler) error {
 		for {
 			_, message, err := conn.ReadMessage()
 			if err != nil {
-				if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-					return
-				}
-				// Read error (timeout, connection closed, etc.) — exit loop
+				// Timeout, close frame, or the connection dropped: exit
+				// the loop either way. The reason is the only record of
+				// why a socket went away.
+				debuglog.WS("team=%s socket closed: %v", c.teamID, err)
 				return
 			}
 			// Reset deadline on every successful read
@@ -494,6 +502,7 @@ func (c *Client) StartWebSocket(handler EventHandler) error {
 			messages <- message
 		}
 	}()
+	go c.keepAlive(conn, c.wsDone)
 	go func() {
 		defer close(c.wsDone)
 		defer handler.OnDisconnect()
@@ -516,6 +525,42 @@ func (c *Client) StartWebSocket(handler EventHandler) error {
 	}()
 
 	return nil
+}
+
+// defaultPingInterval is how often keepAlive pings the gateway: a third
+// of StartWebSocket's read deadline, so two pings can go unanswered
+// before a live connection is taken for dead.
+const defaultPingInterval = 20 * time.Second
+
+// keepAlive sends Slack's application-level ping ({"type":"ping","id":n},
+// answered with {"type":"pong","reply_to":n}) every pingInterval until
+// done closes. A ping that cannot be written closes the connection, so
+// the reader ends and the ConnectionManager reconnects at once instead of
+// waiting out the read deadline.
+func (c *Client) keepAlive(conn *websocket.Conn, done <-chan struct{}) {
+	interval := c.pingInterval
+	if interval == 0 {
+		interval = defaultPingInterval
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for id := 1; ; id++ {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+		}
+		c.wsMu.Lock()
+		conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		err := conn.WriteJSON(map[string]any{"type": "ping", "id": id})
+		conn.SetWriteDeadline(time.Time{}) // other writers set none
+		c.wsMu.Unlock()
+		if err != nil {
+			debuglog.WS("team=%s ping failed: %v", c.teamID, err)
+			conn.Close()
+			return
+		}
+	}
 }
 
 // StopWebSocket disconnects the WebSocket connection.

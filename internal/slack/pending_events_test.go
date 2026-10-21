@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -73,5 +74,38 @@ func TestStartWebSocketDispatchesPendingEventsWithoutIncomingFrames(t *testing.T
 	<-h.repaired // the pending event was dispatched on the idle connection
 	if !<-h.serialized {
 		t.Fatal("pending event was not serialized with OnConnect")
+	}
+}
+
+// The client pings an otherwise silent socket with Slack's application
+// ping, whose pong is what keeps the read deadline from closing it.
+func TestStartWebSocketPingsAnIdleSocket(t *testing.T) {
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	got := make(chan string, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade: %v", err)
+			return
+		}
+		defer conn.Close()
+		_, frame, err := conn.ReadMessage()
+		if err != nil {
+			t.Errorf("read: %v", err)
+		}
+		got <- string(frame)
+		_, _, _ = conn.ReadMessage() // until the client closes
+	}))
+	defer srv.Close()
+	c := &Client{wsBaseURL: "ws://" + srv.Listener.Addr().String(), pingInterval: time.Millisecond}
+	if err := c.StartWebSocket(&mockEventHandler{}); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = c.StopWebSocket()
+		<-c.WsDone()
+	}()
+	if frame := <-got; frame != `{"id":1,"type":"ping"}`+"\n" {
+		t.Fatalf("first frame = %q, want the first ping", frame)
 	}
 }
