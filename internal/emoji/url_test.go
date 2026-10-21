@@ -2,8 +2,11 @@ package emoji
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -263,6 +266,48 @@ func TestURLForShortcode_TonePerPersonMisses(t *testing.T) {
 	} {
 		if got, ok := URLForShortcode(in, nil); ok {
 			t.Errorf("URLForShortcode(%q) = %q, want no URL", in, got)
+		}
+	}
+}
+
+// TestURLForShortcode_EveryTonePerPersonImage: every entry of the
+// generated table is reachable from a Slack name, and its image carries
+// the entry's two tones in order. Guards the next regeneration.
+func TestURLForShortcode_EveryTonePerPersonImage(t *testing.T) {
+	names := map[string]string{}
+	for code, glyph := range slackCodeMap {
+		name := strings.Trim(code, ":")
+		if prev, ok := names[glyph]; !ok || name < prev {
+			names[glyph] = name
+		}
+	}
+	if len(slackTonePerPersonImages) == 0 {
+		t.Fatal("slackTonePerPersonImages is empty")
+	}
+	for key, stem := range slackTonePerPersonImages {
+		runes := []rune(key)
+		base, first, second := string(runes[:len(runes)-2]), runes[len(runes)-2], runes[len(runes)-1]
+		name, ok := names[base]
+		if !ok {
+			t.Errorf("%s (%s): no Slack name has its base glyph", stem, key)
+			continue
+		}
+		a, _ := SlackSkinToneNumber(first)
+		b, _ := SlackSkinToneNumber(second)
+		in := fmt.Sprintf("%s::skin-tone-%d-%d", name, a, b)
+		if got, ok := URLForShortcode(in, nil); !ok || got != CDNBaseURL+stem+".png" {
+			t.Errorf("URLForShortcode(%q) = (%q, %v), want %q", in, got, ok, CDNBaseURL+stem+".png")
+		}
+		var tones []rune
+		for _, cp := range strings.Split(stem, "-") {
+			if n, err := strconv.ParseInt(cp, 16, 32); err == nil {
+				if _, ok := SlackSkinToneNumber(rune(n)); ok {
+					tones = append(tones, rune(n))
+				}
+			}
+		}
+		if !runesEqual(tones, []rune{first, second}) {
+			t.Errorf("%s: tones %U, want %U %U", stem, tones, first, second)
 		}
 	}
 }
