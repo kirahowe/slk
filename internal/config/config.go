@@ -264,16 +264,21 @@ func Default() Config {
 }
 
 func Load(path string) (Config, error) {
-	cfg := Default()
-
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return cfg, nil
+			return Default(), nil
 		}
-		return cfg, err
+		return Default(), err
 	}
+	return Parse(data)
+}
 
+// Parse is Load for the contents of a config file. A writer of
+// config.toml checks its output with it: whatever Parse rejects, the
+// next launch refuses to start on.
+func Parse(data []byte) (Config, error) {
+	cfg := Default()
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return cfg, err
 	}

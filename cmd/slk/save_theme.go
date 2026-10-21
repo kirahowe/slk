@@ -10,7 +10,7 @@ import (
 )
 
 // configWriteMu serializes the read-modify-write cycles the save*
-// helpers below perform on config.toml. The theme and width savers run
+// helpers perform on config.toml. The theme and width savers run
 // on the UI goroutine, but the version_ts refresh fires from one
 // background goroutine per workspace, all racing on the same file:
 // without this lock two concurrent saves lose one another's update, and
@@ -165,82 +165,5 @@ func saveGlobalTheme(configPath, themeName string) error {
 	}
 	// No [appearance] theme line found — append a new section.
 	lines = append(lines, "", "[appearance]", "theme = "+tomlString(themeName))
-	return writeConfigAtomic(configPath, []byte(strings.Join(lines, "\n")))
-}
-
-// saveWorkspaceTheme rewrites or appends a [workspaces.<tomlKey>]
-// theme entry. tomlKey is the literal TOML key in the config — for
-// slug-keyed blocks that's the slug, for legacy blocks it's the team
-// ID. teamID is the underlying Slack team ID; when we are creating a
-// brand-new slug-keyed block, teamID is written as the team_id =
-// "..." line (currently we only create legacy-keyed blocks here, but
-// slug callers update an existing block).
-func saveWorkspaceTheme(configPath, tomlKey, teamID, teamName, themeName string) error {
-	configWriteMu.Lock()
-	defer configWriteMu.Unlock()
-
-	data, err := os.ReadFile(configPath)
-	if errors.Is(err, os.ErrNotExist) {
-		if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
-			return err
-		}
-		data = nil
-	} else if err != nil {
-		return err
-	}
-	lines := strings.Split(string(data), "\n")
-
-	header := fmt.Sprintf("[workspaces.%s]", tomlKey)
-
-	sectionStart := -1
-	for i, line := range lines {
-		if strings.TrimSpace(line) == header {
-			sectionStart = i
-			break
-		}
-	}
-
-	if sectionStart >= 0 {
-		end := len(lines)
-		for j := sectionStart + 1; j < len(lines); j++ {
-			t := strings.TrimSpace(lines[j])
-			if t == "" || strings.HasPrefix(t, "[") {
-				end = j
-				break
-			}
-		}
-		updated := false
-		for j := sectionStart + 1; j < end; j++ {
-			t := strings.TrimSpace(lines[j])
-			if strings.HasPrefix(t, "theme") && strings.Contains(t, "=") &&
-				!strings.HasPrefix(t, "theme.") {
-				lines[j] = "theme = " + tomlString(themeName)
-				updated = true
-				break
-			}
-		}
-		if !updated {
-			newLines := make([]string, 0, len(lines)+1)
-			newLines = append(newLines, lines[:sectionStart+1]...)
-			newLines = append(newLines, "theme = "+tomlString(themeName))
-			newLines = append(newLines, lines[sectionStart+1:]...)
-			lines = newLines
-		}
-		return writeConfigAtomic(configPath, []byte(strings.Join(lines, "\n")))
-	}
-
-	// No existing section — append at end. We only get here when no
-	// block exists for either the slug or the team ID, which means we
-	// fall back to a legacy-keyed [workspaces.<teamID>] block.
-	if len(lines) > 0 && lines[len(lines)-1] != "" {
-		lines = append(lines, "")
-	}
-	safeName := sanitizeComment(teamName)
-	if safeName == "" {
-		safeName = teamID
-	}
-	commentLine := "# " + safeName
-	legacyHeader := fmt.Sprintf("[workspaces.%s]", teamID)
-	lines = append(lines, commentLine, legacyHeader, "theme = "+tomlString(themeName))
 	return writeConfigAtomic(configPath, []byte(strings.Join(lines, "\n")))
 }

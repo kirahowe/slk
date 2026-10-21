@@ -1,12 +1,6 @@
 package main
 
 import (
-	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-
 	"github.com/gammons/slk/internal/config"
 	"github.com/gammons/slk/internal/slackhttp"
 )
@@ -39,75 +33,4 @@ func workspaceTOMLKey(cfg config.Config, teamID string) string {
 		}
 	}
 	return teamID
-}
-
-// saveWorkspaceVersionTS rewrites or appends a version_ts entry in
-// [workspaces.<tomlKey>]. Mirrors saveWorkspaceWidth / saveWorkspaceTheme:
-// a textual line rewrite rather than a TOML re-marshal, so user comments
-// and field ordering survive the write.
-func saveWorkspaceVersionTS(configPath, tomlKey, teamID, teamName, versionTS string) error {
-	configWriteMu.Lock()
-	defer configWriteMu.Unlock()
-
-	data, err := os.ReadFile(configPath)
-	if errors.Is(err, os.ErrNotExist) {
-		if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
-			return err
-		}
-		data = nil
-	} else if err != nil {
-		return err
-	}
-	lines := strings.Split(string(data), "\n")
-
-	header := fmt.Sprintf("[workspaces.%s]", tomlKey)
-
-	sectionStart := -1
-	for i, line := range lines {
-		if strings.TrimSpace(line) == header {
-			sectionStart = i
-			break
-		}
-	}
-
-	if sectionStart >= 0 {
-		end := len(lines)
-		for j := sectionStart + 1; j < len(lines); j++ {
-			t := strings.TrimSpace(lines[j])
-			if t == "" || strings.HasPrefix(t, "[") {
-				end = j
-				break
-			}
-		}
-		updated := false
-		for j := sectionStart + 1; j < end; j++ {
-			t := strings.TrimSpace(lines[j])
-			if strings.HasPrefix(t, "version_ts") && strings.Contains(t, "=") {
-				lines[j] = "version_ts = " + tomlString(versionTS)
-				updated = true
-				break
-			}
-		}
-		if !updated {
-			newLines := make([]string, 0, len(lines)+1)
-			newLines = append(newLines, lines[:sectionStart+1]...)
-			newLines = append(newLines, "version_ts = "+tomlString(versionTS))
-			newLines = append(newLines, lines[sectionStart+1:]...)
-			lines = newLines
-		}
-		return writeConfigAtomic(configPath, []byte(strings.Join(lines, "\n")))
-	}
-
-	// No existing section — append a legacy-keyed block.
-	if len(lines) > 0 && lines[len(lines)-1] != "" {
-		lines = append(lines, "")
-	}
-	safeName := sanitizeComment(teamName)
-	if safeName == "" {
-		safeName = teamID
-	}
-	commentLine := "# " + safeName
-	legacyHeader := fmt.Sprintf("[workspaces.%s]", teamID)
-	lines = append(lines, commentLine, legacyHeader, "version_ts = "+tomlString(versionTS))
-	return writeConfigAtomic(configPath, []byte(strings.Join(lines, "\n")))
 }
