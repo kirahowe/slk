@@ -27,6 +27,7 @@ type services struct {
 	presence  core.PresenceService
 	files     core.FileService
 	profiles  core.ProfileService
+	canvases  core.CanvasService
 }
 
 // toMrkdwn converts what the user typed, as cmd/slk's real send does, so
@@ -188,6 +189,7 @@ func (d *Demo) services() services {
 				return w.profile(teamID, userID)
 			},
 		}),
+		canvases: canvasService(),
 		files: core.NewFileService(
 			func(string, string, string, []core.PendingAttachment) core.Cmd {
 				return func() core.Msg { return ui.UploadResultMsg{Err: errUnavailable} }

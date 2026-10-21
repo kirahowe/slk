@@ -172,7 +172,8 @@ func lumenLabs() teamSpec {
 				{user: uAlex, ago: 25 * hr, text: "Done, left comments in Figma"},
 			}},
 			{id: gdmLaunch, name: "Priya, Sam, Maya", typ: "group_dm", msgs: []msgSpec{
-				{user: uPriya, ago: 4 * hr, text: "Launch checklist for Thursday is in the doc"},
+				{user: uPriya, ago: 4 * hr, text: "Launch checklist for Thursday is in the doc",
+					attachments: []core.Attachment{launchCanvasAttachment()}},
 				{user: uMaya, ago: 3 * hr, text: "Added the screenshots"},
 				{user: uSam, ago: 170 * mn, text: "I'll own the deploy :rocket:"},
 			}},

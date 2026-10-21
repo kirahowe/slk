@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -224,6 +225,27 @@ func TestCanvasScrollKeysMoveTheText(t *testing.T) {
 	pressCanvas(t, a, keyPress('g'))
 	if !strings.Contains(canvasScreen(a), "line Aa") {
 		t.Fatalf("g did not return to the top:\n%s", canvasScreen(a))
+	}
+}
+
+// The mouse wheel scrolls the canvas, as it does every modal overlay.
+func TestCanvasMouseWheelScrolls(t *testing.T) {
+	a, fake := canvasApp(t)
+	var lines strings.Builder
+	for i := range 60 {
+		fmt.Fprintf(&lines, `<p class="line">row %d</p>`, i)
+	}
+	fake.canvases["F1"] = core.Canvas{Title: "Long", Doc: canvasDoc(t, lines.String())}
+	pressCanvas(t, a, keyPress('c'))
+	// "row 0 " (with the padding after it) cannot match "row 05".
+	if !strings.Contains(canvasScreen(a), "row 0 ") {
+		t.Fatalf("top not shown:\n%s", canvasScreen(a))
+	}
+	for range 5 {
+		a.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown, X: 50, Y: 10})
+	}
+	if strings.Contains(canvasScreen(a), "row 0 ") {
+		t.Fatalf("wheel did not scroll:\n%s", canvasScreen(a))
 	}
 }
 
