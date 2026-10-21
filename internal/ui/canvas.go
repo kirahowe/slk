@@ -60,8 +60,12 @@ func (a *App) openConversationCanvas() tea.Cmd {
 		return toastWithClear(a, noCanvasToast, 2*time.Second)
 	}
 	teamID := a.activeTeamID
-	req := a.canvasView.OpenConversation(teamID)
+	req := a.canvasView.OpenConversation(teamID, channelID)
 	a.SetMode(ModeCanvas)
+	return a.listCanvases(teamID, channelID, req)
+}
+
+func (a *App) listCanvases(teamID, channelID string, req int) tea.Cmd {
 	svc := a.canvasSvc
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), canvasFetchTimeout)
@@ -153,6 +157,9 @@ func handleCanvasMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	case "r":
 		if fileID, req, ok := v.Reload(); ok {
 			return a.fetchCanvas(v.TeamID(), fileID, req)
+		}
+		if channelID, req, ok := v.Relist(); ok {
+			return a.listCanvases(v.TeamID(), channelID, req)
 		}
 	case "o":
 		if link := v.Permalink(); link != "" {

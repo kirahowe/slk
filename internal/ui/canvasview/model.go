@@ -37,13 +37,15 @@ const (
 type Model struct {
 	visible bool
 	teamID  string
-	files   []string
-	idx     int
-	req     int
-	state   state
-	canvas  core.Canvas
-	err     error
-	offset  int
+	// channelID is the conversation listed, "" when one file was opened.
+	channelID string
+	files     []string
+	idx       int
+	req       int
+	state     state
+	canvas    core.Canvas
+	err       error
+	offset    int
 	// rows is how many body rows the last frame showed, for paging.
 	rows int
 }
@@ -67,11 +69,25 @@ func (m *Model) Permalink() string { return m.canvas.Permalink }
 // OpenConversation shows the viewer while the App lists a
 // conversation's canvases. It returns the request to answer with
 // SetFiles.
-func (m *Model) OpenConversation(teamID string) int {
+func (m *Model) OpenConversation(teamID, channelID string) int {
 	m.Close()
-	m.visible, m.teamID, m.state = true, teamID, stateListing
+	m.visible, m.teamID, m.channelID = true, teamID, channelID
+	return m.list()
+}
+
+func (m *Model) list() int {
+	m.state, m.err = stateListing, nil
 	m.req++
 	return m.req
+}
+
+// Relist lists the conversation's canvases again after the listing
+// failed, returning the conversation and the request to answer.
+func (m *Model) Relist() (channelID string, req int, ok bool) {
+	if m.state != stateFailed || len(m.files) > 0 || m.channelID == "" {
+		return "", 0, false
+	}
+	return m.channelID, m.list(), true
 }
 
 // OpenFile shows one canvas. It returns the request to answer with
@@ -111,6 +127,10 @@ func (m *Model) Empty(req int, ids []string, err error) bool {
 func (m *Model) SetCanvas(req int, c core.Canvas, err error) bool {
 	if !m.visible || req != m.req || m.state != stateLoading {
 		return false
+	}
+	if err != nil && c.Permalink == "" {
+		// A failed reload keeps the link o opens.
+		c.Permalink = m.canvas.Permalink
 	}
 	m.canvas = c
 	if err != nil {

@@ -322,10 +322,7 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 		}
 	}
 	if a.canvasView.IsVisible() {
-		a.canvasView.Close()
-		if a.mode == ModeCanvas {
-			a.SetMode(ModeNormal)
-		}
+		a.closeCanvas()
 	}
 	if m.Domain != "" {
 		a.workspaceDomains[m.TeamID] = m.Domain

@@ -20,6 +20,7 @@ import (
 type canvasFake struct {
 	ids      map[string][]string // channel -> file IDs
 	canvases map[string]core.Canvas
+	listErr  error
 	listed   []string // "team/channel"
 	fetched  []string // "team/file"
 }
@@ -28,6 +29,9 @@ func (f *canvasFake) service() core.CanvasService {
 	return core.NewCanvasService(core.CanvasServiceFuncs{
 		ConversationCanvases: func(_ context.Context, teamID, channelID string) ([]string, error) {
 			f.listed = append(f.listed, teamID+"/"+channelID)
+			if f.listErr != nil {
+				return nil, f.listErr
+			}
 			return f.ids[channelID], nil
 		},
 		Canvas: func(_ context.Context, teamID, fileID string) (core.Canvas, error) {
@@ -191,6 +195,41 @@ func TestCanvasFailureShowsErrorAndRetries(t *testing.T) {
 	pressCanvas(t, a, keyPress('r'))
 	if !strings.Contains(canvasScreen(a), "recovered") {
 		t.Fatalf("retry did not load:\n%s", canvasScreen(a))
+	}
+}
+
+// r after a failed listing lists the conversation again.
+func TestCanvasRetryAfterFailedListing(t *testing.T) {
+	a, fake := canvasApp(t)
+	fake.listErr = errors.New("ratelimited")
+	pressCanvas(t, a, keyPress('c'))
+	if !strings.Contains(canvasScreen(a), "Couldn't load the canvas: ratelimited") {
+		t.Fatalf("no error shown:\n%s", canvasScreen(a))
+	}
+	fake.listErr = nil
+	pressCanvas(t, a, keyPress('r'))
+	if len(fake.listed) != 2 || !strings.Contains(canvasScreen(a), "promo packet") {
+		t.Fatalf("listed %v; screen:\n%s", fake.listed, canvasScreen(a))
+	}
+}
+
+// A reload that fails before Slack says where the canvas is keeps the
+// link o opens.
+func TestCanvasFailedReloadKeepsPermalink(t *testing.T) {
+	a, fake := canvasApp(t)
+	var opened []string
+	a.setDesktopForTest(func(d *core.DesktopServiceFuncs) {
+		d.Open = func(target string) error { opened = append(opened, target); return nil }
+	})
+	pressCanvas(t, a, keyPress('c'))
+	delete(fake.canvases, "F1")
+	pressCanvas(t, a, keyPress('r'))
+	if !strings.Contains(canvasScreen(a), "file_not_found") {
+		t.Fatalf("reload did not fail:\n%s", canvasScreen(a))
+	}
+	pressCanvas(t, a, keyPress('o'))
+	if strings.Join(opened, ",") != "https://x.slack.com/docs/T1/F1" {
+		t.Fatalf("opened %v", opened)
 	}
 }
 
