@@ -758,6 +758,22 @@ type UserProfileLoadedMsg struct {
 	Err            error
 }
 
+// CanvasListLoadedMsg carries a conversation's canvas file IDs for the
+// canvas viewer, answering request Req.
+type CanvasListLoadedMsg struct {
+	Req int
+	IDs []string
+	Err error
+}
+
+// CanvasLoadedMsg carries one fetched canvas for the canvas viewer,
+// answering request Req.
+type CanvasLoadedMsg struct {
+	Req    int
+	Canvas core.Canvas
+	Err    error
+}
+
 // UploadResultMsg carries the final result of an upload batch.
 type UploadResultMsg struct {
 	Err error

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -8,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/gammons/slk/internal/canvas"
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/ui/channelpicker"
 	"github.com/gammons/slk/internal/ui/help"
@@ -419,7 +421,49 @@ func dialogGoldens() []dialogGolden {
 				typeInCompose(a, ":sm")
 			},
 		},
+		{
+			name: "dialog_canvas", want: "1:1 notes", shown: canvasShown,
+			open: func(t *testing.T, a *App) {
+				req := a.canvasView.OpenFile("T1", "F1")
+				a.canvasView.SetCanvas(req, core.Canvas{Title: "1:1 notes", Doc: goldenCanvasDoc(t)}, nil)
+				a.SetMode(ModeCanvas)
+			},
+		},
+		{
+			name: "dialog_canvas_failed", want: "r to retry", shown: canvasShown,
+			open: func(t *testing.T, a *App) {
+				req := a.canvasView.OpenFile("T1", "F1")
+				a.canvasView.SetCanvas(req, core.Canvas{}, errors.New("files.info: file_not_found"))
+				a.SetMode(ModeCanvas)
+			},
+		},
 	}
+}
+
+func canvasShown(a *App) bool { return a.canvasView.IsVisible() }
+
+// goldenCanvasDoc is the markup canvases have been seen to use (see the
+// canvas viewer design doc), long enough to need the scrollbar.
+func goldenCanvasDoc(t *testing.T) canvas.Document {
+	t.Helper()
+	var b strings.Builder
+	b.WriteString(`<div class="quip-canvas-content"><h1>1:1 notes</h1>` +
+		`<p class="line"><control>October 21st</control></p>` +
+		`<div data-section-style='5'><ul><li>Goals for the quarter, written out at enough length that the item has to wrap onto a second line</li>` +
+		`<ul><li>first nested point</li><li>second nested point with <b>bold</b>, <i>italic</i> and <code>code</code></li></ul></ul></div>` +
+		`<h2>Follow-ups</h2>` +
+		`<div data-section-style='6'><ul><li value='1'>ask <control><a>@U1</a></control> about it</li><li><lnk href="https://example.com">a link</lnk></li></ul></div>` +
+		`<blockquote><p class="line">a quoted line</p></blockquote>` +
+		`<p class="prettyprint line">go test ./...</p>`)
+	for i := range 20 {
+		fmt.Fprintf(&b, `<p class="line">filler line %d</p>`, i+1)
+	}
+	b.WriteString(`</div>`)
+	doc, err := canvas.Parse(b.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return doc
 }
 
 // renderDialogGolden builds the fixture at d's size, opens d and returns

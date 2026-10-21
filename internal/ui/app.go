@@ -24,6 +24,7 @@ import (
 	"github.com/gammons/slk/internal/ids"
 	imgpkg "github.com/gammons/slk/internal/image"
 	"github.com/gammons/slk/internal/ui/activityview"
+	"github.com/gammons/slk/internal/ui/canvasview"
 	"github.com/gammons/slk/internal/ui/channelfinder"
 	"github.com/gammons/slk/internal/ui/channelpicker"
 	"github.com/gammons/slk/internal/ui/compose"
@@ -496,8 +497,10 @@ type App struct {
 	// cmd built by openUserProfile never calls a nil interface.
 	userProfile *userprofile.Model
 	profileSvc  core.ProfileService
-	// canvasSvc reads canvases for the canvas viewer.
-	canvasSvc core.CanvasService
+	// canvasView is the c-opened canvas viewer (internal/ui/canvasview);
+	// canvasSvc reads the canvases it shows.
+	canvasView *canvasview.Model
+	canvasSvc  core.CanvasService
 	// now is the clock used by the user-profile dialog's "local time"
 	// and status-expiry math. Defaults to time.Now; goldens pin it to
 	// goldenClock so the rendered frame is deterministic. Only this
@@ -956,6 +959,7 @@ func NewApp() *App {
 		clipboardWrite:        defaultClipboardWriter,
 		userProfile:           userprofile.New(),
 		profileSvc:            noopProfileService,
+		canvasView:            canvasview.New(),
 		canvasSvc:             noopCanvasService,
 		now:                   time.Now,
 	}
@@ -1139,6 +1143,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		reduceTheme,
 		reduceNewMessagePicker,
 		reduceUserProfile,
+		reduceCanvas,
 		reduceIO,
 		reduceMouse,
 	); handled {

@@ -68,6 +68,8 @@ type KeyMap struct {
 	RespondButtons      key.Binding `help:"Messages"`
 	ListReactions       key.Binding `help:"Messages"`
 	UserProfile         key.Binding `help:"Messages"`
+	Canvas              key.Binding `help:"Views"`
+	CanvasCommand       key.Binding `help:"Views"`
 	WindowPrefix        key.Binding `help:"Windows"`
 	WinSplit            key.Binding `help:"Windows"`
 	WinVSplit           key.Binding `help:"Windows"`
@@ -157,6 +159,9 @@ func DefaultKeyMap() KeyMap {
 		RespondButtons: key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "respond to message buttons")),
 		ListReactions:  key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "list reactions")),
 		UserProfile:    key.NewBinding(key.WithKeys("K"), key.WithHelp("K", "show author's profile")),
+		Canvas:         key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "open the conversation's canvas")),
+		// Keyless: :canvas is dispatched from the command registry.
+		CanvasCommand: key.NewBinding(key.WithHelp(":canvas", "open the conversation's canvas")),
 		// Window commands (design §4). WindowPrefix is the only real
 		// binding; the Win* entries are keyless help-only bindings
 		// (same trick as WorkspaceFinder above) — actual dispatch of

@@ -65,6 +65,7 @@ var modeHandlers = map[Mode]modeHandler{
 	ModeLinkPicker:           handleLinkPickerMode,
 	ModeWorkspaceSearch:      handleWorkspaceSearchMode,
 	ModeUserProfile:          handleUserProfileMode,
+	ModeCanvas:               handleCanvasMode,
 	ModeMarks:                handleMarksMode,
 }
 

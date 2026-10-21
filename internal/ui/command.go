@@ -39,6 +39,7 @@ type commandFunc func(a *App, args commandArgs) tea.Cmd
 var commands = map[string]commandFunc{
 	"ws":       cmdWorkspaceFinder,
 	"marks":    cmdMarks,
+	"canvas":   cmdCanvas,
 	"delmarks": cmdDelMarks,
 	"sp":       cmdSplit,
 	"vsp":      cmdVSplit,

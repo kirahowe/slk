@@ -22,6 +22,7 @@ const (
 	ModeWorkspaceSearch
 	ModeUserProfile
 	ModeMarks
+	ModeCanvas
 )
 
 // IsModalOverlay reports whether the mode is a full-screen modal
@@ -47,7 +48,8 @@ func (m Mode) IsModalOverlay() bool {
 		ModeLinkPicker,
 		ModeWorkspaceSearch,
 		ModeUserProfile,
-		ModeMarks:
+		ModeMarks,
+		ModeCanvas:
 		return true
 	default:
 		return false
@@ -92,6 +94,8 @@ func (m Mode) String() string {
 		return "PROFILE"
 	case ModeMarks:
 		return "MARKS"
+	case ModeCanvas:
+		return "CANVAS"
 	default:
 		return "UNKNOWN"
 	}
