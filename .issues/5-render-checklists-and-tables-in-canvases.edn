@@ -1,0 +1,11 @@
+{:id 5
+ :title "Render checklists and tables in canvases"
+ :status :inbox
+ :type :feature
+ :priority :p3
+ :created "2026-10-21"
+ :updated "2026-10-21"
+ :tags #{"canvas"}
+ :blocked-by #{}
+ :related #{}
+ :details "5-render-checklists-and-tables-in-canvases.md"}

@@ -1,0 +1,11 @@
+{:id 2
+ :title "Cache canvases so the viewer opens instantly"
+ :status :inbox
+ :type :feature
+ :priority :p3
+ :created "2026-10-21"
+ :updated "2026-10-21"
+ :tags #{"canvas"}
+ :blocked-by #{}
+ :related #{}
+ :details "2-cache-canvases-so-the-viewer-opens-instantly.md"}

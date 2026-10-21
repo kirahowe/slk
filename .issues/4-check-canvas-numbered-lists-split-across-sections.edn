@@ -1,0 +1,11 @@
+{:id 4
+ :title "Check canvas numbered lists split across sections"
+ :status :inbox
+ :type :bug
+ :priority :p3
+ :created "2026-10-21"
+ :updated "2026-10-21"
+ :tags #{"canvas"}
+ :blocked-by #{}
+ :related #{}
+ :details "4-check-canvas-numbered-lists-split-across-sections.md"}

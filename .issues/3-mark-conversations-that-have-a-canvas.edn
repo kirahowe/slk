@@ -1,0 +1,11 @@
+{:id 3
+ :title "Mark conversations that have a canvas"
+ :status :inbox
+ :type :feature
+ :priority :p3
+ :created "2026-10-21"
+ :updated "2026-10-21"
+ :tags #{"canvas"}
+ :blocked-by #{}
+ :related #{}
+ :details "3-mark-conversations-that-have-a-canvas.md"}

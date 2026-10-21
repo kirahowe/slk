@@ -3,7 +3,14 @@
 
 ## Open
 
-_none_
+### Inbox
+
+| ID | Title | Type | Priority |
+| --- | --- | --- | --- |
+| [2](2-cache-canvases-so-the-viewer-opens-instantly.md) | Cache canvases so the viewer opens instantly | feature | P3 |
+| [3](3-mark-conversations-that-have-a-canvas.md) | Mark conversations that have a canvas | feature | P3 |
+| [4](4-check-canvas-numbered-lists-split-across-sections.md) | Check canvas numbered lists split across sections | bug | P3 |
+| [5](5-render-checklists-and-tables-in-canvases.md) | Render checklists and tables in canvases | feature | P3 |
 
 ## Done
 
