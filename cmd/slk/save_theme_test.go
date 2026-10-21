@@ -49,7 +49,7 @@ func TestSaveWorkspaceThemeNewSection(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := saveWorkspaceTheme(path, "T01ABCDEF", "T01ABCDEF", "ACME Corp", "dracula"); err != nil {
+	if err := saveWorkspaceTheme(path, "T01ABCDEF", "ACME Corp", "dracula"); err != nil {
 		t.Fatalf("saveWorkspaceTheme: %v", err)
 	}
 
@@ -84,7 +84,7 @@ theme = "dracula"
 		t.Fatal(err)
 	}
 
-	if err := saveWorkspaceTheme(path, "T01ABCDEF", "T01ABCDEF", "ACME Corp", "tokyo night"); err != nil {
+	if err := saveWorkspaceTheme(path, "T01ABCDEF", "ACME Corp", "tokyo night"); err != nil {
 		t.Fatalf("saveWorkspaceTheme: %v", err)
 	}
 
@@ -116,7 +116,7 @@ theme = "dracula"
 	}
 
 	// tomlKey = "work" (the slug); teamID is the underlying ID.
-	if err := saveWorkspaceTheme(path, "work", "T01ABCDEF", "ACME Corp", "tokyo night"); err != nil {
+	if err := saveWorkspaceTheme(path, "T01ABCDEF", "ACME Corp", "tokyo night"); err != nil {
 		t.Fatalf("saveWorkspaceTheme: %v", err)
 	}
 
@@ -142,16 +142,16 @@ func TestSaveWorkspaceThemeMultipleWorkspaces(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := saveWorkspaceTheme(path, "T01", "T01", "ACME", "dracula"); err != nil {
+	if err := saveWorkspaceTheme(path, "T01AAAAAA", "ACME", "dracula"); err != nil {
 		t.Fatal(err)
 	}
-	if err := saveWorkspaceTheme(path, "T02", "T02", "Personal", "tokyo night"); err != nil {
+	if err := saveWorkspaceTheme(path, "T02BBBBBB", "Personal", "tokyo night"); err != nil {
 		t.Fatal(err)
 	}
 
 	data, _ := os.ReadFile(path)
 	got := string(data)
-	if !strings.Contains(got, "[workspaces.T01]") || !strings.Contains(got, "[workspaces.T02]") {
+	if !strings.Contains(got, "[workspaces.T01AAAAAA]") || !strings.Contains(got, "[workspaces.T02BBBBBB]") {
 		t.Errorf("expected both workspace sections, got:\n%s", got)
 	}
 	if !strings.Contains(got, `theme = "dracula"`) || !strings.Contains(got, `theme = "tokyo night"`) {
@@ -165,7 +165,7 @@ func TestSaveGlobalThemeIgnoresWorkspaceSection(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
 	initial := `# ACME
-[workspaces.T01]
+[workspaces.T01AAAAAA]
 theme = "dracula"
 
 [appearance]
@@ -219,7 +219,7 @@ func TestSaveWorkspaceThemeSanitizesTeamName(t *testing.T) {
 
 	// Team name with newline + control character.
 	badName := "ACME\nCorp\x07"
-	if err := saveWorkspaceTheme(path, "T01", "T01", badName, "dracula"); err != nil {
+	if err := saveWorkspaceTheme(path, "T01AAAAAA", badName, "dracula"); err != nil {
 		t.Fatalf("saveWorkspaceTheme: %v", err)
 	}
 
@@ -239,20 +239,21 @@ func TestSaveWorkspaceThemeSanitizesTeamName(t *testing.T) {
 	}
 }
 
-func TestSaveWorkspaceThemeDoesNotClobberDottedThemeKey(t *testing.T) {
+// A line whose key only starts with "theme" is a different key.
+func TestSaveWorkspaceThemeMatchesTheWholeKey(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
 	initial := `# ACME Corp
 [workspaces.work]
 team_id = "T01ABCDEF"
-theme.background = "#000000"
+theme_note = "keep"
 theme = "dracula"
 `
 	if err := os.WriteFile(path, []byte(initial), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := saveWorkspaceTheme(path, "work", "T01ABCDEF", "ACME Corp", "tokyo night"); err != nil {
+	if err := saveWorkspaceTheme(path, "T01ABCDEF", "ACME Corp", "tokyo night"); err != nil {
 		t.Fatalf("saveWorkspaceTheme: %v", err)
 	}
 
@@ -261,12 +262,10 @@ theme = "dracula"
 	if !strings.Contains(s, `theme = "tokyo night"`) {
 		t.Errorf("expected theme updated, got:\n%s", s)
 	}
-	if !strings.Contains(s, `theme.background = "#000000"`) {
-		t.Errorf("dotted theme.background line was clobbered:\n%s", s)
+	if !strings.Contains(s, `theme_note = "keep"`) {
+		t.Errorf("theme_note line was clobbered:\n%s", s)
 	}
-	// Make sure we didn't end up with two `theme = ` lines.
-	count := strings.Count(s, "theme = ")
-	if count != 1 {
+	if count := strings.Count(s, "theme = "); count != 1 {
 		t.Errorf("expected exactly one `theme = ` line, found %d:\n%s", count, s)
 	}
 }

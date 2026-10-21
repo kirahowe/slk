@@ -28,36 +28,33 @@ func newWorkspaceConfigStore(cfg config.Config) *workspaceConfigStore {
 	return &workspaceConfigStore{cfg: cfg}
 }
 
-// SaveTheme finds or creates teamID's TOML block and sets its Theme,
-// returning the TOML key for the caller to persist to disk.
-func (s *workspaceConfigStore) SaveTheme(teamID, name string) (tomlKey string) {
+// SaveTheme finds or creates teamID's block and sets its Theme. The
+// caller persists it with saveWorkspaceTheme, which finds the block in
+// the file on its own.
+func (s *workspaceConfigStore) SaveTheme(teamID, name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	tomlKey = s.tomlKeyFor(teamID)
+	tomlKey := s.tomlKeyFor(teamID)
 	ws := s.cfg.Workspaces[tomlKey]
 	ws.TeamID = teamID
 	ws.Theme = name
 	s.cfg.Workspaces[tomlKey] = ws
-	return tomlKey
 }
 
 // SaveSidebarWidth is SaveTheme's sibling for sidebar width.
-func (s *workspaceConfigStore) SaveSidebarWidth(teamID string, width int) (tomlKey string) {
+func (s *workspaceConfigStore) SaveSidebarWidth(teamID string, width int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	tomlKey = s.tomlKeyFor(teamID)
+	tomlKey := s.tomlKeyFor(teamID)
 	ws := s.cfg.Workspaces[tomlKey]
 	ws.TeamID = teamID
 	ws.SidebarWidth = width
 	s.cfg.Workspaces[tomlKey] = ws
-	return tomlKey
 }
 
-// tomlKeyFor finds the existing TOML key for teamID, if any -- if no
-// block exists yet it falls back to the team ID itself (legacy
-// default; a future --add-workspace may have already written a
-// slug-keyed block) -- and ensures Workspaces is non-nil. Callers must
-// hold mu.
+// tomlKeyFor finds the existing key for teamID in the in-memory map,
+// falling back to the team ID itself, and ensures Workspaces is
+// non-nil. Callers must hold mu.
 func (s *workspaceConfigStore) tomlKeyFor(teamID string) string {
 	if s.cfg.Workspaces == nil {
 		s.cfg.Workspaces = make(map[string]config.Workspace)

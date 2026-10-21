@@ -643,9 +643,8 @@ func run() error {
 			if wctx := router.ByID(teamID); wctx != nil && wctx.TeamName != "" {
 				teamName = wctx.TeamName
 			}
-			tomlKey := workspacesStore.SaveTheme(teamID, name)
-			// Persist.
-			if err := saveWorkspaceTheme(configPath, tomlKey, teamID, teamName, name); err != nil {
+			workspacesStore.SaveTheme(teamID, name)
+			if err := saveWorkspaceTheme(configPath, teamID, teamName, name); err != nil {
 				log.Printf("save workspace theme: %v", err)
 			}
 		case themeswitcher.ScopeGlobal:
@@ -667,8 +666,8 @@ func run() error {
 		if wctx := router.ByID(teamID); wctx != nil && wctx.TeamName != "" {
 			teamName = wctx.TeamName
 		}
-		tomlKey := workspacesStore.SaveSidebarWidth(teamID, width)
-		if err := saveWorkspaceWidth(configPath, tomlKey, teamID, teamName, width); err != nil {
+		workspacesStore.SaveSidebarWidth(teamID, width)
+		if err := saveWorkspaceWidth(configPath, teamID, teamName, width); err != nil {
 			log.Printf("save workspace sidebar width: %v", err)
 		}
 	}

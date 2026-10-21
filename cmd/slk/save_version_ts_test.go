@@ -18,7 +18,7 @@ func TestSaveWorkspaceVersionTS_UpdatesExisting(t *testing.T) {
 	if err := os.WriteFile(path, []byte(initial), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
-	if err := saveWorkspaceVersionTS(path, "acme", "T04T4TH8W", "My Team", "1785403654"); err != nil {
+	if err := saveWorkspaceVersionTS(path, "T04T4TH8W", "My Team", "1785403654"); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 	out, _ := os.ReadFile(path)
@@ -45,7 +45,7 @@ func TestSaveWorkspaceVersionTS_AddsToExistingSection(t *testing.T) {
 	if err := os.WriteFile(path, []byte("[workspaces.acme]\nteam_id = \"T04T4TH8W\"\n"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
-	if err := saveWorkspaceVersionTS(path, "acme", "T04T4TH8W", "My Team", "1785403654"); err != nil {
+	if err := saveWorkspaceVersionTS(path, "T04T4TH8W", "My Team", "1785403654"); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 	out, _ := os.ReadFile(path)
@@ -60,11 +60,11 @@ func TestSaveWorkspaceVersionTS_AddsToExistingSection(t *testing.T) {
 func TestSaveWorkspaceVersionTS_DoesNotTouchOtherWorkspaces(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
-	initial := "[workspaces.acme]\nteam_id = \"T111\"\nversion_ts = \"1111111111\"\n\n[workspaces.other]\nteam_id = \"T222\"\nversion_ts = \"2222222222\"\n"
+	initial := "[workspaces.acme]\nteam_id = \"T01AAAAAA\"\nversion_ts = \"1111111111\"\n\n[workspaces.other]\nteam_id = \"T02BBBBBB\"\nversion_ts = \"2222222222\"\n"
 	if err := os.WriteFile(path, []byte(initial), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
-	if err := saveWorkspaceVersionTS(path, "acme", "T111", "Acme", "9999999999"); err != nil {
+	if err := saveWorkspaceVersionTS(path, "T01AAAAAA", "Acme", "9999999999"); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 	out := string(mustRead(t, path))
@@ -79,7 +79,7 @@ func TestSaveWorkspaceVersionTS_DoesNotTouchOtherWorkspaces(t *testing.T) {
 func TestSaveWorkspaceVersionTS_CreatesFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sub", "config.toml")
-	if err := saveWorkspaceVersionTS(path, "acme", "T04T4TH8W", "My Team", "1785403654"); err != nil {
+	if err := saveWorkspaceVersionTS(path, "T04T4TH8W", "My Team", "1785403654"); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 	out, err := os.ReadFile(path)
@@ -99,7 +99,7 @@ func TestSaveWorkspaceVersionTS_CreatesFile(t *testing.T) {
 func TestSaveWorkspaceVersionTS_ConcurrentSavesDoNotLoseUpdates(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
-	initial := "[workspaces.acme]\nteam_id = \"T111\"\n\n[workspaces.other]\nteam_id = \"T222\"\n"
+	initial := "[workspaces.acme]\nteam_id = \"T01AAAAAA\"\n\n[workspaces.other]\nteam_id = \"T02BBBBBB\"\n"
 	if err := os.WriteFile(path, []byte(initial), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
@@ -107,13 +107,13 @@ func TestSaveWorkspaceVersionTS_ConcurrentSavesDoNotLoseUpdates(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, 2)
 	for _, w := range []struct{ key, teamID, ts string }{
-		{"acme", "T111", "1111111111"},
-		{"other", "T222", "2222222222"},
+		{"acme", "T01AAAAAA", "1111111111"},
+		{"other", "T02BBBBBB", "2222222222"},
 	} {
 		wg.Add(1)
 		go func(key, teamID, ts string) {
 			defer wg.Done()
-			if err := saveWorkspaceVersionTS(path, key, teamID, key, ts); err != nil {
+			if err := saveWorkspaceVersionTS(path, teamID, key, ts); err != nil {
 				errs <- err
 			}
 		}(w.key, w.teamID, w.ts)
@@ -136,9 +136,9 @@ func TestSaveWorkspaceVersionTS_ConcurrentSavesDoNotLoseUpdates(t *testing.T) {
 func TestSeedVersionTS_UsesCachedValue(t *testing.T) {
 	env := slackhttp.NewEnvelope()
 	cfg := config.Config{Workspaces: map[string]config.Workspace{
-		"acme": {TeamID: "T111", VersionTS: "1799999999"},
+		"acme": {TeamID: "T01AAAAAA", VersionTS: "1799999999"},
 	}}
-	seedVersionTS(env, cfg, "T111")
+	seedVersionTS(env, cfg, "T01AAAAAA")
 	if got := env.VersionTS(); got != "1799999999" {
 		t.Errorf("VersionTS = %q; want the cached 1799999999", got)
 	}
@@ -147,9 +147,9 @@ func TestSeedVersionTS_UsesCachedValue(t *testing.T) {
 func TestSeedVersionTS_UnknownWorkspaceKeepsFallback(t *testing.T) {
 	env := slackhttp.NewEnvelope()
 	cfg := config.Config{Workspaces: map[string]config.Workspace{
-		"acme": {TeamID: "T111", VersionTS: "1799999999"},
+		"acme": {TeamID: "T01AAAAAA", VersionTS: "1799999999"},
 	}}
-	seedVersionTS(env, cfg, "T999")
+	seedVersionTS(env, cfg, "T09ZZZZZZ")
 	if got := env.VersionTS(); got != slackhttp.DefaultVersionTS {
 		t.Errorf("VersionTS = %q; want the compiled-in fallback %q", got, slackhttp.DefaultVersionTS)
 	}
@@ -158,9 +158,9 @@ func TestSeedVersionTS_UnknownWorkspaceKeepsFallback(t *testing.T) {
 func TestSeedVersionTS_EmptyCachedValueKeepsFallback(t *testing.T) {
 	env := slackhttp.NewEnvelope()
 	cfg := config.Config{Workspaces: map[string]config.Workspace{
-		"acme": {TeamID: "T111"},
+		"acme": {TeamID: "T01AAAAAA"},
 	}}
-	seedVersionTS(env, cfg, "T111")
+	seedVersionTS(env, cfg, "T01AAAAAA")
 	if got := env.VersionTS(); got != slackhttp.DefaultVersionTS {
 		t.Errorf("VersionTS = %q; want the compiled-in fallback %q", got, slackhttp.DefaultVersionTS)
 	}
@@ -168,9 +168,9 @@ func TestSeedVersionTS_EmptyCachedValueKeepsFallback(t *testing.T) {
 
 func TestSeedVersionTS_NilEnvelopeIsNoOp(t *testing.T) {
 	cfg := config.Config{Workspaces: map[string]config.Workspace{
-		"acme": {TeamID: "T111", VersionTS: "1799999999"},
+		"acme": {TeamID: "T01AAAAAA", VersionTS: "1799999999"},
 	}}
-	seedVersionTS(nil, cfg, "T111") // must not panic
+	seedVersionTS(nil, cfg, "T01AAAAAA") // must not panic
 }
 
 func mustRead(t *testing.T, p string) []byte {
