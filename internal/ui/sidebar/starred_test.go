@@ -146,6 +146,8 @@ func TestStarredRenderingNavigationAndRefresh(t *testing.T) {
 
 func TestStarredUnreadMouseAndStaleness(t *testing.T) {
 	m := New(starredItems())
+	// Off, so D1 (mentioned) stays in the starred order this walks.
+	m.SetUnreadsSection(false)
 	m.SetSectionsProvider(&fakeProvider{ready: true, sections: []SectionMeta{{ID: "ST", Type: "stars"}}})
 	m.SetReadStateReader(func() map[string]core.ReadState {
 		return map[string]core.ReadState{

@@ -23,6 +23,9 @@ import (
 // several of these cases is that a figure is *absent*, and only an
 // exact form can prove nothing extra was appended.
 //
+// Every test here turns the Unreads section off: with it on, a row with
+// a mention moves to Unreads, so a home section never holds one.
+//
 // Note the two-space gap in the expected strings, e.g. "•2  3". The
 // mention badge is styles.MentionBadgeStyle().Render(...), whose
 // Padding(0, 1) supplies one space of its own, and the header adds an
@@ -41,6 +44,7 @@ func TestCollapsedHeader_ShowsUnreadAndMentionAggregates(t *testing.T) {
 		{ID: "C1", Name: "deploys", Type: "channel"},
 		{ID: "C2", Name: "general", Type: "channel"},
 	})
+	m.SetUnreadsSection(false)
 	m.SetReadStateReader(func() map[string]cache.ReadState {
 		return map[string]cache.ReadState{
 			"C1": {HasUnread: true, MentionCount: 3},
@@ -67,6 +71,7 @@ func TestCollapsedHeader_NoMentionsShowsOnlyUnreadAggregate(t *testing.T) {
 		{ID: "C1", Name: "deploys", Type: "channel"},
 		{ID: "C2", Name: "general", Type: "channel"},
 	})
+	m.SetUnreadsSection(false)
 	m.SetReadStateReader(func() map[string]cache.ReadState {
 		return map[string]cache.ReadState{
 			"C1": {HasUnread: true},
@@ -88,6 +93,7 @@ func TestCollapsedHeader_ExpandedShowsNeitherAggregate(t *testing.T) {
 		{ID: "C1", Name: "deploys", Type: "channel"},
 		{ID: "C2", Name: "general", Type: "channel"},
 	})
+	m.SetUnreadsSection(false)
 	m.SetReadStateReader(func() map[string]cache.ReadState {
 		return map[string]cache.ReadState{
 			"C1": {HasUnread: true, MentionCount: 3},
@@ -116,6 +122,7 @@ func TestCollapsedHeader_MentionAggregateSumsAcrossChannels(t *testing.T) {
 		{ID: "C2", Name: "general", Type: "channel"},
 		{ID: "C3", Name: "random", Type: "channel"},
 	})
+	m.SetUnreadsSection(false)
 	m.SetReadStateReader(func() map[string]cache.ReadState {
 		return map[string]cache.ReadState{
 			"C1": {HasUnread: true, MentionCount: 2},
@@ -140,6 +147,7 @@ func TestCollapsedHeader_MutedChannelFeedsMentionsNotUnreads(t *testing.T) {
 		{ID: "C1", Name: "noisy", Type: "channel", IsMuted: true},
 		{ID: "C2", Name: "general", Type: "channel"},
 	})
+	m.SetUnreadsSection(false)
 	m.SetReadStateReader(func() map[string]cache.ReadState {
 		return map[string]cache.ReadState{
 			"C1": {HasUnread: true, MentionCount: 4},
@@ -164,6 +172,7 @@ func TestCollapsedHeader_AllMutedShowsMentionsWithoutUnreadAggregate(t *testing.
 	m := New([]ChannelItem{
 		{ID: "C1", Name: "noisy", Type: "channel", IsMuted: true},
 	})
+	m.SetUnreadsSection(false)
 	m.SetReadStateReader(func() map[string]cache.ReadState {
 		return map[string]cache.ReadState{
 			"C1": {HasUnread: true, MentionCount: 4},
@@ -184,6 +193,7 @@ func TestCollapsedHeader_MentionAggregateCapsAt99Plus(t *testing.T) {
 		{ID: "C1", Name: "deploys", Type: "channel"},
 		{ID: "C2", Name: "general", Type: "channel"},
 	})
+	m.SetUnreadsSection(false)
 	m.SetReadStateReader(func() map[string]cache.ReadState {
 		return map[string]cache.ReadState{
 			"C1": {HasUnread: true, MentionCount: 60},
@@ -209,6 +219,7 @@ func TestCollapsedHeader_SelectedVariantCarriesBothFigures(t *testing.T) {
 		{ID: "C1", Name: "deploys", Type: "channel"},
 		{ID: "C2", Name: "general", Type: "channel"},
 	})
+	m.SetUnreadsSection(false)
 	m.SetReadStateReader(func() map[string]cache.ReadState {
 		return map[string]cache.ReadState{
 			"C1": {HasUnread: true, MentionCount: 3},
@@ -256,6 +267,7 @@ func TestCollapsedHeader_ThemedMentionBadgePaintsOnlyItsOwnCells(t *testing.T) {
 	}
 
 	m := New([]ChannelItem{{ID: "C1", Name: "deploys", Type: "channel"}})
+	m.SetUnreadsSection(false)
 	m.SetReadStateReader(func() map[string]cache.ReadState {
 		return map[string]cache.ReadState{"C1": {HasUnread: true, MentionCount: 42}}
 	})

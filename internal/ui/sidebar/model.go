@@ -2,6 +2,7 @@ package sidebar
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"time"
@@ -26,6 +27,12 @@ const (
 	// matching the behavior of the official Slack desktop client. Falls
 	// between "Direct Messages" (humans) and "Channels" (firehose).
 	defaultAppsSection = "Apps"
+	// unreadsSection is the key of the Unreads section at the top of the
+	// sidebar. The NUL keeps it apart from every Slack section ID and
+	// every config section name, so a user's own section titled
+	// "Unreads" stays a separate section.
+	unreadsSection = "\x00unreads"
+	unreadsTitle   = "Unreads"
 )
 
 // mentionBadgeCap matches Slack: counts above it render as "99+", which
@@ -113,6 +120,40 @@ func (item ChannelItem) MentionBadge(state core.ReadState) int {
 		return 0
 	}
 	return state.MentionCount
+}
+
+// InUnreads reports whether this conversation belongs in the Unreads
+// section: it has a mention badge (mentions pierce mute, and every
+// message in an app DM counts), or it is an unmuted DM or group DM with
+// unread messages. An unread channel without a mention stays in its own
+// section.
+func (item ChannelItem) InUnreads(state core.ReadState) bool {
+	if item.MentionBadge(state) > 0 {
+		return true
+	}
+	return (item.Type == "dm" || item.Type == "group_dm") && item.IsVisiblyUnread(state)
+}
+
+// unreadsMembers returns the IDs of the items in the Unreads section and
+// how many of them InUnreads holds for. activeID, the conversation open
+// in the message pane, stays a member while it is open if it was one
+// before (prev), even once read, so the row does not move out from
+// under the user; it never becomes a member by being opened.
+func unreadsMembers(items []ChannelItem, state map[string]core.ReadState, activeID string, prev map[string]bool) (members map[string]bool, count int) {
+	for _, item := range items {
+		in := item.InUnreads(state[item.ID])
+		if !in && (item.ID != activeID || !prev[item.ID]) {
+			continue
+		}
+		if members == nil {
+			members = map[string]bool{}
+		}
+		members[item.ID] = true
+		if in {
+			count++
+		}
+	}
+	return members, count
 }
 
 // sectionFor is the package-level back-compat shim for callers
@@ -289,6 +330,17 @@ type Model struct {
 	// Populated lazily; lookups treat nil as empty. Used in Task 9.
 	collapseByID map[string]bool
 
+	// unreads holds the IDs of the items drawn in the Unreads section
+	// (see unreadsMembers), and unreadsCount how many of them still
+	// need the user. Recomputed by rebuildFilter, and by Invalidate on
+	// a read-state change.
+	unreads      map[string]bool
+	unreadsCount int
+	// unreadsOff turns the Unreads section off ([sidebar]
+	// unreads_section = false): every row stays in its own section.
+	// unreadsCount is still kept, for the status bar.
+	unreadsOff bool
+
 	// Staleness filter: items whose last_read_ts (from the read-state
 	// DB, fetched via readStateReader in rebuildFilter) is older than
 	// staleThreshold are dropped from `filtered` (i.e. hidden from the
@@ -376,10 +428,42 @@ func (m *Model) SetSectionsProvider(p SectionsProvider) {
 // Called by View() at render time. Setting it invalidates the row cache
 // so the next render reflects the new source.
 func (m *Model) SetReadStateReader(f func() map[string]core.ReadState) {
+	key, hadKey := m.currentCursorKey()
 	m.readStateReader = f
+	m.rebuildFilter()
+	m.rebuildNavWithCursor(key, hadKey)
 	m.cacheValid = false
 	m.dirty()
 }
+
+// computeUnreads is unreadsMembers over the model's items, open
+// conversation and current members, with no members while the section
+// is turned off.
+func (m *Model) computeUnreads(state map[string]core.ReadState) (map[string]bool, int) {
+	members, count := unreadsMembers(m.items, state, m.activeID, m.unreads)
+	if m.unreadsOff {
+		members = nil
+	}
+	return members, count
+}
+
+// SetUnreadsSection turns the Unreads section on (the default) or off.
+func (m *Model) SetUnreadsSection(on bool) {
+	if m.unreadsOff == !on {
+		return
+	}
+	key, hadKey := m.currentCursorKey()
+	m.unreadsOff = !on
+	m.rebuildFilter()
+	m.rebuildNavWithCursor(key, hadKey)
+	m.cacheValid = false
+	m.dirty()
+}
+
+// UnreadsCount returns the number of conversations in the Unreads
+// section that still need the user, leaving out the open one when it is
+// held there after being read.
+func (m *Model) UnreadsCount() int { return m.unreadsCount }
 
 // UnreadChannelCount returns the number of channels currently in the
 // sidebar that should render as unread (HasUnread && !IsMuted), via
@@ -400,19 +484,22 @@ func (m *Model) UnreadChannelCount() int {
 	return count
 }
 
-// NextUnread returns the visibly-unread channel (HasUnread && !IsMuted)
-// that follows afterID, wrapping around, and the fields the App needs to
-// raise a ChannelSelectedMsg. afterID itself is always skipped so
-// repeated calls advance through the unread set; pass the currently-open
-// channel ID. dir > 0 walks forward (next), dir < 0 walks backward
-// (previous). ok is false when no *other* channel is unread (an empty
-// inbox, or afterID is the only unread one).
+// NextUnread returns the unread channel that follows afterID, wrapping
+// around, and the fields the App needs to raise a ChannelSelectedMsg.
+// A channel counts when it is visibly unread (HasUnread && !IsMuted) or
+// has a mention badge (mentions pierce mute). afterID itself is always
+// skipped so repeated calls advance through the unread set; pass the
+// currently-open channel ID. dir > 0 walks forward (next), dir < 0 walks
+// backward (previous). ok is false when no *other* channel is unread (an
+// empty inbox, or afterID is the only unread one).
 //
 // Walk order is m.filtered -- the section-sorted order the sidebar renders
 // in -- so a/A traverse unread channels top-to-bottom rather than raw feed
 // order. Unread channels are never removed by the staleness filter
 // (IsStale returns false whenever hasUnread), so every unread channel is
-// reachable.
+// reachable. From a channel outside the Unreads section, the walk goes
+// into that section first (its first row forward, its last backward):
+// the conversations waiting on the user come before the rest.
 //
 // m.filtered is built by rebuildFilter, which does NOT apply collapse
 // state (collapse is handled later, in rebuildNav). So the walk deliberately
@@ -430,7 +517,7 @@ func (m *Model) NextUnread(afterID string, dir int) (id, name, chType string, ok
 	if len(m.filtered) == 0 {
 		return "", "", "", false
 	}
-	item, ok := nextUnread(m.items, m.filtered, m.readStateReader(), afterID, dir)
+	item, ok := nextUnread(m.items, m.filtered, m.readStateReader(), m.unreads, afterID, dir)
 	if !ok {
 		return "", "", "", false
 	}
@@ -438,9 +525,10 @@ func (m *Model) NextUnread(afterID string, dir int) (id, name, chType string, ok
 }
 
 // nextUnread is NextUnread's walk over items in filtered order, with
-// the read state passed in: the first visibly-unread item after afterID
-// in direction dir (wrapping), never afterID itself.
-func nextUnread(items []ChannelItem, filtered []int, state map[string]core.ReadState, afterID string, dir int) (ChannelItem, bool) {
+// the read state and the Unreads section's members passed in: the first
+// unread item after afterID in direction dir (wrapping), never afterID
+// itself, trying the members of unreads first when afterID is not one.
+func nextUnread(items []ChannelItem, filtered []int, state map[string]core.ReadState, unreads map[string]bool, afterID string, dir int) (ChannelItem, bool) {
 	n := len(filtered)
 	if n == 0 {
 		return ChannelItem{}, false
@@ -448,6 +536,21 @@ func nextUnread(items []ChannelItem, filtered []int, state map[string]core.ReadS
 	step := 1
 	if dir < 0 {
 		step = -1
+	}
+	wanted := func(item ChannelItem) bool {
+		st := state[item.ID]
+		return item.ID != afterID && (item.IsVisiblyUnread(st) || item.MentionBadge(st) > 0)
+	}
+	if !unreads[afterID] {
+		for off := 0; off < n; off++ {
+			pos := off
+			if step < 0 {
+				pos = n - 1 - off
+			}
+			if item := items[filtered[pos]]; unreads[item.ID] && wanted(item) {
+				return item, true
+			}
+		}
 	}
 	// Anchor one step *behind* afterID so the loop's first probe (off=1)
 	// is afterID's neighbour in the walk direction. When afterID isn't in
@@ -465,11 +568,7 @@ func nextUnread(items []ChannelItem, filtered []int, state map[string]core.ReadS
 		}
 	}
 	for off := 1; off <= n; off++ {
-		item := items[filtered[((start+step*off)%n+n)%n]]
-		if item.ID == afterID {
-			continue
-		}
-		if item.IsVisiblyUnread(state[item.ID]) {
+		if item := items[filtered[((start+step*off)%n+n)%n]]; wanted(item) {
 			return item, true
 		}
 	}
@@ -478,7 +577,19 @@ func nextUnread(items []ChannelItem, filtered []int, state map[string]core.ReadS
 
 // Invalidate forces the next View() call to re-read read state from
 // the installed reader. Called by App.Update on ReadStateChangedMsg.
+//
+// Read state also decides which rows sit in the Unreads section, so a
+// change to that set re-sorts the sidebar, keeping the cursor on the
+// row it was on.
 func (m *Model) Invalidate() {
+	if m.readStateReader != nil {
+		members, count := m.computeUnreads(m.readStateReader())
+		if !maps.Equal(members, m.unreads) || count != m.unreadsCount {
+			key, hadKey := m.currentCursorKey()
+			m.rebuildFilter()
+			m.rebuildNavWithCursor(key, hadKey)
+		}
+	}
 	m.cacheValid = false
 	m.dirty()
 }
@@ -496,6 +607,9 @@ func (m *Model) useSlackSections() bool {
 // type (direct_messages / recent_apps / channels). In config mode,
 // the existing string constants apply.
 func (m *Model) sectionFor(item ChannelItem) string {
+	if m.unreads[item.ID] {
+		return unreadsSection
+	}
 	if item.Section != "" {
 		return item.Section
 	}
@@ -537,16 +651,31 @@ func (m *Model) sectionFor(item ChannelItem) string {
 // the current model state. Slack mode: provider's verbatim list,
 // returning IDs of sections that have at least one filtered item OR
 // are standard-typed. Config mode: legacy algorithm.
+//
+// The Unreads section comes first whenever it has a row; the rows in it
+// do not count toward their home sections.
 func (m *Model) modelOrderedSections(filtered []int) []string {
+	var out []string
+	home := filtered
+	if len(m.unreads) > 0 {
+		home = make([]int, 0, len(filtered))
+		for _, idx := range filtered {
+			if !m.unreads[m.items[idx].ID] {
+				home = append(home, idx)
+			}
+		}
+		if len(home) < len(filtered) {
+			out = append(out, unreadsSection)
+		}
+	}
 	if !m.useSlackSections() {
-		return orderedSectionsLegacy(m.items, filtered)
+		return append(out, orderedSectionsLegacy(m.items, home)...)
 	}
 	metas := m.sectionsProvider.OrderedSlackSections()
 	hasItem := map[string]bool{}
-	for _, idx := range filtered {
+	for _, idx := range home {
 		hasItem[m.sectionFor(m.items[idx])] = true
 	}
-	out := make([]string, 0, len(metas))
 	for _, meta := range metas {
 		if meta.Type == "standard" || hasItem[meta.ID] {
 			out = append(out, meta.ID)
@@ -1331,6 +1460,7 @@ func (m *Model) rebuildFilter() {
 	if m.readStateReader != nil {
 		readState = m.readStateReader()
 	}
+	m.unreads, m.unreadsCount = m.computeUnreads(readState)
 	for i, item := range m.items {
 		if m.filter != "" && !strings.Contains(text.Fold(item.Name), lower) {
 			continue
@@ -1362,7 +1492,7 @@ func (m *Model) rebuildFilter() {
 // sortFilteredIdx sorts filtered (indices into items) into the order the
 // sidebar draws them: by the section's position in sectionOrder (each
 // item's section is sectionOf(item)), channels before conversations
-// inside each section, then ChannelOrder > 0 ascending, then
+// inside each section (conversations first in the Unreads section), then ChannelOrder > 0 ascending, then
 // text.Fold(Name), then input order.
 func sortFilteredIdx(items []ChannelItem, filtered []int, sectionOf func(ChannelItem) string, sectionOrder []string) {
 	rank := make(map[string]int, len(sectionOrder))
@@ -1383,7 +1513,8 @@ func sortFilteredIdx(items []ChannelItem, filtered []int, sectionOf func(Channel
 		ca := items[ia].Type == "channel" || items[ia].Type == "private"
 		cb := items[ib].Type == "channel" || items[ib].Type == "private"
 		if ca != cb {
-			return ca
+			// The Unreads section puts people ahead of channels.
+			return ca != (sa == unreadsSection)
 		}
 		// Within a section: annotated (ChannelOrder > 0) before
 		// un-annotated; among annotated, lower wins; among
@@ -2032,6 +2163,9 @@ func (m *Model) buildCache(width int) {
 // nav header is the section ID; in config mode it's the section name
 // (no emoji available).
 func (m *Model) sectionDisplayMeta(sectionKey string) (name, emoji string) {
+	if sectionKey == unreadsSection {
+		return unreadsTitle, ""
+	}
 	if m.useSlackSections() {
 		for _, meta := range m.sectionsProvider.OrderedSlackSections() {
 			if meta.ID == sectionKey {

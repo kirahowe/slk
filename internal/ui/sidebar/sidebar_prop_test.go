@@ -393,8 +393,9 @@ func TestAggregateSectionSumsRows(t *testing.T) {
 	})
 }
 
-// nextUnread never returns afterID and finds something exactly when
-// another visibly-unread item is in filtered. Stepping forward from an
+// nextUnread, with no Unreads section, never returns afterID and finds
+// something exactly when another unread item (visibly unread, or with a
+// mention badge) is in filtered. Stepping forward from an
 // unread item visits every unread item exactly once before coming back,
 // in filtered order, and a step back undoes a step forward.
 func TestNextUnreadCycles(t *testing.T) {
@@ -404,14 +405,14 @@ func TestNextUnreadCycles(t *testing.T) {
 		filtered := rapid.Permutation(allIdx(items)).Draw(t, "filtered")
 		var unread []string
 		for _, idx := range filtered {
-			if items[idx].IsVisiblyUnread(state[items[idx].ID]) {
+			if st := state[items[idx].ID]; items[idx].IsVisiblyUnread(st) || items[idx].MentionBadge(st) > 0 {
 				unread = append(unread, items[idx].ID)
 			}
 		}
 		after := rapid.OneOf(rapid.Just("nope"), rapid.SampledFrom(append([]string{"C0"}, unread...))).Draw(t, "after")
 		dir := rapid.SampledFrom([]int{-3, -1, 1, 2}).Draw(t, "dir")
 
-		got, ok := nextUnread(items, filtered, state, after, dir)
+		got, ok := nextUnread(items, filtered, state, nil, after, dir)
 		others := len(unread)
 		if slices.Contains(unread, after) {
 			others--
@@ -430,11 +431,11 @@ func TestNextUnreadCycles(t *testing.T) {
 		pos := slices.Index(unread, start)
 		cur := start
 		for i := 1; i <= len(unread); i++ {
-			next, ok := nextUnread(items, filtered, state, cur, 1)
+			next, ok := nextUnread(items, filtered, state, nil, cur, 1)
 			if want := unread[(pos+i)%len(unread)]; !ok || next.ID != want {
 				t.Fatalf("step %d from %s: got %s %v, want %s (unread %v)", i, cur, next.ID, ok, want, unread)
 			}
-			back, _ := nextUnread(items, filtered, state, next.ID, -1)
+			back, _ := nextUnread(items, filtered, state, nil, next.ID, -1)
 			if back.ID != cur {
 				t.Fatalf("back from %s gave %s, want %s", next.ID, back.ID, cur)
 			}
