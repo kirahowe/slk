@@ -106,6 +106,7 @@ func TestCanvasRefusesDownloadOffFilesHost(t *testing.T) {
 	for _, u := range []string{
 		"https://attacker.test/files.slack.com/files-pri/T1-F2/x",
 		"https://files.slack.com.attacker.test/files-pri/T1-F2/x",
+		"http://files.slack.com/files-pri/T1-F2/x",
 		"",
 	} {
 		var downloaded bool
@@ -121,6 +122,33 @@ func TestCanvasRefusesDownloadOffFilesHost(t *testing.T) {
 		}
 		if downloaded {
 			t.Errorf("%q: request sent", u)
+		}
+	}
+}
+
+// A redirect off https://files.slack.com is refused, not followed with
+// the token.
+func TestCanvasRefusesRedirectOffFilesHost(t *testing.T) {
+	for _, target := range []string{
+		"https://attacker.test/steal",
+		"http://files.slack.com/files-pri/T1-F2/plain",
+	} {
+		var followed bool
+		c := canvasClient(func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case r.URL.Path == "/api/files.info":
+				_, _ = w.Write([]byte(`{"ok":true,"file":{"id":"F2","url_private_download":"` + canvasDownload + `"}}`))
+			case r.URL.String() == canvasDownload:
+				http.Redirect(w, r, target, http.StatusFound)
+			default:
+				followed = true
+			}
+		})
+		if _, err := c.Canvas(context.Background(), "F2"); err == nil || !strings.Contains(err.Error(), "refusing redirect") {
+			t.Errorf("%s: err = %v", target, err)
+		}
+		if followed {
+			t.Errorf("%s: redirect followed", target)
 		}
 	}
 }

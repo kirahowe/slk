@@ -70,6 +70,17 @@ func (c *Client) ConversationCanvases(ctx context.Context, channelID string) ([]
 	return ids, nil
 }
 
+// maxCanvasBytes bounds a canvas download. Canvases seen so far are a
+// few kilobytes of HTML; this only stops a runaway response.
+const maxCanvasBytes = 16 << 20
+
+// isFilesSlackHTTPS reports whether raw is an https URL on
+// files.slack.com (exact host).
+func isFilesSlackHTTPS(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "https" && slackhttp.TeamIDFromFilesURL(raw) != ""
+}
+
 // CanvasFile is a canvas's files.info metadata and its HTML.
 type CanvasFile struct {
 	ID        string
@@ -116,22 +127,33 @@ func (c *Client) Canvas(ctx context.Context, fileID string) (CanvasFile, error) 
 	if src == "" {
 		src = f.URLPrivate
 	}
-	// The session's token and cookie go only to files.slack.com, checked
-	// by exact host, whatever the response names.
-	if slackhttp.TeamIDFromFilesURL(src) == "" {
-		return out, fmt.Errorf("canvas %s: download URL is not on files.slack.com", fileID)
+	// The session's token and cookie go only to files.slack.com over
+	// https, checked by exact host, whatever the response names, and a
+	// redirect anywhere else is refused rather than followed.
+	if !isFilesSlackHTTPS(src) {
+		return out, fmt.Errorf("canvas %s: download URL is not https://files.slack.com", fileID)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, src, nil)
 	if err != nil {
 		return out, err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
-	resp2, err := c.apiHTTPClient().Do(req)
+	client := *c.apiHTTPClient()
+	client.CheckRedirect = func(r *http.Request, via []*http.Request) error {
+		if len(via) >= 10 || !isFilesSlackHTTPS(r.URL.String()) {
+			return fmt.Errorf("canvas %s: refusing redirect to %s", fileID, r.URL.Redacted())
+		}
+		return nil
+	}
+	resp2, err := client.Do(req)
 	if err != nil {
 		return out, fmt.Errorf("downloading canvas %s: %w", fileID, err)
 	}
 	defer resp2.Body.Close()
-	body, err := io.ReadAll(resp2.Body)
+	body, err := io.ReadAll(io.LimitReader(resp2.Body, maxCanvasBytes+1))
+	if err == nil && len(body) > maxCanvasBytes {
+		return out, fmt.Errorf("downloading canvas %s: larger than %d bytes", fileID, maxCanvasBytes)
+	}
 	if resp2.StatusCode != http.StatusOK {
 		return out, fmt.Errorf("downloading canvas %s: HTTP %s", fileID, resp2.Status)
 	}
