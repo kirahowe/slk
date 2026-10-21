@@ -81,3 +81,20 @@ func TestRenderLinkWordsAreSelfContained(t *testing.T) {
 		}
 	}
 }
+
+// A linked word wider than the line is hard-broken; each piece carries
+// the link and closes it.
+func TestRenderLongLinkedWordStaysLinkedAndClosed(t *testing.T) {
+	doc := canvas.Document{Blocks: []canvas.Block{{
+		Spans: []canvas.Span{{Text: "averyveryverylongword", Link: "https://e.com"}},
+	}}}
+	lines := Render(doc, 8, noNames)
+	if len(lines) < 3 {
+		t.Fatalf("got %d lines, want the word broken over 3", len(lines))
+	}
+	for _, line := range lines {
+		if !strings.Contains(line, "\x1b]8;;https://e.com\x1b\\") || openLink(line) != "" {
+			t.Fatalf("line %q is not a closed link", line)
+		}
+	}
+}

@@ -29,7 +29,11 @@ func genSpan() *rapid.Generator[canvas.Span] {
 			Code:   rapid.Bool().Draw(t, "code"),
 		}
 		if rapid.Bool().Draw(t, "link") {
-			s.Link = "https://example.com/" + proptest.Word().Draw(t, "path")
+			s.Link = "https://example.com/" + proptest.NoVS16(proptest.Word().Draw(t, "path"))
+			if rapid.Bool().Draw(t, "url text") {
+				// A URL as its own text: one word, often wider than the line.
+				s.Text = s.Link + strings.Repeat("/segment", rapid.IntRange(0, 20).Draw(t, "segments"))
+			}
 		}
 		switch rapid.IntRange(0, 4).Draw(t, "chip") {
 		case 0:
@@ -53,8 +57,8 @@ func genBlock() *rapid.Generator[canvas.Block] {
 			b.Level = rapid.IntRange(1, 3).Draw(t, "level")
 		case canvas.ListItem:
 			b.List = canvas.ListKind(rapid.IntRange(0, 1).Draw(t, "list"))
-			b.Depth = rapid.IntRange(0, 3).Draw(t, "depth")
-			b.Number = rapid.IntRange(1, 99).Draw(t, "number")
+			b.Depth = rapid.IntRange(0, 12).Draw(t, "depth")
+			b.Number = rapid.IntRange(1, 999999).Draw(t, "number")
 			b.Continued = rapid.Bool().Draw(t, "continued")
 		}
 		return b
@@ -62,17 +66,30 @@ func genBlock() *rapid.Generator[canvas.Block] {
 }
 
 // Every line Render draws is exactly the width it was given, so the
-// overlay's box never wraps or ragged-edges.
+// overlay's box never wraps or ragged-edges, and no line leaves an OSC 8
+// hyperlink open, so a link never runs on past the box.
 func TestRenderFillsWidth(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		doc := canvas.Document{Blocks: rapid.SliceOfN(genBlock(), 0, 8).Draw(t, "blocks")}
-		width := rapid.IntRange(20, 100).Draw(t, "width")
+		width := rapid.IntRange(1, 100).Draw(t, "width")
 		for i, line := range Render(doc, width, noNames) {
 			if w := lipgloss.Width(line); w != width {
 				t.Fatalf("line %d is %d wide, want %d: %q", i, w, width, line)
 			}
+			if open := openLink(line); open != "" {
+				t.Fatalf("line %d leaves %q open: %q", i, open, line)
+			}
 		}
 	})
+}
+
+// openLink is the OSC 8 link still open at the end of line, "" if none.
+func openLink(line string) string {
+	open := ""
+	for _, m := range osc8.FindAllStringSubmatch(line, -1) {
+		open = m[1]
+	}
+	return open
 }
 
 // Wrapping keeps a block's text: its words, in order, with only the

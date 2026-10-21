@@ -3,7 +3,6 @@ package canvasview
 import (
 	"fmt"
 	"strings"
-	"unicode"
 
 	"charm.land/lipgloss/v2"
 	xansi "github.com/charmbracelet/x/ansi"
@@ -254,15 +253,4 @@ func errText(err error) string {
 		return "unknown error"
 	}
 	return printable(err.Error())
-}
-
-// printable drops control characters from text that came from Slack
-// (a title, an error carrying a response body) before it is drawn.
-func printable(s string) string {
-	return strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
-			return ' '
-		}
-		return r
-	}, s)
 }

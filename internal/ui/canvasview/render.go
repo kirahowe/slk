@@ -3,8 +3,10 @@
 package canvasview
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"charm.land/lipgloss/v2"
 	xansi "github.com/charmbracelet/x/ansi"
@@ -30,7 +32,7 @@ func Render(doc canvas.Document, width int, names Names) []string {
 		if b.Kind == canvas.Heading && i > 0 && len(out) > 0 && !isBlankLine(out[len(out)-1]) {
 			out = append(out, fill("", width))
 		}
-		first, rest := prefixes(b)
+		first, rest := prefixes(b, width)
 		body := wrapBlock(b, width-lipgloss.Width(first), names)
 		for j, line := range body {
 			p := rest
@@ -66,12 +68,35 @@ func wrapBlock(b canvas.Block, width int, names Names) []string {
 	if text == "" {
 		return []string{""}
 	}
-	return strings.Split(messages.WordWrap(text, width), "\n")
+	return balanceLinks(strings.Split(messages.WordWrap(text, width), "\n"))
+}
+
+var osc8 = regexp.MustCompile("\x1b\\]8;[^;\x1b]*;([^\x1b]*)\x1b\\\\")
+
+// balanceLinks closes an OSC 8 hyperlink still open at the end of a
+// line and reopens it on the next. A word is linked on its own, but one
+// wider than the line is hard-broken by WordWrap, which would otherwise
+// leave the link open across the box border and the dimmed screen.
+func balanceLinks(lines []string) []string {
+	open := ""
+	for i, l := range lines {
+		if open != "" {
+			l = "\x1b]8;;" + open + "\x1b\\" + l
+		}
+		for _, m := range osc8.FindAllStringSubmatch(l, -1) {
+			open = m[1]
+		}
+		if open != "" {
+			l += "\x1b]8;;\x1b\\"
+		}
+		lines[i] = l
+	}
+	return lines
 }
 
 // styledSpans renders a block's spans. Each word is styled on its own,
 // so wrapping between words never splits an escape sequence or an OSC 8
-// hyperlink across lines.
+// hyperlink across lines (balanceLinks covers a word too wide to fit).
 func styledSpans(b canvas.Block, names Names) string {
 	var parts []string
 	for _, s := range b.Spans {
@@ -79,7 +104,7 @@ func styledSpans(b canvas.Block, names Names) string {
 		switch s.Chip {
 		case canvas.UserChip:
 			if name, ok := names(s.ID); ok && name != "" {
-				text = "@" + name
+				text = "@" + printable(name)
 			}
 		case canvas.DateChip:
 			text = "📅 " + text
@@ -120,16 +145,19 @@ func styleWords(text string, st lipgloss.Style, link string) string {
 
 // prefixes returns a block's first-line prefix (indent and marker) and
 // the prefix of its wrapped lines, which lines them up under the text.
-func prefixes(b canvas.Block) (string, string) {
+// Deep nesting stops indenting once the prefix would take half the
+// width, so some text always fits beside it.
+func prefixes(b canvas.Block, width int) (string, string) {
 	switch b.Kind {
 	case canvas.Quote:
 		return "│ ", "│ "
 	case canvas.ListItem:
-		indent := strings.Repeat("  ", b.Depth)
 		marker := bullets[b.Depth%len(bullets)] + " "
 		if b.List == canvas.Numbered {
 			marker = strconv.Itoa(b.Number) + ". "
 		}
+		depth := min(b.Depth, max(0, (width/2-lipgloss.Width(marker))/2))
+		indent := strings.Repeat("  ", depth)
 		hang := indent + strings.Repeat(" ", lipgloss.Width(marker))
 		if b.Continued {
 			return hang, hang
@@ -188,6 +216,11 @@ func codeBlockStyle() lipgloss.Style {
 // fill pads line to width on the theme background, restoring the
 // background after every reset inside it.
 func fill(line string, width int) string {
+	// Only a degenerate width (a prefix or one wide rune wider than the
+	// column) gets here too wide; cutting it keeps the box's edge straight.
+	if lipgloss.Width(line) > width {
+		line = xansi.Truncate(line, width, "")
+	}
 	line = ansi.ReapplyAfterResets(line, messages.BgANSI()+messages.FgANSI())
 	pad := width - lipgloss.Width(line)
 	if pad > 0 {
@@ -198,4 +231,15 @@ func fill(line string, width int) string {
 
 func isBlankLine(line string) bool {
 	return strings.TrimSpace(xansi.Strip(line)) == ""
+}
+
+// printable drops control characters from text that came from Slack
+// (a title, an error carrying a response body, a display name) before it is drawn.
+func printable(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, s)
 }
