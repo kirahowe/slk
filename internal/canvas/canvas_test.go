@@ -154,3 +154,46 @@ func TestMentionNeedsAUserID(t *testing.T) {
 		t.Fatalf("span = %+v, want a plain chip", s)
 	}
 }
+
+// A <br> ends a line: "one<br>two" is two lines, not "onetwo".
+func TestParseLineBreaks(t *testing.T) {
+	doc, err := Parse(`<div class="quip-canvas-content"><p class="line">one<br/>two</p>` +
+		`<ul><li>item<br/>more</li></ul><p><b>a<br>b</b></p></div>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := doc.Plain(); got != "one\ntwo\nitem\nmore\na b" {
+		t.Fatalf("Plain = %q", got)
+	}
+	if more := doc.Blocks[3]; more.Kind != ListItem || !more.Continued {
+		t.Fatalf("text after <br> in an item = %+v, want a continuation", more)
+	}
+}
+
+// Markup whitespace collapses as a browser draws it; a code line keeps
+// its indentation and non-breaking spaces stay.
+func TestParseWhitespace(t *testing.T) {
+	doc, err := Parse(`<div class="quip-canvas-content">` +
+		`<p class="line">a      <b>b</b>&nbsp;&nbsp;c</p>` +
+		`<p class="prettyprint line">    indented()  // two</p></div>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := doc.Plain(); got != "a b\u00a0\u00a0c\n    indented()  // two" {
+		t.Fatalf("Plain = %q", got)
+	}
+}
+
+func TestParseOrderedListAndHiddenText(t *testing.T) {
+	doc, err := Parse(`<div class="quip-canvas-content"><ol><li>x</li><li>y</li></ol>` +
+		`<script>alert(1)</script><style>p{}</style><p>shown</p></div>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := doc.Plain(); got != "x\ny\nshown" {
+		t.Fatalf("Plain = %q", got)
+	}
+	if b := doc.Blocks[1]; b.List != Numbered || b.Number != 2 {
+		t.Fatalf("second <ol> item = %+v", b)
+	}
+}

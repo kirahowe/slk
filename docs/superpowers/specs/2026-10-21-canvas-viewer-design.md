@@ -57,7 +57,10 @@ the text) of a real 1:1 canvas:
 
 Not yet seen, though the scratch canvas was meant to include some of
 them: checklists, strikethrough, channel mentions, tables, dividers,
-images, emoji. They may not survive Slack's HTML export at all. The parser keeps any
+images, emoji. They may not survive Slack's HTML export at all.
+Also unsettled: whether Slack ever splits one numbered list across
+several section divs without `li[value]`. Numbering restarts at each
+section div, so such a list would restart at 1. The parser keeps any
 element it does not recognise as its text content, so an unseen
 element degrades to plain text rather than vanishing. Each one gets a
 proper rendering when a sample of it is captured.

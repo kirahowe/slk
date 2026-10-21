@@ -144,6 +144,8 @@ type parser struct {
 	// counters holds the next number per depth for the numbered list
 	// being read; a new list section starts it afresh.
 	counters []int
+	// pre is set while reading a code line, whose spaces are content.
+	pre bool
 }
 
 // blocks reads n's children as block content. Inline children collect
@@ -157,6 +159,8 @@ func (p *parser) blocks(n *html.Node, s scope) {
 // even if empty (an empty <p> is a blank line, an empty <li> a bare
 // marker).
 func (p *parser) blocksFrom(n *html.Node, s scope, first bool) {
+	defer func(pre bool) { p.pre = pre }(p.pre)
+	p.pre = s.kind == Code
 	var run []Span
 	emitted := false
 	flush := func() {
@@ -165,7 +169,7 @@ func (p *parser) blocksFrom(n *html.Node, s scope, first bool) {
 			run = nil
 			return
 		}
-		blk := Block{Kind: s.kind, Level: s.level, Spans: trim(run)}
+		blk := Block{Kind: s.kind, Level: s.level, Spans: trim(run, s.kind == Code)}
 		if s.kind == ListItem {
 			blk.List, blk.Depth = s.list, s.depth
 			if emitted {
@@ -179,12 +183,18 @@ func (p *parser) blocksFrom(n *html.Node, s scope, first bool) {
 		run = nil
 	}
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		if !isBlock(c) {
+		switch {
+		case hidden(c):
+		case is(c, atom.Br):
+			// A line break ends the line; what follows is the next one
+			// (a list item's continues it without a marker).
+			flush()
+		case isBlock(c):
+			flush()
+			p.block(c, s)
+		default:
 			run = p.inline(c, Span{}, run)
-			continue
 		}
-		flush()
-		p.block(c, s)
 	}
 	flush()
 }
@@ -213,7 +223,11 @@ func (p *parser) block(n *html.Node, s scope) {
 		if s.kind == ListItem {
 			depth = s.depth + 1
 		}
-		p.blocks(n, scope{kind: ListItem, list: s.list, depth: depth, quote: s.quote})
+		list := s.list
+		if n.DataAtom == atom.Ol {
+			list = Numbered
+		}
+		p.blocks(n, scope{kind: ListItem, list: list, depth: depth, quote: s.quote})
 	case atom.Li:
 		if s.kind != ListItem {
 			s = scope{kind: ListItem, quote: s.quote}
@@ -267,7 +281,11 @@ func (p *parser) setNumber(depth, n int) {
 func (p *parser) inline(n *html.Node, m Span, run []Span) []Span {
 	switch n.Type {
 	case html.TextNode:
-		if t := clean(n.Data); t != "" {
+		t := clean(n.Data)
+		if !p.pre {
+			t = collapseSpaces(t)
+		}
+		if t != "" {
 			s := m
 			s.Text = t
 			run = append(run, s)
@@ -289,6 +307,10 @@ func (p *parser) inline(n *html.Node, m Span, run []Span) []Span {
 			m.Link = safeLink(href)
 		}
 	case atom.Br:
+		s := m
+		s.Text = " "
+		return append(run, s)
+	case atom.Script, atom.Style, atom.Template:
 		return run
 	}
 	switch n.Data {
@@ -363,6 +385,33 @@ func clean(s string) string {
 	}, s)
 }
 
+// collapseSpaces folds each run of spaces to one, as a browser lays out
+// HTML text. A non-breaking space is content and stays.
+func collapseSpaces(s string) string {
+	if !strings.Contains(s, "  ") {
+		return s
+	}
+	var b strings.Builder
+	prev := false
+	for _, r := range s {
+		if r == ' ' && prev {
+			continue
+		}
+		prev = r == ' '
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+func is(n *html.Node, a atom.Atom) bool {
+	return n.Type == html.ElementNode && n.DataAtom == a
+}
+
+// hidden reports elements whose text is not shown on the page.
+func hidden(n *html.Node) bool {
+	return is(n, atom.Script) || is(n, atom.Style) || is(n, atom.Template)
+}
+
 func isBlock(n *html.Node) bool {
 	if n.Type != html.ElementNode {
 		return false
@@ -386,9 +435,10 @@ func blank(run []Span) bool {
 }
 
 // trim drops the whitespace at the ends of a block, which is markup
-// indentation, not content.
-func trim(run []Span) []Span {
-	for len(run) > 0 {
+// indentation, not content. A code line keeps its leading whitespace,
+// which is.
+func trim(run []Span, keepLeading bool) []Span {
+	for len(run) > 0 && !keepLeading {
 		run[0].Text = strings.TrimLeftFunc(run[0].Text, unicode.IsSpace)
 		if run[0].Text != "" {
 			break
@@ -407,6 +457,9 @@ func trim(run []Span) []Span {
 }
 
 func textOf(n *html.Node) string {
+	if hidden(n) {
+		return ""
+	}
 	if n.Type == html.TextNode {
 		return n.Data
 	}

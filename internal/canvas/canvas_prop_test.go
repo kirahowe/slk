@@ -17,9 +17,10 @@ type fataler interface {
 	Fatalf(format string, args ...any)
 }
 
-// rootText is every text node under the canvas root, in document order,
-// cleaned the way the parser cleans text: what a reader of the canvas
-// should get back, element types aside.
+// rootText is every shown text node under the canvas root (not script,
+// style or template), in document order, cleaned the way the parser
+// cleans text: what a reader of the canvas should get back, element
+// types aside.
 func rootText(t fataler, src string) (string, bool) {
 	root, err := html.Parse(strings.NewReader(src))
 	if err != nil {
@@ -32,6 +33,9 @@ func rootText(t fataler, src string) (string, bool) {
 	var b strings.Builder
 	var walk func(n *html.Node)
 	walk = func(n *html.Node) {
+		if hidden(n) {
+			return
+		}
 		if n.Type == html.TextNode {
 			b.WriteString(clean(n.Data))
 			b.WriteByte(' ')
@@ -92,6 +96,7 @@ func canvasHTML() *rapid.Generator[string] {
 				"blockquote", "ul", "li", `li value="3"`, "span", "b", "i", "code", "br",
 				`div data-section-style="5"`, `div data-section-style="6"`,
 				"control", `lnk href="https://example.com"`, "a", "table", "td", "hr",
+				"ol", "script", "style",
 			}).Draw(t, "tag")
 			if tag == "" {
 				return html.EscapeString(proptest.PlainText().Draw(t, "text")) + inner
