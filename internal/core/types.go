@@ -63,10 +63,11 @@ type MessageItem struct {
 }
 
 // Attachment represents a file or image attached to a message.
-// Kind is "image" for image/* mimetypes, "file" otherwise.
-// URL is the user-facing permalink (preferred) or fallback to url_private.
+// Kind is "image" for image/* mimetypes, "canvas" for a Slack canvas,
+// "file" otherwise. URL is the user-facing permalink (preferred) or
+// fallback to url_private.
 type Attachment struct {
-	Kind string // "image" or "file"
+	Kind string // "image", "canvas" or "file"
 	Name string // display filename / title
 	URL  string // permalink (preferred) or url_private
 
@@ -76,10 +77,25 @@ type Attachment struct {
 	DownloadURL string
 	Size        int64
 
+	// FileID is the Slack file ID, set for images (the image cache key)
+	// and canvases (what the canvas viewer fetches).
+	FileID string
+
 	// Populated only for Kind == "image":
-	FileID string      // Slack file ID for cache key
 	Mime   string      // e.g. "image/png"
 	Thumbs []ThumbSpec // sorted ascending; empty for non-image
+}
+
+// AttachmentMarker is the label an attachment of the given kind is drawn
+// with when it is not rendered inline.
+func AttachmentMarker(kind string) string {
+	switch kind {
+	case "image":
+		return "[Image]"
+	case "canvas":
+		return "[Canvas]"
+	}
+	return "[File]"
 }
 
 // ThumbSpec is one Slack thumbnail variant.

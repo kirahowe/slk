@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	bubblesansi "github.com/gammons/slk/internal/bubbles/ansi"
 	"github.com/gammons/slk/internal/bubbles/entrylist"
+	"github.com/gammons/slk/internal/core"
 	emojiutil "github.com/gammons/slk/internal/emoji"
 	"github.com/gammons/slk/internal/ui/styles"
 )
@@ -170,10 +171,7 @@ func RenderAttachments(attachments []Attachment) string {
 func renderSingleAttachment(a Attachment) string {
 	markerStyle := lipgloss.NewStyle().Foreground(styles.TextMuted).Bold(true)
 	urlStyle := linkStyle()
-	marker := "[File]"
-	if a.Kind == "image" {
-		marker = "[Image]"
-	}
+	marker := core.AttachmentMarker(a.Kind)
 	label := a.Name
 	if label == "" {
 		label = a.URL

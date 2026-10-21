@@ -33,8 +33,11 @@ func extractAttachments(files []slack.File) []messages.Attachment {
 	out := make([]messages.Attachment, 0, len(files))
 	for _, f := range files {
 		kind := "file"
-		if strings.HasPrefix(f.Mimetype, "image/") {
+		switch {
+		case strings.HasPrefix(f.Mimetype, "image/"):
 			kind = "image"
+		case isCanvasFile(f):
+			kind = "canvas"
 		}
 		name := f.Title
 		if name == "" {
@@ -43,6 +46,9 @@ func extractAttachments(files []slack.File) []messages.Attachment {
 		att := messages.Attachment{Kind: kind, Name: name, URL: pickAttachmentURL(f, kind)}
 		att.DownloadURL = f.URLPrivate
 		att.Size = int64(f.Size)
+		if kind == "canvas" {
+			att.FileID = f.ID
+		}
 		if kind == "image" {
 			att.FileID = f.ID
 			att.Mime = f.Mimetype
@@ -51,6 +57,12 @@ func extractAttachments(files []slack.File) []messages.Attachment {
 		out = append(out, att)
 	}
 	return out
+}
+
+// isCanvasFile reports whether f is a Slack canvas, as files.info
+// describes one: filetype "quip", mimetype application/vnd.slack-docs.
+func isCanvasFile(f slack.File) bool {
+	return f.Filetype == "quip" || f.Mimetype == "application/vnd.slack-docs"
 }
 
 // extractBlocks converts a slack.Blocks value to our typed block

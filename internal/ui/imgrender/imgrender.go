@@ -449,10 +449,7 @@ func (r *Renderer) RenderBlock(att Block, channel, ts string, availWidth, baseRo
 func renderLegacyLine(att Block) string {
 	markerStyle := lipgloss.NewStyle().Foreground(styles.TextMuted).Bold(true)
 	urlStyle := lipgloss.NewStyle().Foreground(styles.Primary).Underline(true)
-	marker := "[File]"
-	if att.Kind == "image" {
-		marker = "[Image]"
-	}
+	marker := core.AttachmentMarker(att.Kind)
 	label := att.Name
 	if label == "" {
 		label = att.URL

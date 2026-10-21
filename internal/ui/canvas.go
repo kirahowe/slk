@@ -20,8 +20,18 @@ const canvasFetchTimeout = 15 * time.Second
 
 const noCanvasToast = "No canvas in this conversation"
 
-// openCanvas is the c key.
+// openCanvas is the c key: the canvas the selected message shares, else
+// the focused conversation's own.
 func (a *App) openCanvas() tea.Cmd {
+	if p, _, ok := a.focusedContentPane(); ok {
+		if msg, ok := p.SelectedMessage(); ok {
+			for _, att := range msg.Attachments {
+				if att.Kind == "canvas" && att.FileID != "" {
+					return a.openCanvasFile(a.activeTeamID, att.FileID)
+				}
+			}
+		}
+	}
 	return a.openConversationCanvas()
 }
 

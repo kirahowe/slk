@@ -93,3 +93,19 @@ func TestExtractAttachmentsPopulatesDownloadFields(t *testing.T) {
 		t.Errorf("Size = %d", atts[0].Size)
 	}
 }
+
+// A canvas shared in a message is a file with filetype quip; it keeps
+// its file ID for the canvas viewer and links to its permalink.
+func TestExtractAttachmentsMarksCanvases(t *testing.T) {
+	atts := extractAttachments([]slack.File{
+		{ID: "F1", Title: "1:1 notes", Filetype: "quip", Mimetype: "application/vnd.slack-docs",
+			Permalink: "https://x.slack.com/docs/T1/F1", URLPrivate: "https://files.slack.com/files-pri/T1-F1/notes"},
+		{ID: "F2", Name: "report.pdf", Filetype: "pdf", Mimetype: "application/pdf"},
+	})
+	if got := atts[0]; got.Kind != "canvas" || got.FileID != "F1" || got.Name != "1:1 notes" || got.URL != "https://x.slack.com/docs/T1/F1" {
+		t.Fatalf("canvas = %+v", got)
+	}
+	if got := atts[1]; got.Kind != "file" || got.FileID != "" {
+		t.Fatalf("pdf = %+v", got)
+	}
+}

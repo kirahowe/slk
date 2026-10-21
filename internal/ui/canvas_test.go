@@ -11,6 +11,7 @@ import (
 
 	"github.com/gammons/slk/internal/canvas"
 	"github.com/gammons/slk/internal/core"
+	"github.com/gammons/slk/internal/ui/messages"
 )
 
 // canvasFake answers the canvas viewer's requests from fixed data and
@@ -232,5 +233,38 @@ func TestWorkspaceSwitchClosesCanvas(t *testing.T) {
 	reduceWorkspaceSwitched(a, WorkspaceSwitchedMsg{TeamID: "T2"})
 	if a.canvasView.IsVisible() || a.mode == ModeCanvas {
 		t.Fatal("canvas viewer survived a workspace switch")
+	}
+}
+
+// c on a message that shares a canvas opens that canvas, not the
+// conversation's.
+func TestCanvasKeyOpensTheSelectedMessagesCanvas(t *testing.T) {
+	a, fake := canvasApp(t)
+	fake.canvases["F7"] = core.Canvas{Title: "Shared", Doc: canvasDoc(t, "<p>shared canvas</p>")}
+	a.messagepane.SetMessages([]messages.MessageItem{{
+		TS: "1.0", UserID: "U1", UserName: "seth", Text: "here are the notes",
+		Attachments: []messages.Attachment{{Kind: "canvas", Name: "Shared", FileID: "F7"}},
+	}})
+	focusMessages(t, a)
+	pressCanvas(t, a, keyPress('c'))
+	if len(fake.listed) != 0 || strings.Join(fake.fetched, ",") != "T1/F7" {
+		t.Fatalf("listed %v, fetched %v; want only F7", fake.listed, fake.fetched)
+	}
+	if !strings.Contains(canvasScreen(a), "shared canvas") {
+		t.Fatalf("shared canvas not shown:\n%s", canvasScreen(a))
+	}
+}
+
+// d downloads files; a canvas is not one, so it is not offered as an
+// HTML download.
+func TestDownloadSkipsCanvases(t *testing.T) {
+	a, _ := canvasApp(t)
+	a.messagepane.SetMessages([]messages.MessageItem{{
+		TS: "1.0", UserID: "U1", UserName: "seth", Text: "notes",
+		Attachments: []messages.Attachment{{Kind: "canvas", Name: "Shared", FileID: "F7", DownloadURL: "https://files.slack.com/files-pri/T1-F7/x"}},
+	}})
+	focusMessages(t, a)
+	if got := toastText(drainBatch(a.downloadFilesOfSelected())); got != "No files in message" {
+		t.Fatalf("toast = %q", got)
 	}
 }

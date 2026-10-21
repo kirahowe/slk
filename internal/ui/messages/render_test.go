@@ -291,6 +291,15 @@ func TestRenderAttachmentsFileMarker(t *testing.T) {
 	}
 }
 
+func TestRenderAttachmentsCanvasMarker(t *testing.T) {
+	got := ansi.Strip(RenderAttachments([]Attachment{
+		{Kind: "canvas", Name: "1:1 notes", URL: "https://x.slack.com/docs/T1/F1", FileID: "F1"},
+	}))
+	if !strings.Contains(got, "[Canvas] 1:1 notes") {
+		t.Errorf("expected [Canvas] marker, got %q", got)
+	}
+}
+
 // TestRenderAttachmentsNamelessFallsBackToURL covers files whose
 // title and filename are both empty: the raw URL is the label.
 func TestRenderAttachmentsNamelessFallsBackToURL(t *testing.T) {
