@@ -552,7 +552,7 @@ func (c *Client) keepAlive(conn *websocket.Conn, done <-chan struct{}) {
 		}
 		c.wsMu.Lock()
 		conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-		err := conn.WriteJSON(map[string]any{"type": "ping", "id": id})
+		err := writeJSON(conn, map[string]any{"type": "ping", "id": id})
 		conn.SetWriteDeadline(time.Time{}) // other writers set none
 		c.wsMu.Unlock()
 		if err != nil {
@@ -571,6 +571,31 @@ func (c *Client) StopWebSocket() error {
 	return nil
 }
 
+// maxClientFrame is the largest frame the gateway accepts from a client.
+// A bigger one is not refused: the gateway closes the socket about five
+// seconds later with no error frame. Measured 2026-10-21 with presence_sub
+// on a workspace with 360 DM peers: a 4049-byte frame was accepted, a
+// 4115-byte one closed the connection every time, and the gateway does not
+// negotiate permessage-deflate, so compression cannot help.
+const maxClientFrame = 4096
+
+// errFrameTooLarge is returned for a frame writeJSON refuses to send.
+var errFrameTooLarge = errors.New("websocket frame exceeds the gateway's limit")
+
+// writeJSON sends v as one text frame on conn, refusing any frame over
+// maxClientFrame rather than letting it take the connection down. Every
+// client write goes through it. The caller holds wsMu.
+func writeJSON(conn *websocket.Conn, v any) error {
+	frame, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	if len(frame) > maxClientFrame {
+		return fmt.Errorf("%w: %d bytes", errFrameTooLarge, len(frame))
+	}
+	return conn.WriteMessage(websocket.TextMessage, frame)
+}
+
 // SendTyping sends a typing indicator to the given channel via WebSocket.
 func (c *Client) SendTyping(channelID string) error {
 	c.wsMu.Lock()
@@ -582,7 +607,7 @@ func (c *Client) SendTyping(channelID string) error {
 		"type":    "typing",
 		"channel": channelID,
 	}
-	return c.wsConn.WriteJSON(msg)
+	return writeJSON(c.wsConn, msg)
 }
 
 // SubscribePresence asks Slack to deliver presence_change events for the
@@ -590,17 +615,42 @@ func (c *Client) SendTyping(channelID string) error {
 // emits presence_change for users you've explicitly subscribed to (the
 // authenticated user is typically auto-subscribed at connect, but the
 // explicit subscription is reliable across servers).
-func (c *Client) SubscribePresence(userIDs []string) error {
+//
+// A presence_sub replaces the connection's previous set, so the IDs cannot
+// be split across frames, and one frame holds only maxClientFrame bytes.
+// It subscribes the longest prefix of userIDs that fits and returns how
+// many that was: put the IDs that matter most first.
+func (c *Client) SubscribePresence(userIDs []string) (int, error) {
 	c.wsMu.Lock()
 	defer c.wsMu.Unlock()
 	if c.wsConn == nil {
-		return fmt.Errorf("websocket not connected")
+		return 0, fmt.Errorf("websocket not connected")
 	}
-	msg := map[string]interface{}{
-		"type": "presence_sub",
-		"ids":  userIDs,
+	n := presenceSubFit(userIDs)
+	return n, writeJSON(c.wsConn, presenceSub(userIDs[:n]))
+}
+
+// presenceSub is the presence_sub frame for ids.
+func presenceSub(ids []string) map[string]any {
+	return map[string]any{"type": "presence_sub", "ids": ids}
+}
+
+// presenceSubFit is the length of the longest prefix of ids whose
+// presence_sub frame fits in maxClientFrame.
+func presenceSubFit(ids []string) int {
+	empty, _ := json.Marshal(presenceSub([]string{}))
+	size := len(empty)
+	for i, id := range ids {
+		enc, _ := json.Marshal(id)
+		size += len(enc)
+		if i > 0 {
+			size++ // the comma
+		}
+		if size > maxClientFrame {
+			return i
+		}
 	}
-	return c.wsConn.WriteJSON(msg)
+	return len(ids)
 }
 
 // GetChannels retrieves conversations the user is a member of (channels, DMs,

@@ -1,8 +1,13 @@
 package slackclient
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -105,7 +110,64 @@ func TestStartWebSocketPingsAnIdleSocket(t *testing.T) {
 		_ = c.StopWebSocket()
 		<-c.WsDone()
 	}()
-	if frame := <-got; frame != `{"id":1,"type":"ping"}`+"\n" {
+	if frame := <-got; frame != `{"id":1,"type":"ping"}` {
 		t.Fatalf("first frame = %q, want the first ping", frame)
+	}
+}
+
+// A subscription too big for one frame reaches the gateway trimmed to the
+// IDs that fit, in order, instead of as a frame that closes the socket.
+func TestSubscribePresenceSendsOnlyWhatFits(t *testing.T) {
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	got := make(chan []byte, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade: %v", err)
+			return
+		}
+		defer conn.Close()
+		_, frame, err := conn.ReadMessage()
+		if err != nil {
+			t.Errorf("read: %v", err)
+		}
+		got <- frame
+		_, _, _ = conn.ReadMessage() // until the client closes
+	}))
+	defer srv.Close()
+	c := &Client{wsBaseURL: "ws://" + srv.Listener.Addr().String(), pingInterval: time.Hour}
+	if err := c.StartWebSocket(&mockEventHandler{}); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = c.StopWebSocket()
+		<-c.WsDone()
+	}()
+	ids := make([]string, 400)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("U%010d", i)
+	}
+	n, err := c.SubscribePresence(ids)
+	if err != nil {
+		t.Fatal(err)
+	}
+	frame := <-got
+	if len(frame) > maxClientFrame {
+		t.Fatalf("sent a %d-byte frame", len(frame))
+	}
+	var sub struct{ IDs []string }
+	if err := json.Unmarshal(frame, &sub); err != nil {
+		t.Fatal(err)
+	}
+	if n == 0 || n == len(ids) || !slices.Equal(sub.IDs, ids[:n]) {
+		t.Fatalf("subscribed %d ids (reported %d), want the first %d of %d", len(sub.IDs), n, n, len(ids))
+	}
+}
+
+// writeJSON refuses a frame over the limit instead of sending it.
+func TestWriteJSONRefusesAnOversizedFrame(t *testing.T) {
+	big := map[string]string{"text": strings.Repeat("x", maxClientFrame)}
+	if err := writeJSON(nil, big); !errors.Is(err, errFrameTooLarge) {
+		t.Fatalf("writeJSON(oversized) = %v, want errFrameTooLarge", err)
 	}
 }

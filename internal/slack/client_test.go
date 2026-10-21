@@ -817,7 +817,7 @@ func TestGetPermalinkPropagatesError(t *testing.T) {
 
 func TestSubscribePresenceReturnsErrorWhenNotConnected(t *testing.T) {
 	c := &Client{}
-	err := c.SubscribePresence([]string{"U1", "U2"})
+	_, err := c.SubscribePresence([]string{"U1", "U2"})
 	if err == nil {
 		t.Error("expected error when websocket not connected")
 	}

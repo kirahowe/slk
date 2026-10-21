@@ -11,6 +11,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/ui"
 	"github.com/gammons/slk/internal/ui/sidebar"
 	"github.com/slack-go/slack"
@@ -40,6 +41,33 @@ func TestWorkspacePresenceIDs(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("workspacePresenceIDs()[%d] = %q, want %q (full %v)", i, got[i], want[i], got)
 		}
+	}
+}
+
+// Only the first ~300 IDs fit in a presence_sub, so the order decides
+// whose presence stays live: self, starred DMs, then most recently
+// visited, ties keeping sidebar order.
+func TestWorkspacePresenceIDsPriority(t *testing.T) {
+	wctx := &WorkspaceContext{
+		UserID: "USELF",
+		channels: []sidebar.ChannelItem{
+			{ID: "D1", Type: "dm", DMUserID: "U1"},
+			{ID: "D2", Type: "dm", DMUserID: "U2"},
+			{ID: "D3", Type: "dm", DMUserID: "U3", IsStarred: true},
+			{ID: "D4", Type: "dm", DMUserID: "U4"},
+			{ID: "D5", Type: "dm", DMUserID: "U5"},
+		},
+		finderItems: []core.ChannelFinderItem{
+			{ID: "D2", LastVisited: 100},
+			{ID: "D4", LastVisited: 200},
+		},
+	}
+	wctx.publishChannels()
+	wctx.publishFinderItems()
+
+	got := workspacePresenceIDs(wctx)
+	if want := []string{"USELF", "U3", "U4", "U2", "U1", "U5"}; !slices.Equal(got, want) {
+		t.Fatalf("workspacePresenceIDs() = %v, want %v", got, want)
 	}
 }
 

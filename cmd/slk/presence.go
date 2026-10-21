@@ -1,12 +1,15 @@
 package main
 
 import (
+	"cmp"
 	"context"
+	"slices"
 	"time"
 
 	"github.com/gammons/slk/internal/debuglog"
 	slackclient "github.com/gammons/slk/internal/slack"
 	"github.com/gammons/slk/internal/ui"
+	"github.com/gammons/slk/internal/ui/sidebar"
 )
 
 // bootstrapPresenceAndDND fetches the user's current presence and DND
@@ -78,21 +81,38 @@ func subscribeWorkspacePresence(wctx *WorkspaceContext, ids []string) {
 		debuglog.General("subscribeWorkspacePresence: no ids to subscribe")
 		return
 	}
-	if err := wctx.Client.SubscribePresence(ids); err != nil {
+	n, err := wctx.Client.SubscribePresence(ids)
+	if err != nil {
 		debuglog.General("subscribeWorkspacePresence (%d ids) FAILED: %v", len(ids), err)
 		return
 	}
-	debuglog.General("subscribeWorkspacePresence: sent presence_sub for %d ids (self+%d dm peers)", len(ids), len(ids)-1)
+	debuglog.General("subscribeWorkspacePresence: sent presence_sub for %d of %d ids (self+%d dm peers)", n, len(ids), len(ids)-1)
 }
 
 // workspacePresenceIDs returns the deduped list of user IDs to subscribe
 // for presence: the authenticated user plus every 1:1 DM peer. Group DMs
 // and app/bot DMs (which carry no human presence dot in the sidebar) are
-// skipped. Reads the published snapshot, so any goroutine may call it.
-// Pure function for testability.
+// skipped. Reads the published snapshots, so any goroutine may call it.
+//
+// The order is priority, because one presence_sub frame holds only about
+// 300 IDs (SubscribePresence keeps the prefix that fits): self, then
+// starred DMs, then the rest by most recent visit, ties in sidebar order.
 func workspacePresenceIDs(wctx *WorkspaceContext) []string {
 	seen := make(map[string]struct{})
-	channels := wctx.Channels()
+	channels := slices.Clone(wctx.Channels())
+	visited := make(map[string]int64)
+	for _, it := range wctx.FinderItems() {
+		visited[it.ID] = it.LastVisited
+	}
+	slices.SortStableFunc(channels, func(a, b sidebar.ChannelItem) int {
+		if a.IsStarred != b.IsStarred {
+			if a.IsStarred {
+				return -1
+			}
+			return 1
+		}
+		return cmp.Compare(visited[b.ID], visited[a.ID])
+	})
 	ids := make([]string, 0, len(channels)+1)
 	add := func(uid string) {
 		if uid == "" {
