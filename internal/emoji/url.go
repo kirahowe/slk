@@ -135,14 +135,56 @@ func URLForShortcode(name string, customs map[string]string) (string, bool) {
 		return BuildStandardEmojiURL(cps), true
 	}
 	// Fallback for skin-toned variants that aren't pre-resolved in
-	// kyokomi (e.g. "+1::skin-tone-3" or "+1_tone3"). Compose the
-	// base emoji's codepoints with the skin-tone modifier codepoint
-	// and build the URL directly. Slack's CDN serves these at the
-	// expected combined-codepoint path.
+	// kyokomi (e.g. "+1::skin-tone-3", "+1_tone3", or
+	// "handshake::skin-tone-2-5").
+	return skinTonedURL(name)
+}
+
+// skinTonedURL resolves a skin-toned name to its image on Slack's CDN:
+// one tone is composed from the base emoji, a tone per person is
+// looked up.
+func skinTonedURL(name string) (string, bool) {
 	if cps, ok := ComposeSkinTonedCodepoints(name); ok {
 		return BuildStandardEmojiURL(cps), true
 	}
-	return "", false
+	return tonePerPersonURL(name)
+}
+
+// tonePerPersonURL resolves Slack's name for a two-person emoji with a
+// tone per person, "<base>::skin-tone-A-B" (A and B are 2-6 and may
+// match), using the image table generated from iamcal.
+func tonePerPersonURL(name string) (string, bool) {
+	i := strings.Index(name, "::skin-tone-")
+	if i < 0 {
+		return "", false
+	}
+	tail := name[i+len("::skin-tone-"):]
+	if len(tail) != 3 || tail[1] != '-' {
+		return "", false
+	}
+	first, ok1 := slackSkinTone(tail[0])
+	second, ok2 := slackSkinTone(tail[2])
+	if !ok1 || !ok2 {
+		return "", false
+	}
+	baseCps, ok := CodepointsForShortcode(name[:i])
+	if !ok {
+		return "", false
+	}
+	stem, ok := slackTonePerPersonImages[string(baseCps)+string([]rune{first, second})]
+	if !ok {
+		return "", false
+	}
+	return CDNBaseURL + stem + ".png", true
+}
+
+// slackSkinTone maps the digit of Slack's "skin-tone-N" (2-6; 1 is the
+// default yellow) to its modifier codepoint.
+func slackSkinTone(digit byte) (rune, bool) {
+	if digit < '2' || digit > '6' {
+		return 0, false
+	}
+	return lightestSkinTone + rune(digit-'2'), true
 }
 
 // lightestSkinTone is U+1F3FB, the lightest skin tone modifier; the
@@ -211,11 +253,13 @@ func ComposeSkinTonedCodepoints(name string) ([]rune, bool) {
 // fallback path. Different return shape, different purpose — keeping
 // them separate is intentional.
 func splitSkinToneSuffix(name string) (string, rune, bool) {
-	// Slack form: "<base>::skin-tone-N" where N is 2-6.
+	// Slack form: "<base>::skin-tone-N".
 	if i := strings.Index(name, "::skin-tone-"); i >= 0 {
 		tail := name[i+len("::skin-tone-"):]
-		if len(tail) == 1 && tail[0] >= '2' && tail[0] <= '6' {
-			return name[:i], lightestSkinTone + rune(tail[0]-'2'), true
+		if len(tail) == 1 {
+			if modifier, ok := slackSkinTone(tail[0]); ok {
+				return name[:i], modifier, true
+			}
 		}
 	}
 	// kyokomi form: "<base>_toneN" where N is 1-5, exactly 6 trailing chars.

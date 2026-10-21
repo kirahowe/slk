@@ -203,6 +203,15 @@ func TestURLForShortcode_SkinTonedFallback(t *testing.T) {
 		{"zwj slack form", "person_running_facing_right::skin-tone-2",
 			CDNBaseURL + "1f3c3-1f3fb-200d-27a1-fe0f.png"},
 		{"vs16 slack form", "v::skin-tone-3", CDNBaseURL + "270c-1f3fc.png"},
+		// A tone per person, as Slack names it ("::skin-tone-A-B").
+		// These images can't be composed: the toned handshake is
+		// 1FAF1 and 1FAF2, not 1F91D.
+		{"handshake two tones", "handshake::skin-tone-2-5",
+			CDNBaseURL + "1faf1-1f3fb-200d-1faf2-1f3fe.png"},
+		{"people holding hands two tones", "people_holding_hands::skin-tone-2-6",
+			CDNBaseURL + "1f9d1-1f3fb-200d-1f91d-200d-1f9d1-1f3ff.png"},
+		{"people holding hands same tone", "people_holding_hands::skin-tone-2-2",
+			CDNBaseURL + "1f9d1-1f3fb-200d-1f91d-200d-1f9d1-1f3fb.png"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -241,6 +250,19 @@ func TestURLForShortcode(t *testing.T) {
 		if ok != c.wantOK || got != c.wantURL {
 			t.Errorf("URLForShortcode(%q) = (%q, %v), want (%q, %v)",
 				c.name, got, ok, c.wantURL, c.wantOK)
+		}
+	}
+}
+
+func TestURLForShortcode_TonePerPersonMisses(t *testing.T) {
+	for _, in := range []string{
+		"thumbsup::skin-tone-2-5",  // one person: no such image
+		"handshake::skin-tone-2-2", // Slack sends this as skin-tone-2
+		"handshake::skin-tone-2-7",
+		"handshake::skin-tone-1-5",
+	} {
+		if got, ok := URLForShortcode(in, nil); ok {
+			t.Errorf("URLForShortcode(%q) = %q, want no URL", in, got)
 		}
 	}
 }

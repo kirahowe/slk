@@ -87,12 +87,12 @@ func ResolveEmojiToTokens(text string, customs map[string]string) []Token {
 				// Slack draws one toned emoji, not the base and a swatch.
 				if toneEnd, tone, ok := tryShortcodeAt(text, end); ok && strings.HasPrefix(tone, "skin-tone-") {
 					if _, custom := customs[name]; !custom {
-						if cps, ok := ComposeSkinTonedCodepoints(name + "::" + tone); ok {
+						if url, ok := skinTonedURL(name + "::" + tone); ok {
 							flushText()
 							tokens = append(tokens, Token{
 								Kind: TokenEmoji,
 								Text: ":" + name + "::" + tone + ":",
-								URL:  BuildStandardEmojiURL(cps),
+								URL:  url,
 							})
 							i = toneEnd
 							continue
