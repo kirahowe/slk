@@ -182,7 +182,7 @@ func TestSetCommandCandidates_NeverWidensTheBar(t *testing.T) {
 func TestSetCommandCandidates_CurrentNameStaysVisible(t *testing.T) {
 	candidates := []string{"alpha", "beta", "gamma", "delta", "epsilon"}
 
-	for _, width := range []int{40, 60, 120} {
+	for _, width := range []int{45, 60, 120} {
 		m := New()
 		m.SetCommandLine(":d")
 		m.SetCommandCandidates(candidates, 3)
@@ -210,7 +210,7 @@ func TestSetCommandCandidates_MarksHiddenNames(t *testing.T) {
 	narrow := New()
 	narrow.SetCommandLine(":d")
 	narrow.SetCommandCandidates(candidates, 3)
-	stripped := ansi.Strip(narrow.View(40))
+	stripped := ansi.Strip(narrow.View(45))
 	if !strings.Contains(stripped, "< ") {
 		t.Fatalf("dropped names are not marked with a %q prefix:\n%s", "< ", stripped)
 	}
@@ -219,5 +219,52 @@ func TestSetCommandCandidates_MarksHiddenNames(t *testing.T) {
 	}
 	if !strings.Contains(stripped, "delta") {
 		t.Fatalf("current candidate missing from the scrolled list:\n%s", stripped)
+	}
+}
+
+// TestSetCommandCandidates_MarksNamesCutOffOnTheRight pins the " >" suffix:
+// it appears exactly when names past the right edge of the window were
+// dropped, as in vim's wildmenu, and never when the list reaches its end.
+func TestSetCommandCandidates_MarksNamesCutOffOnTheRight(t *testing.T) {
+	candidates := []string{"alpha", "beta", "gamma", "delta", "epsilon"}
+
+	wide := New()
+	wide.SetCommandLine(":d")
+	wide.SetCommandCandidates(candidates, 0)
+	if stripped := ansi.Strip(wide.View(120)); strings.Contains(stripped, ">") {
+		t.Fatalf("every name fits, yet the cut-off marker is drawn:\n%s", stripped)
+	}
+
+	narrow := New()
+	narrow.SetCommandLine(":d")
+	narrow.SetCommandCandidates(candidates, 0)
+	stripped := ansi.Strip(narrow.View(50))
+	if !strings.Contains(stripped, "alpha") || strings.Contains(stripped, "epsilon") {
+		t.Fatalf("want the window to start at the current name and drop the last one:\n%s", stripped)
+	}
+	if !strings.Contains(stripped, " >") {
+		t.Fatalf("names cut off on the right are not marked with %q:\n%s", " >", stripped)
+	}
+}
+
+// TestSetCommandCandidates_GapBeforePills checks that a list filling its
+// room still leaves a blank column before the right-side pills, at every
+// width and with every name current.
+func TestSetCommandCandidates_GapBeforePills(t *testing.T) {
+	candidates := []string{"activity", "delmarks", "help", "huddle", "marks", "on", "only", "q", "sp", "version", "vsp", "ws"}
+	for width := 40; width <= 120; width++ {
+		for idx := range candidates {
+			m := New()
+			m.SetCommandLine(":")
+			m.SetCommandCandidates(candidates, idx)
+			stripped := ansi.Strip(m.View(width))
+			i := strings.Index(stripped, "●")
+			if i <= 0 {
+				t.Fatalf("View(%d): connection pill missing:\n%s", width, stripped)
+			}
+			if stripped[i-1] != ' ' {
+				t.Errorf("View(%d) with candidate %d current: the list runs into the pills:\n%s", width, idx, stripped)
+			}
+		}
 	}
 }

@@ -379,7 +379,10 @@ func (m Model) View(width int) string {
 	var left string
 	if m.commandLine != "" {
 		cmdInfo := styles.StatusBar.Render(fmt.Sprintf(" %s▌ ", m.commandLine))
-		room := width - rightGutter - lipgloss.Width(modeLabel) -
+		// pillGap keeps one column between the list and the right-side
+		// pills, so a list that fills its room doesn't run into them.
+		const pillGap = 1
+		room := width - rightGutter - pillGap - lipgloss.Width(modeLabel) -
 			lipgloss.Width(cmdInfo) - lipgloss.Width(rightContent)
 		left = lipgloss.JoinHorizontal(lipgloss.Center, modeLabel, cmdInfo,
 			m.commandCandidatesView(room))
@@ -456,11 +459,12 @@ func (m Model) View(width int) string {
 // surface. Names are separated by two spaces.
 //
 // room is what the mode label, the prompt and the right-side pills left
-// over, so a long list can never widen the bar past the terminal: names
-// are dropped from the left until everything from the current one onward
-// fits, and a "< " prefix marks the drop. The current name is the anchor
-// -- the user is cycling to it -- so it is never dropped; when even it has
-// no room, nothing is drawn at all.
+// over, so a long list can never widen the bar past the terminal: the
+// list shows a window of names around the current one, a "< " prefix
+// marks names dropped on the left and a " >" suffix names dropped on the
+// right, as vim's wildmenu does. The current name is the anchor -- the
+// user is cycling to it -- so it is never dropped; when even it has no
+// room, nothing is drawn at all.
 func (m Model) commandCandidatesView(room int) string {
 	n := len(m.commandCandidates)
 	if n == 0 || room <= 0 {
@@ -486,12 +490,13 @@ func (m Model) commandCandidatesView(room int) string {
 
 	// Two spaces separate the entries; when names to the left of the window
 	// were dropped, a "< " prefix (its own trailing space included) marks
-	// them.
-	const marker = "< "
-	markerWidth := lipgloss.Width(marker)
+	// them, and a " >" suffix marks names dropped on the right.
+	const marker, moreMarker = "< ", " >"
+	markerWidth, moreWidth := lipgloss.Width(marker), lipgloss.Width(moreMarker)
 
 	// windowWidth is the rendered width of names[start:end]: the names, two
-	// spaces between each pair, and the marker when names[0] is hidden.
+	// spaces between each pair, the "< " marker when names[0] is hidden and
+	// the " >" marker when the last name is.
 	windowWidth := func(start, end int) int {
 		w := 0
 		for i := start; i < end; i++ {
@@ -503,12 +508,15 @@ func (m Model) commandCandidatesView(room int) string {
 		if start > 0 {
 			w += markerWidth
 		}
+		if end < n {
+			w += moreWidth
+		}
 		return w
 	}
 
 	// The current name is the anchor — the user is cycling to it — so it is
-	// never dropped. If even it (with the marker, when names before it are
-	// hidden) has no room, the list is not drawn at all: a truncated command
+	// never dropped. If even it (with the markers for the names hidden on
+	// either side) has no room, the list is not drawn at all: a truncated command
 	// name would name nothing the user could type.
 	if windowWidth(idx, idx+1) > room {
 		return ""
@@ -532,7 +540,10 @@ func (m Model) commandCandidatesView(room int) string {
 	gap := lipgloss.NewStyle().Background(styles.SurfaceDark).Render("  ")
 	joined := strings.Join(rendered[start:end], gap)
 	if start > 0 {
-		return plain.Render(marker) + joined
+		joined = plain.Render(marker) + joined
+	}
+	if end < n {
+		joined += plain.Render(moreMarker)
 	}
 	return joined
 }
