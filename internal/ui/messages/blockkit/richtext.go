@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/slack-go/slack"
+
+	"github.com/gammons/slk/internal/emoji"
 )
 
 // RichTextToMrkdwn reconstructs Slack mrkdwn from a parsed rich_text
@@ -147,8 +149,12 @@ func emojiToMrkdwn(name string, skinTone int, unicode string) string {
 	}
 	var tones []string
 	for _, cp := range strings.Split(unicode, "-") {
-		if n, err := strconv.ParseInt(cp, 16, 32); err == nil && n >= 0x1F3FB && n <= 0x1F3FF {
-			tones = append(tones, strconv.Itoa(int(n-0x1F3FB)+2))
+		n, err := strconv.ParseInt(cp, 16, 32)
+		if err != nil {
+			continue
+		}
+		if tone, ok := emoji.SlackSkinToneNumber(rune(n)); ok {
+			tones = append(tones, strconv.Itoa(tone))
 		}
 	}
 	if len(tones) == 2 {

@@ -224,6 +224,7 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | A web-client `client_token` (`web-<unix ms>`) for any request that sends one | `newClientToken()` (`internal/slack`); the only generator |
 | Emoji shortcode → glyph | `emoji.Sprint`, `emoji.CodeMap`, `emoji.StripSkinTone` |
 | Emoji shortcode → glyph on any row whose width matters (sidebar, overlays, status glyphs, picker) | `emoji.ResolveShortcodesInText(s)` or `emoji.TextGlyph(glyph)` on a `CodeMap` lookup. base+VS16 (`:heart:`, `:mountain:`) is drawn as the bare base, because terminals and lipgloss disagree on the pair's width but agree on one codepoint; ZWJ, flags, skin tones and keycaps are left as `:shortcode:`. Never call `emoji.Sprint` or read `CodeMap` for display without the gate (#301) |
+| Slack's skin-tone number (2–6) for a modifier codepoint (U+1F3FB–U+1F3FF) | `emoji.SlackSkinToneNumber` |
 | Does Block Kit already render the message body? | `blockkit.RendersBody(blocks)`, `messages.BlocksCarryBody(msg)` |
 | Current DND state from a Slack API result | `slack.DNDStateFromStatus` |
 | Persist a full Web API profile's custom status and huddle (including clears) | `cmd/slk/applyProfileStatus(teamID, userID, profile, db, send)` after `UpsertUser`, before any resolved-user notice or row repair; `UpsertUser` alone deliberately preserves status on conflict |

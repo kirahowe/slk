@@ -154,17 +154,12 @@ func skinTonedURL(name string) (string, bool) {
 // tone per person, "<base>::skin-tone-A-B" (A and B are 2-6 and may
 // match), using the image table generated from iamcal.
 func tonePerPersonURL(name string) (string, bool) {
-	i := strings.Index(name, "::skin-tone-")
+	i := strings.Index(name, "::")
 	if i < 0 {
 		return "", false
 	}
-	tail := name[i+len("::skin-tone-"):]
-	if len(tail) != 3 || tail[1] != '-' {
-		return "", false
-	}
-	first, ok1 := slackSkinTone(tail[0])
-	second, ok2 := slackSkinTone(tail[2])
-	if !ok1 || !ok2 {
+	first, second, ok := tonePerPerson(name[i+2:])
+	if !ok {
 		return "", false
 	}
 	baseCps, ok := CodepointsForShortcode(name[:i])
@@ -178,6 +173,18 @@ func tonePerPersonURL(name string) (string, bool) {
 	return CDNBaseURL + stem + ".png", true
 }
 
+// tonePerPerson parses Slack's "skin-tone-A-B" into the two people's
+// modifier codepoints.
+func tonePerPerson(tone string) (rune, rune, bool) {
+	tail, ok := strings.CutPrefix(tone, "skin-tone-")
+	if !ok || len(tail) != 3 || tail[1] != '-' {
+		return 0, 0, false
+	}
+	first, ok1 := slackSkinTone(tail[0])
+	second, ok2 := slackSkinTone(tail[2])
+	return first, second, ok1 && ok2
+}
+
 // slackSkinTone maps the digit of Slack's "skin-tone-N" (2-6; 1 is the
 // default yellow) to its modifier codepoint.
 func slackSkinTone(digit byte) (rune, bool) {
@@ -185,6 +192,15 @@ func slackSkinTone(digit byte) (rune, bool) {
 		return 0, false
 	}
 	return lightestSkinTone + rune(digit-'2'), true
+}
+
+// SlackSkinToneNumber is the inverse of slackSkinTone: Slack's number
+// (2-6) for a skin tone modifier codepoint.
+func SlackSkinToneNumber(modifier rune) (int, bool) {
+	if modifier < lightestSkinTone || modifier > lightestSkinTone+4 {
+		return 0, false
+	}
+	return int(modifier-lightestSkinTone) + 2, true
 }
 
 // lightestSkinTone is U+1F3FB, the lightest skin tone modifier; the
