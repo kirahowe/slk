@@ -652,6 +652,35 @@ func (p profileAdapter) Profile(ctx context.Context, teamID, userID string) (Use
 	return p.fns.Profile(ctx, teamID, userID)
 }
 
+// CanvasServiceFuncs is the closure bundle accepted by
+// NewCanvasService. A nil func returns errors.ErrUnsupported.
+type CanvasServiceFuncs struct {
+	ConversationCanvases func(ctx context.Context, teamID, channelID string) ([]string, error)
+	Canvas               func(ctx context.Context, teamID, fileID string) (Canvas, error)
+}
+
+// NewCanvasService builds a CanvasService from a CanvasServiceFuncs
+// bundle. Used by cmd/slk/main.go (production wiring) and tests.
+func NewCanvasService(fns CanvasServiceFuncs) CanvasService {
+	return canvasAdapter{fns: fns}
+}
+
+type canvasAdapter struct{ fns CanvasServiceFuncs }
+
+func (c canvasAdapter) ConversationCanvases(ctx context.Context, teamID, channelID string) ([]string, error) {
+	if c.fns.ConversationCanvases == nil {
+		return nil, errors.ErrUnsupported
+	}
+	return c.fns.ConversationCanvases(ctx, teamID, channelID)
+}
+
+func (c canvasAdapter) Canvas(ctx context.Context, teamID, fileID string) (Canvas, error) {
+	if c.fns.Canvas == nil {
+		return Canvas{}, errors.ErrUnsupported
+	}
+	return c.fns.Canvas(ctx, teamID, fileID)
+}
+
 // NewWorkspaceService builds a WorkspaceService from a closure.
 func NewWorkspaceService(switchTo func(teamID string) Msg) WorkspaceService {
 	return workspaceAdapter{switchTo: switchTo}

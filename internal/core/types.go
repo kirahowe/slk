@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/gammons/slk/internal/canvas"
 	"github.com/gammons/slk/internal/core/blocks"
 	"github.com/gammons/slk/internal/ids"
 )
@@ -223,6 +224,16 @@ type ActivityMessage struct {
 // the activity view so both sides agree on the lookup key.
 func ActivityMsgKey(channelID, ts string) string {
 	return channelID + "\x00" + ts
+}
+
+// Canvas is a parsed Slack canvas for the canvas viewer.
+type Canvas struct {
+	FileID    string
+	Title     string
+	Permalink string
+	// Updated is when the canvas was last edited.
+	Updated time.Time
+	Doc     canvas.Document
 }
 
 // UserProfile is a Slack user's profile, as fetched by ProfileService.

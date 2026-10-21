@@ -108,6 +108,11 @@ func TestClient_MethodsHonourContext(t *testing.T) {
 		"EndSnooze":       func(ctx context.Context, c *Client) error { _, err := c.EndSnooze(ctx); return err },
 		"EndDND":          func(ctx context.Context, c *Client) error { return c.EndDND(ctx) },
 		"GetDNDInfo":      func(ctx context.Context, c *Client) error { _, err := c.GetDNDInfo(ctx, "U1"); return err },
+		"ConversationCanvases": func(ctx context.Context, c *Client) error {
+			_, err := c.ConversationCanvases(ctx, "D1")
+			return err
+		},
+		"Canvas": func(ctx context.Context, c *Client) error { _, err := c.Canvas(ctx, "F1"); return err },
 		"GetDNDTeamInfo": func(ctx context.Context, c *Client) error {
 			_, err := c.GetDNDTeamInfo(ctx, []string{"U1"})
 			return err

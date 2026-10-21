@@ -20,6 +20,7 @@ var (
 	noopDesktopService     = core.NewDesktopService(core.DesktopServiceFuncs{})
 	noopEditorService      = core.NewEditorService(nil, nil, nil)
 	noopProfileService     = core.NewProfileService(core.ProfileServiceFuncs{})
+	noopCanvasService      = core.NewCanvasService(core.CanvasServiceFuncs{})
 )
 
 // teaCmd adapts a service's deferred work to a tea.Cmd, keeping nil nil

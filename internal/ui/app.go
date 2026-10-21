@@ -496,6 +496,8 @@ type App struct {
 	// cmd built by openUserProfile never calls a nil interface.
 	userProfile *userprofile.Model
 	profileSvc  core.ProfileService
+	// canvasSvc reads canvases for the canvas viewer.
+	canvasSvc core.CanvasService
 	// now is the clock used by the user-profile dialog's "local time"
 	// and status-expiry math. Defaults to time.Now; goldens pin it to
 	// goldenClock so the rendered frame is deterministic. Only this
@@ -954,6 +956,7 @@ func NewApp() *App {
 		clipboardWrite:        defaultClipboardWriter,
 		userProfile:           userprofile.New(),
 		profileSvc:            noopProfileService,
+		canvasSvc:             noopCanvasService,
 		now:                   time.Now,
 	}
 	// Root model deliberately bypasses newWindowModel: the config
@@ -3466,6 +3469,15 @@ func (a *App) SetProfileService(s core.ProfileService) {
 		s = noopProfileService
 	}
 	a.profileSvc = s
+}
+
+// SetCanvasService wires the canvas viewer's CanvasService. A nil s
+// restores the no-op default.
+func (a *App) SetCanvasService(s core.CanvasService) {
+	if s == nil {
+		s = noopCanvasService
+	}
+	a.canvasSvc = s
 }
 
 func (a *App) SetCurrentUserID(userID string) {

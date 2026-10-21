@@ -398,6 +398,17 @@ type ProfileService interface {
 	Profile(ctx context.Context, teamID, userID string) (UserProfile, error)
 }
 
+// CanvasService reads Slack canvases for the canvas viewer. Both calls
+// block; callers run them from a tea.Cmd with a bounded context.
+type CanvasService interface {
+	// ConversationCanvases lists the file IDs of a conversation's
+	// canvases (its channel canvas and canvas tabs), first to show
+	// first. Empty when it has none.
+	ConversationCanvases(ctx context.Context, teamID, channelID string) ([]string, error)
+	// Canvas fetches and parses one canvas.
+	Canvas(ctx context.Context, teamID, fileID string) (Canvas, error)
+}
+
 // WorkspaceService switches the active workspace.
 type WorkspaceService interface {
 	// Switch makes teamID active and returns WorkspaceSwitchedMsg (or

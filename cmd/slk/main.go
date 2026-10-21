@@ -1104,6 +1104,13 @@ func run() error {
 		app.SetProfileService(core.NewProfileService(core.ProfileServiceFuncs{
 			Profile: newProfileCache(5*time.Minute, time.Now, profileFetch).Profile,
 		}))
+		app.SetCanvasService(newCanvasService(func(teamID string) (canvasClient, bool) {
+			wctx := router.ByID(teamID)
+			if wctx == nil || wctx.Client == nil {
+				return nil, false
+			}
+			return wctx.Client, true
+		}))
 
 		upload := func(channelID, threadTS, caption string, attachments []core.PendingAttachment) core.Cmd {
 			return func() core.Msg {
