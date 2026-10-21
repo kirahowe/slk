@@ -36,8 +36,9 @@ internal protocol. The download is the read path.
 
 ### The HTML
 
-Seen so far, from a scratch canvas and from the structure (not the
-text) of a real 1:1 canvas:
+Seen so far, from a scratch canvas (kept as
+`internal/canvas/testdata/scratch.html`) and from the structure (not
+the text) of a real 1:1 canvas:
 
 | Markup | Meaning |
 |---|---|
@@ -49,10 +50,14 @@ text) of a real 1:1 canvas:
 | `blockquote > p.line` | quote |
 | `p.prettyprint` | code block line |
 | `code` | inline code |
-| `control[data-remapped]` | an inline chip; seen as a date ("Today" in Slack) |
+| `b`, `i` | bold, italic |
+| `lnk[href]` | link (Slack's own tag, not `a`) |
+| `control[data-remapped] > a` with text `@U…` | user mention, by ID |
+| `control[data-remapped]` with plain text | date chip, as text ("October 21st"); no timestamp |
 
-Not yet seen: checklists, bold, italic, strikethrough, links, user and
-channel mentions, tables, dividers, images, emoji. The parser keeps any
+Not yet seen, though the scratch canvas was meant to include some of
+them: checklists, strikethrough, channel mentions, tables, dividers,
+images, emoji. They may not survive Slack's HTML export at all. The parser keeps any
 element it does not recognise as its text content, so an unseen
 element degrades to plain text rather than vanishing. Each one gets a
 proper rendering when a sample of it is captured.
@@ -100,9 +105,10 @@ Tests:
   line up under the text;
 - a quote with a `│` bar, code lines grouped into a block with the code
   background, inline code with the inline code style;
-- links as OSC 8 hyperlinks; a date chip as `📅 <text>`; user and
-  channel chips resolved through the App's `userNames` and
-  `channelNames`, as `@name` and `#name`;
+- links as OSC 8 hyperlinks; a date chip as `📅 <text>`, as Slack
+  shows it but with the fixed date the HTML holds where Slack would say
+  "Today"; a user chip resolved through the App's `userNames` as
+  `@name`, falling back to the ID;
 - wrapping with `messages.WordWrap`; styles from `ui/styles`, read per
   draw so a theme change applies.
 
@@ -218,9 +224,6 @@ in tmux without a real workspace.
   `properties` for every conversation up front. userBoot already sends
   them, and `internal/slack/boot` drops them on purpose; keeping
   `properties.tabs` there would let the pane header show a canvas mark.
-- **Relative dates on date chips.** Slack shows "Today"; the HTML holds
-  a fixed date string. If the chip's attributes carry a timestamp,
-  rendering it relative to the clock is a small follow-up.
 - Editing, appending and comments.
 
 ## Phases
