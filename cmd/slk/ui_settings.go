@@ -16,6 +16,7 @@ type uiSettings struct {
 	TimestampFormat  string
 	TypingIndicators bool
 	StaleAfter       time.Duration
+	UnreadsSection   bool
 	MouseWheelLines  int
 	ColoredUsernames bool
 	ThemeOverrides   core.Theme
@@ -33,6 +34,7 @@ func applyUISettings(app *ui.App, s uiSettings) {
 	})
 	app.SetTypingEnabled(s.TypingIndicators)
 	app.SetSidebarStaleThreshold(s.StaleAfter)
+	app.SetSidebarUnreadsSection(s.UnreadsSection)
 	app.SetMouseWheelLines(s.MouseWheelLines)
 	app.SetColoredUsernames(s.ColoredUsernames)
 	app.SetThemeItems(styles.ThemeNames())

@@ -71,6 +71,13 @@ message_retention_days = 30
 max_db_size_mb = 500
 max_image_cache_mb = 200
 
+[sidebar]
+# DMs, group DMs and conversations that mention you move to an Unreads
+# section at the top of the sidebar while unread, and a status bar pill
+# counts them. Set false to leave every conversation in its own section
+# (the pill stays).
+unreads_section = true
+
 [marks]
 # Vim-style marks. Lowercase marks (ma..mz) are session-only and
 # uppercase marks (mA..mZ) survive a restart, matching vim's

@@ -1035,3 +1035,21 @@ team_id = "T04T4TH8W"
 		t.Errorf("VersionTS = %q; want empty when unset", got)
 	}
 }
+
+func TestConfig_SidebarUnreadsSection(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"unset defaults on", "", true},
+		{"on", "[sidebar]\nunreads_section = true\n", true},
+		{"off", "[sidebar]\nunreads_section = false\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := loadConfigString(t, tc.body).EffectiveUnreadsSection(); got != tc.want {
+				t.Fatalf("EffectiveUnreadsSection = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

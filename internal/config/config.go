@@ -166,6 +166,11 @@ type Sidebar struct {
 	// hidden regardless of this setting.
 	HideInactiveAfterDays int `toml:"hide_inactive_after_days"`
 	Width                 int `toml:"width"`
+	// UnreadsSection, when false, leaves DMs and mentioned channels in
+	// their own sections instead of moving them to an Unreads section
+	// at the top. A *bool so unset means the default, on (see
+	// EffectiveUnreadsSection).
+	UnreadsSection *bool `toml:"unreads_section"`
 }
 
 // Marks holds preferences for vim-style marks.
@@ -464,6 +469,16 @@ func (c Config) EffectiveCheckForUpdates() bool {
 func (c Config) EffectiveShowJumpOverlay() bool {
 	if c.Marks.ShowJumpOverlay != nil {
 		return *c.Marks.ShowJumpOverlay
+	}
+	return true
+}
+
+// EffectiveUnreadsSection returns whether the sidebar shows its Unreads
+// section: an explicit [sidebar].unreads_section wins when set,
+// otherwise the default is on.
+func (c Config) EffectiveUnreadsSection() bool {
+	if c.Sidebar.UnreadsSection != nil {
+		return *c.Sidebar.UnreadsSection
 	}
 	return true
 }

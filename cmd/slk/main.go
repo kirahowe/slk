@@ -584,6 +584,7 @@ func run() error {
 		TimestampFormat:  tsFormat,
 		TypingIndicators: cfg.Animations.TypingIndicators,
 		StaleAfter:       time.Duration(cfg.Sidebar.HideInactiveAfterDays) * 24 * time.Hour,
+		UnreadsSection:   cfg.EffectiveUnreadsSection(),
 		MouseWheelLines:  cfg.Appearance.MouseWheelLines,
 		ColoredUsernames: cfg.Appearance.ColoredUsernames,
 		ThemeOverrides:   cfg.Theme,

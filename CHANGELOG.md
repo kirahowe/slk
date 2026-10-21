@@ -8,6 +8,22 @@ Earlier history, up to v0.26.2, is in [upstream's releases](https://github.com/g
 
 ## [Unreleased]
 
+### Added
+
+- An Unreads section at the top of the sidebar, like Slack's "show unreads
+  in a separate section" option. DMs and group DMs with unread messages, and
+  any conversation that mentions you (muted ones included), move there until
+  read. Channels that are unread without mentioning you stay where they are.
+  The conversation you have open stays in the section until you leave it.
+  Turn it off with `[sidebar] unreads_section = false`.
+- A status bar pill, `Unreads N`, counting those conversations, so a waiting
+  DM shows even when the sidebar is scrolled, collapsed or hidden.
+
+### Changed
+
+- `a` and `A` (next and previous unread) go to the Unreads section first when
+  you are outside it, and now also stop at a muted channel that mentions you.
+
 ## [0.29.2] - 2026-10-20
 
 ### Fixed

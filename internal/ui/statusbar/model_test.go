@@ -43,13 +43,14 @@ func TestStatusBarInsertMode(t *testing.T) {
 	}
 }
 
-func TestStatusBarUnreadCount(t *testing.T) {
+func TestStatusBarUnreads(t *testing.T) {
 	m := New()
-	m.SetUnreadCount(5)
-	view := m.View(80)
-
-	if !strings.Contains(view, "5") {
-		t.Error("expected unread count in status bar")
+	if strings.Contains(stripANSI(m.View(80)), "Unreads") {
+		t.Error("Unreads pill shown with nothing waiting")
+	}
+	m.SetUnreads(5)
+	if !strings.Contains(stripANSI(m.View(80)), "Unreads 5") {
+		t.Errorf("want the Unreads pill in %q", stripANSI(m.View(80)))
 	}
 }
 
@@ -347,7 +348,7 @@ func TestViewIsExactlyWidthColumns(t *testing.T) {
 	m.SetChannel("Some Person")
 	m.SetChannelType("dm")
 	m.SetWorkspace("acme")
-	m.SetUnreadCount(3)
+	m.SetUnreads(3)
 	m.SetStatus("active", false, time.Time{})
 	m.SetConnectionState(StateConnected)
 	m.SetHelpHint("? for keybindings")

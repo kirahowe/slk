@@ -2821,6 +2821,7 @@ func (a *App) SetWorkspaces(items []workspace.WorkspaceItem) {
 // channel join, or a display-name resolution for a DM).
 func (a *App) SetChannels(items []sidebar.ChannelItem) {
 	a.sidebar.SetItems(items)
+	a.statusbar.SetUnreads(a.sidebar.UnreadsCount())
 	picks := make([]channelpicker.Channel, 0, len(items))
 	names := make(map[string]string, len(items))
 	types := make(map[string]string, len(items))
@@ -2967,6 +2968,7 @@ func (a *App) SetUnreadService(s core.UnreadService) {
 	}
 	a.sidebar.SetReadStateReader(s.ChannelReadStates)
 	a.workspaceRail.SetUnreadReader(s.UnreadWorkspaces)
+	a.statusbar.SetUnreads(a.sidebar.UnreadsCount())
 }
 
 func (a *App) SetChannelFinderItems(items []core.ChannelFinderItem) {
@@ -3602,6 +3604,12 @@ func (a *App) SetMouseWheelLines(n int) {
 	a.mouseWheelLines = n
 }
 
+// SetSidebarUnreadsSection turns the sidebar's Unreads section on or
+// off ([sidebar] unreads_section).
+func (a *App) SetSidebarUnreadsSection(on bool) {
+	a.sidebar.SetUnreadsSection(on)
+}
+
 // SetSidebarStaleThreshold configures auto-hiding of inactive
 // channels in the sidebar. d is the maximum age (since LastReadTS)
 // before a channel is hidden; pass 0 to disable.
@@ -4095,8 +4103,8 @@ func (a *App) enterEdit(channelID, ts string, panel Panel, text string) tea.Cmd 
 }
 
 // notifyReadStateChanged invalidates the sidebar render cache,
-// refreshes the workspace rail's HasUnread flags, and recomputes the
-// cached terminal-window title. Call this whenever per-channel read
+// refreshes the workspace rail's HasUnread flags, the status bar's
+// Unreads pill and the cached terminal-window title. Call this whenever per-channel read
 // state is mutated via the DB API (i.e., wherever a.sidebar.Invalidate()
 // used to suffice). All three operations are downstream consumers of
 // the same DB read-state change and MUST stay in lockstep -- e.g., the
@@ -4105,6 +4113,7 @@ func (a *App) enterEdit(channelID, ts string, panel Panel, text string) tea.Cmd 
 func (a *App) notifyReadStateChanged() {
 	a.sidebar.Invalidate()
 	a.workspaceRail.RefreshUnreads()
+	a.statusbar.SetUnreads(a.sidebar.UnreadsCount())
 	active := a.sidebar.UnreadChannelCount()
 	other := a.workspaceRail.OtherUnreadCount(a.activeTeamID)
 	name := a.workspaceRail.NameByID(a.activeTeamID)

@@ -24,7 +24,7 @@ type Model struct {
 	channel     string
 	channelType string // "channel" | "private" | "dm" | "group_dm"; drives glyph
 	workspace   string
-	unreadCount int
+	unreads     int // conversations in the sidebar's Unreads section
 	connState   ConnectionState
 	inThread    bool
 	toast       string // "" == no toast; otherwise rendered verbatim in the right slot
@@ -98,9 +98,12 @@ func (m *Model) SetWorkspace(name string) {
 	}
 }
 
-func (m *Model) SetUnreadCount(count int) {
-	if m.unreadCount != count {
-		m.unreadCount = count
+// SetUnreads sets the number of conversations waiting on the user (the
+// sidebar's Unreads section). Above zero it shows as a pill on the
+// right, so a DM is noticed whatever the sidebar is showing.
+func (m *Model) SetUnreads(count int) {
+	if m.unreads != count {
+		m.unreads = count
 		m.dirty()
 	}
 }
@@ -256,9 +259,9 @@ func (m Model) View(width int) string {
 	// Right side: unread + connection
 	var rightParts []string
 
-	if m.unreadCount > 0 {
+	if m.unreads > 0 {
 		rightParts = append(rightParts,
-			styles.UnreadBadge.Render(fmt.Sprintf(" %d unread ", m.unreadCount)))
+			styles.UnreadBadge.Render(fmt.Sprintf("Unreads %d", m.unreads)))
 	}
 
 	if m.toast != "" {
@@ -357,7 +360,7 @@ func (m Model) View(width int) string {
 		withUpdate := make([]string, 0, len(rightParts)+1)
 		// Insert before the presence/connection pills, after unread/toast.
 		idx := 0
-		if m.unreadCount > 0 {
+		if m.unreads > 0 {
 			idx++
 		}
 		if m.toast != "" {
