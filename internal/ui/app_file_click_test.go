@@ -69,10 +69,7 @@ func TestMouseClick_OnFileLineDispatchesDownload(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			a := NewApp()
-			a.width = 200
-			a.height = 60
-			a.activeChannelID = "C1"
+			a := newTestApp(t, withSize(200, 60), withActiveChannel("C1"))
 			tc.setup(a)
 			_ = a.View()
 
@@ -107,5 +104,35 @@ func TestMouseClick_OnFileLineDispatchesDownload(t *testing.T) {
 				t.Errorf("DownloadURL = %q, want %q", dl.Attachment.DownloadURL, want)
 			}
 		})
+	}
+}
+
+// TestMouseClick_OnFileLineWithoutDownloadURLFallsThrough: a "[File]"
+// line with no DownloadURL records no hit, so the click falls through
+// to click-to-select instead of dispatching a download.
+func TestMouseClick_OnFileLineWithoutDownloadURLFallsThrough(t *testing.T) {
+	a := newTestApp(t, withSize(200, 60), withActiveChannel("C1"), withMessages(messages.MessageItem{
+		TS: "1700000000.000100", UserID: "U1", UserName: "alice", Text: "here", Timestamp: "10:00 AM",
+		Attachments: []messages.Attachment{{Kind: "file", Name: "nolink.pdf", URL: "https://acme.slack.com/files/U1/F1/nolink.pdf"}},
+	}))
+	a.focusedPanel = PanelMessages
+	_ = a.View()
+
+	x, y := -1, -1
+	for row, line := range strings.Split(ansi.Strip(a.View().Content), "\n") {
+		if i := strings.Index(line, "[File] nolink.pdf"); i >= 0 {
+			x, y = ansi.StringWidth(line[:i]), row
+			break
+		}
+	}
+	if x < 0 {
+		t.Fatal("[File] nolink.pdf not on screen")
+	}
+
+	_, cmd := a.Update(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
+	if cmd != nil {
+		if _, ok := cmd().(DownloadFileMsg); ok {
+			t.Fatal("click on a file line without DownloadURL dispatched DownloadFileMsg")
+		}
 	}
 }
