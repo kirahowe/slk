@@ -24,6 +24,17 @@ Earlier history, up to v0.26.2, is in [upstream's releases](https://github.com/g
 - `a` and `A` (next and previous unread) go to the Unreads section first when
   you are outside it, and now also stop at a muted channel that mentions you.
 
+### Fixed
+
+- slk no longer breaks its own config on a fresh install. The first run
+  added a second `[workspaces.*]` block for the workspace it had just set
+  up, and every launch after that failed with `workspaces "<slug>" and
+  "<team id>" both reference team_id` until you deleted the extra block by
+  hand. Found and fixed by [Avi Flax](https://github.com/aviflax) in
+  [#1](https://github.com/kirahowe/slk/pull/1). Saving a theme, sidebar
+  width or version stamp now also refuses to write a config slk would not
+  load, and handles a blank line inside a workspace block.
+
 ## [0.29.2] - 2026-10-20
 
 ### Fixed
