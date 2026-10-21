@@ -526,8 +526,10 @@ func topLevelFields(data []byte) string {
 }
 
 // dispatchWebSocketEvent parses a raw JSON WebSocket message and routes it
-// to the appropriate EventHandler method.
-func dispatchWebSocketEvent(data []byte, handler EventHandler) {
+// to the appropriate EventHandler method. It reports whether the message
+// was the gateway's Ratelimited error, which no handler method carries:
+// it concerns the connection, so it goes to the ConnectionManager instead.
+func dispatchWebSocketEvent(data []byte, handler EventHandler) (rateLimited bool) {
 	var evt wsEvent
 	if err := json.Unmarshal(data, &evt); err != nil {
 		return
@@ -819,6 +821,10 @@ func dispatchWebSocketEvent(data []byte, handler EventHandler) {
 		// "code":17} when connections arrive too fast, and closes the
 		// socket a few seconds later.
 		debuglog.WS("gateway error: %s", string(data))
+		var e wsGatewayError
+		if err := json.Unmarshal(data, &e); err == nil {
+			return e.Error.Msg == "Ratelimited"
+		}
 
 	default:
 		// Ignore other event types. When debug logging is on, dump them
@@ -832,6 +838,7 @@ func dispatchWebSocketEvent(data []byte, handler EventHandler) {
 			debuglog.WS("unknown event type=%q raw=%s", evt.Type, string(payload))
 		}
 	}
+	return false
 }
 
 // DNDStateFromStatus is computeDNDState for a dnd.info or dnd.teamInfo
@@ -869,4 +876,12 @@ func computeDNDState(s wsDNDStatusInner, now int64) (bool, int64) {
 		return true, s.NextDNDEndTS
 	}
 	return false, 0
+}
+
+// wsGatewayError is the frame the gateway sends when it refuses a
+// connection, e.g. {"type":"error","error":{"msg":"Ratelimited","code":17}}.
+type wsGatewayError struct {
+	Error struct {
+		Msg string `json:"msg"`
+	} `json:"error"`
 }

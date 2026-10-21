@@ -11,8 +11,7 @@ import (
 // socket is the part of Client the ConnectionManager drives, so tests
 // can run the reconnect loop against a fake connection.
 type socket interface {
-	StartWebSocket(handler EventHandler) error
-	WsDone() <-chan struct{}
+	StartWebSocket(ctx context.Context, handler EventHandler) (*wsSession, error)
 	StopWebSocket() error
 }
 
@@ -36,7 +35,11 @@ const (
 type ConnectionManager struct {
 	client  socket
 	handler EventHandler
-	cancel  context.CancelFunc
+
+	// stopped is cancelled by Stop. It exists from construction so Stop
+	// works whether it runs before, during or after Run.
+	stopped context.Context
+	stop    context.CancelFunc
 
 	// jitter returns the random extra wait added to a backoff of d, so
 	// workspaces that dropped together do not redial together.
@@ -45,10 +48,17 @@ type ConnectionManager struct {
 
 // NewConnectionManager creates a new connection manager.
 func NewConnectionManager(client *Client, handler EventHandler) *ConnectionManager {
+	return newConnectionManager(client, handler, quarterJitter)
+}
+
+func newConnectionManager(client socket, handler EventHandler, jitter func(time.Duration) time.Duration) *ConnectionManager {
+	stopped, stop := context.WithCancel(context.Background())
 	return &ConnectionManager{
 		client:  client,
 		handler: handler,
-		jitter:  quarterJitter,
+		stopped: stopped,
+		stop:    stop,
+		jitter:  jitter,
 	}
 }
 
@@ -58,32 +68,42 @@ func quarterJitter(d time.Duration) time.Duration {
 }
 
 // Run starts the connection loop. It connects, waits for disconnect,
-// and reconnects with exponential backoff. Blocks until ctx is cancelled.
-// The backoff resets only after a connection has stayed up for
-// healthyAfter.
+// and reconnects with exponential backoff. Blocks until ctx is cancelled
+// or Stop is called. The backoff resets only after a connection has
+// stayed up for healthyAfter, counted from when the upgrade finished, and
+// goes straight to maxBackoff after the gateway rate-limited one.
 func (cm *ConnectionManager) Run(ctx context.Context) {
-	ctx, cm.cancel = context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	defer context.AfterFunc(cm.stopped, cancel)()
+	if cm.stopped.Err() != nil {
+		// AfterFunc cancels from a goroutine of its own, so a Stop that
+		// came first may not have reached ctx yet.
+		return
+	}
 
 	backoff := minBackoff
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		started := time.Now()
-		if err := cm.client.StartWebSocket(cm.handler); err != nil {
+	for ctx.Err() == nil {
+		s, err := cm.client.StartWebSocket(ctx, cm.handler)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
 			debuglog.WS("websocket dial failed: %v", err)
 			cm.handler.OnDisconnect()
 		} else {
+			established := time.Now()
 			select {
 			case <-ctx.Done():
 				cm.client.StopWebSocket()
 				return
-			case <-cm.client.WsDone():
+			case <-s.done:
 			}
-			if time.Since(started) >= healthyAfter {
+			switch {
+			case s.rateLimited.Load():
+				// Redialing sooner is what keeps the limit in place.
+				backoff = maxBackoff
+			case time.Since(established) >= healthyAfter:
 				backoff = minBackoff
 			}
 		}
@@ -99,11 +119,11 @@ func (cm *ConnectionManager) Run(ctx context.Context) {
 	}
 }
 
-// Stop cancels the connection loop and closes the WebSocket.
+// Stop ends the connection loop, abandoning a dial in progress, and
+// closes the WebSocket. Safe to call from any goroutine, before or while
+// Run runs; a Run that starts after Stop returns at once.
 func (cm *ConnectionManager) Stop() {
-	if cm.cancel != nil {
-		cm.cancel()
-	}
+	cm.stop()
 	cm.client.StopWebSocket()
 }
 

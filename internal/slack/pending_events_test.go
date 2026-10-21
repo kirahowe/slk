@@ -65,7 +65,7 @@ func TestStartWebSocketDispatchesPendingEventsWithoutIncomingFrames(t *testing.T
 		connectRelease: make(chan struct{}), connectFinished: make(chan struct{}),
 		repaired: make(chan struct{}), serialized: make(chan bool, 1),
 	}
-	if err := c.StartWebSocket(h); err != nil {
+	if _, err := c.StartWebSocket(t.Context(), h); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
@@ -103,7 +103,7 @@ func TestStartWebSocketPingsAnIdleSocket(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := &Client{wsBaseURL: "ws://" + srv.Listener.Addr().String(), pingInterval: time.Millisecond}
-	if err := c.StartWebSocket(&mockEventHandler{}); err != nil {
+	if _, err := c.StartWebSocket(t.Context(), &mockEventHandler{}); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
@@ -136,7 +136,7 @@ func TestSubscribePresenceSendsOnlyWhatFits(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := &Client{wsBaseURL: "ws://" + srv.Listener.Addr().String(), pingInterval: time.Hour}
-	if err := c.StartWebSocket(&mockEventHandler{}); err != nil {
+	if _, err := c.StartWebSocket(t.Context(), &mockEventHandler{}); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
@@ -164,10 +164,64 @@ func TestSubscribePresenceSendsOnlyWhatFits(t *testing.T) {
 	}
 }
 
-// writeJSON refuses a frame over the limit instead of sending it.
+// writeJSON refuses a frame over the limit instead of sending it. The
+// session has no connection, so any attempt to write would panic.
 func TestWriteJSONRefusesAnOversizedFrame(t *testing.T) {
 	big := map[string]string{"text": strings.Repeat("x", maxClientFrame)}
-	if err := writeJSON(nil, big); !errors.Is(err, errFrameTooLarge) {
+	if err := (&wsSession{}).writeJSON(big); !errors.Is(err, errFrameTooLarge) {
 		t.Fatalf("writeJSON(oversized) = %v, want errFrameTooLarge", err)
+	}
+}
+
+// writeOnConnect writes a typing frame from OnConnect, as the presence
+// subscription does, and reports the write's error.
+type writeOnConnect struct {
+	mockEventHandler
+	c   *Client
+	err chan error
+}
+
+func (h *writeOnConnect) OnConnect() { h.err <- h.c.SendTyping("C1") }
+
+// OnConnect runs on hello, the socket's first frame, and what it writes
+// must go out on the connection that said hello. The session is published
+// before the reader starts, so the write can never find no session or
+// the one this connection replaced.
+func TestOnConnectWritesReachTheNewConnection(t *testing.T) {
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	got := make(chan string, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade: %v", err)
+			return
+		}
+		defer conn.Close()
+		if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"hello"}`)); err != nil {
+			t.Errorf("hello: %v", err)
+			return
+		}
+		_, frame, err := conn.ReadMessage()
+		if err != nil {
+			t.Errorf("read: %v", err)
+		}
+		got <- string(frame)
+		_, _, _ = conn.ReadMessage() // until the client closes
+	}))
+	defer srv.Close()
+	c := &Client{wsBaseURL: "ws://" + srv.Listener.Addr().String(), pingInterval: time.Hour}
+	h := &writeOnConnect{c: c, err: make(chan error, 1)}
+	if _, err := c.StartWebSocket(t.Context(), h); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = c.StopWebSocket()
+		<-c.WsDone()
+	}()
+	if err := <-h.err; err != nil {
+		t.Fatalf("SendTyping from OnConnect: %v", err)
+	}
+	if frame := <-got; !strings.Contains(frame, `"typing"`) {
+		t.Fatalf("server got %q, want the typing frame", frame)
 	}
 }

@@ -2299,7 +2299,7 @@ func TestStartWebSocket_SendsChromeUpgradeHeaders(t *testing.T) {
 		teamID:    "T12345",
 		wsBaseURL: "ws://" + srv.Listener.Addr().String(),
 	}
-	if err := c.StartWebSocket(&mockEventHandler{}); err != nil {
+	if _, err := c.StartWebSocket(t.Context(), &mockEventHandler{}); err != nil {
 		t.Fatalf("StartWebSocket: %v", err)
 	}
 	// The server hangs up immediately; wait for the read loop to notice
@@ -2380,7 +2380,7 @@ func TestStartWebSocket_StartArgsMatchTheCapture(t *testing.T) {
 		wsBaseURL: "ws://" + srv.Listener.Addr().String(),
 		envelope:  env,
 	}
-	if err := c.StartWebSocket(&mockEventHandler{}); err != nil {
+	if _, err := c.StartWebSocket(t.Context(), &mockEventHandler{}); err != nil {
 		t.Fatalf("StartWebSocket: %v", err)
 	}
 	defer func() { <-c.WsDone() }()

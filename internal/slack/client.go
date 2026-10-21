@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gammons/slk/internal/debuglog"
@@ -77,13 +79,19 @@ const defaultWSBaseURL = "wss://wss-primary.slack.com"
 // Uses browser cookie auth (xoxc token + d cookie).
 type Client struct {
 	api    SlackAPI
-	wsConn *websocket.Conn
-	wsMu   sync.Mutex
-	wsDone chan struct{}
 	teamID string
 	userID string
 	token  string
 	cookie string
+
+	// ws is the WebSocket connection StartWebSocket made last. Writers
+	// and StopWebSocket take it from here on any goroutine; only
+	// StartWebSocket replaces it.
+	ws atomic.Pointer[wsSession]
+
+	// wsNetDial opens the TCP connection under the WebSocket; nil means
+	// net.Dialer. Tests supply an in-memory connection here.
+	wsNetDial func(ctx context.Context, network, addr string) (net.Conn, error)
 
 	// apiBaseURL is the workspace-specific Web API root, e.g.
 	// "https://slack.com/api/" for non-grid workspaces or
@@ -309,8 +317,12 @@ func (c *Client) UserID() string {
 
 // WsDone returns a channel closed after the WebSocket event owner exits,
 // including the reader stopping and OnDisconnect completing.
+// Nil before the first StartWebSocket.
 func (c *Client) WsDone() <-chan struct{} {
-	return c.wsDone
+	if s := c.ws.Load(); s != nil {
+		return s.done
+	}
+	return nil
 }
 
 // Connect authenticates with Slack, populates the team/user IDs, and
@@ -420,11 +432,60 @@ func wsUpgradeHeaders() http.Header {
 	return slackhttp.WebSocketHeaders()
 }
 
+// wsSession is one WebSocket connection: the socket, the lock its writers
+// share, and what the ConnectionManager needs to know once it ends.
+// StartWebSocket makes a new one for every dial and publishes it on the
+// Client, so a connection that wedged keeps its own lock and cannot hold
+// up the writes of the connection that replaced it.
+type wsSession struct {
+	conn   *websocket.Conn
+	teamID string
+
+	// writeMu serializes the frames written through writeJSON, the only
+	// writer of data frames. The reader's pong goes out through
+	// WriteControl without it: gorilla allows WriteControl alongside any
+	// other call, and taking writeMu there let a stuck write stop the
+	// reader as well.
+	writeMu sync.Mutex
+
+	// done is closed after the event owner exits, which is after the
+	// reader stopped and OnDisconnect returned.
+	done chan struct{}
+
+	// rateLimited is set when the gateway sent a Ratelimited error frame
+	// on this connection. The gateway closes such a socket a few seconds
+	// later, and the ConnectionManager waits the longest backoff before
+	// the next dial rather than adding to the limit.
+	rateLimited atomic.Bool
+}
+
+// wsTimeout is how long the reader waits for any frame, data or control,
+// before it takes the connection for dead. Without it, ReadMessage blocks
+// forever on a silently dropped TCP connection (wifi gone, laptop asleep).
+//
+// Slack's own WebSocket pings are minutes apart, so the deadline is kept
+// alive by keepAlive's application pings, which the gateway answers with a
+// pong frame. Before keepAlive, any workspace quiet for a minute dropped
+// its socket and reconnected (2026-10-21).
+const wsTimeout = 60 * time.Second
+
+// writeTimeout bounds every write to the socket, data frame or pong. A
+// write to a peer that stopped reading otherwise blocks until the kernel
+// gives up on the TCP connection, which can take many minutes.
+const writeTimeout = 10 * time.Second
+
+// handshakeTimeout bounds the dial and upgrade. gorilla's Dialer has no
+// limit when HandshakeTimeout is zero, and a stalled upgrade then held up
+// the ConnectionManager indefinitely.
+const handshakeTimeout = 15 * time.Second
+
 // StartWebSocket connects to Slack's internal WebSocket using the xoxc token
 // and d cookie, matching the protocol used by the browser client.
 // Events are dispatched to the provided handler in a goroutine.
-// Call this after Connect.
-func (c *Client) StartWebSocket(handler EventHandler) error {
+// Call this after Connect. Cancelling ctx abandons a dial in progress; once
+// the connection is up, StopWebSocket closes it. The returned session is
+// what the ConnectionManager waits on.
+func (c *Client) StartWebSocket(ctx context.Context, handler EventHandler) (*wsSession, error) {
 	// start_args matches the official client's, key for key, from the
 	// 2026-08-02 coldboot capture. slk used to send only
 	// agent/connect_only/ms_latest, and at some point user_typing
@@ -451,35 +512,23 @@ func (c *Client) StartWebSocket(handler EventHandler) error {
 		c.teamID,
 	)
 
-	jar := newCookieJar(c.cookie)
-	dialer := &websocket.Dialer{Jar: jar}
-
-	conn, _, err := dialer.Dial(wsURL, wsUpgradeHeaders())
+	conn, err := c.dialWebSocket(ctx, wsURL)
 	if err != nil {
-		return fmt.Errorf("websocket connect failed: %w", err)
+		return nil, fmt.Errorf("websocket connect failed: %w", err)
 	}
-	c.wsConn = conn
-	c.wsDone = make(chan struct{})
+	s := &wsSession{conn: conn, teamID: c.teamID, done: make(chan struct{})}
+	// Published before the goroutines start: the first frame is hello,
+	// whose OnConnect subscribes to presence through c.ws, and must find
+	// this session rather than the one it replaces.
+	c.ws.Store(s)
 
-	// Detect dead connections: set a read deadline that resets on every
-	// incoming message or pong. Without this, ReadMessage blocks forever
-	// on a silently-dropped TCP connection (e.g., wifi disconnect).
-	//
-	// Slack's own WebSocket pings are minutes apart, so the deadline is
-	// kept alive by keepAlive's application pings, which the gateway
-	// answers with a pong frame. Before keepAlive, any workspace quiet
-	// for a minute dropped its socket and reconnected (2026-10-21).
-	const wsTimeout = 60 * time.Second
-	conn.SetReadDeadline(time.Now().Add(wsTimeout))
 	conn.SetPongHandler(func(string) error {
 		conn.SetReadDeadline(time.Now().Add(wsTimeout))
 		return nil
 	})
 	conn.SetPingHandler(func(msg string) error {
 		conn.SetReadDeadline(time.Now().Add(wsTimeout))
-		c.wsMu.Lock()
-		defer c.wsMu.Unlock()
-		return conn.WriteControl(websocket.PongMessage, []byte(msg), time.Now().Add(10*time.Second))
+		return conn.WriteControl(websocket.PongMessage, []byte(msg), time.Now().Add(writeTimeout))
 	})
 
 	// Reading and dispatching are separate so local deferred work can wake
@@ -488,23 +537,29 @@ func (c *Client) StartWebSocket(handler EventHandler) error {
 	messages := make(chan []byte)
 	go func() {
 		defer close(messages)
+		// A reader that stopped leaves nothing that could use the socket,
+		// so it closes it; otherwise a connection that failed a read stays
+		// open until the peer notices.
+		defer conn.Close()
 		for {
+			// The deadline starts at the read, not at the previous frame:
+			// time the dispatcher spends on a frame is not the peer's
+			// silence. Pings and pongs extend it while the read waits.
+			conn.SetReadDeadline(time.Now().Add(wsTimeout))
 			_, message, err := conn.ReadMessage()
 			if err != nil {
 				// Timeout, close frame, or the connection dropped: exit
 				// the loop either way. The reason is the only record of
 				// why a socket went away.
-				debuglog.WS("team=%s socket closed: %v", c.teamID, err)
+				debuglog.WS("team=%s socket closed: %v", s.teamID, err)
 				return
 			}
-			// Reset deadline on every successful read
-			conn.SetReadDeadline(time.Now().Add(wsTimeout))
 			messages <- message
 		}
 	}()
-	go c.keepAlive(conn, c.wsDone)
+	go s.keepAlive(c.pingInterval)
 	go func() {
-		defer close(c.wsDone)
+		defer close(s.done)
 		defer handler.OnDisconnect()
 		pendingHandler, _ := handler.(PendingEventHandler)
 		var pending <-chan struct{}
@@ -517,28 +572,66 @@ func (c *Client) StartWebSocket(handler EventHandler) error {
 				if !ok {
 					return
 				}
-				dispatchWebSocketEvent(message, handler)
+				if dispatchWebSocketEvent(message, handler) {
+					s.rateLimited.Store(true)
+				}
 			case <-pending:
 				pendingHandler.OnPendingEvents()
 			}
 		}
 	}()
 
-	return nil
+	return s, nil
+}
+
+// dialWebSocket opens the connection and completes the upgrade, giving up
+// after handshakeTimeout or when ctx is cancelled, whichever comes first.
+// gorilla's DialContext only puts ctx's deadline on a plain ws:// upgrade,
+// not its cancellation, so the dial closes the TCP connection itself when
+// ctx ends before the upgrade has finished.
+func (c *Client) dialWebSocket(ctx context.Context, wsURL string) (*websocket.Conn, error) {
+	netDial := c.wsNetDial
+	if netDial == nil {
+		netDial = (&net.Dialer{}).DialContext
+	}
+	var stopWatch func() bool
+	dialer := &websocket.Dialer{
+		Jar:              newCookieJar(c.cookie),
+		HandshakeTimeout: handshakeTimeout,
+		NetDialContext: func(dialCtx context.Context, network, addr string) (net.Conn, error) {
+			nc, err := netDial(dialCtx, network, addr)
+			if err != nil {
+				return nil, err
+			}
+			stopWatch = context.AfterFunc(ctx, func() { nc.Close() })
+			return nc, nil
+		},
+	}
+	conn, _, err := dialer.DialContext(ctx, wsURL, wsUpgradeHeaders())
+	if stopWatch != nil && !stopWatch() && err == nil {
+		// ctx ended as the upgrade finished, and the watch has already
+		// closed the connection under it.
+		conn.Close()
+		return nil, ctx.Err()
+	}
+	if err != nil {
+		return nil, err
+	}
+	return conn, nil
 }
 
 // defaultPingInterval is how often keepAlive pings the gateway: a third
-// of StartWebSocket's read deadline, so two pings can go unanswered
-// before a live connection is taken for dead.
+// of wsTimeout, so two pings can go unanswered before a live connection
+// is taken for dead.
 const defaultPingInterval = 20 * time.Second
 
 // keepAlive sends Slack's application-level ping ({"type":"ping","id":n},
-// answered with {"type":"pong","reply_to":n}) every pingInterval until
-// done closes. A ping that cannot be written closes the connection, so
-// the reader ends and the ConnectionManager reconnects at once instead of
-// waiting out the read deadline.
-func (c *Client) keepAlive(conn *websocket.Conn, done <-chan struct{}) {
-	interval := c.pingInterval
+// answered with {"type":"pong","reply_to":n}) every interval (zero means
+// defaultPingInterval) until the session ends. A ping that cannot be
+// written ends the connection (see writeJSON), so the reader stops and the
+// ConnectionManager reconnects at once instead of waiting out the read
+// deadline.
+func (s *wsSession) keepAlive(interval time.Duration) {
 	if interval == 0 {
 		interval = defaultPingInterval
 	}
@@ -546,46 +639,52 @@ func (c *Client) keepAlive(conn *websocket.Conn, done <-chan struct{}) {
 	defer ticker.Stop()
 	for id := 1; ; id++ {
 		select {
-		case <-done:
+		case <-s.done:
 			return
 		case <-ticker.C:
 		}
-		c.wsMu.Lock()
-		conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-		err := writeJSON(conn, map[string]any{"type": "ping", "id": id})
-		conn.SetWriteDeadline(time.Time{}) // other writers set none
-		c.wsMu.Unlock()
-		if err != nil {
-			debuglog.WS("team=%s ping failed: %v", c.teamID, err)
-			conn.Close()
+		if err := s.writeJSON(map[string]any{"type": "ping", "id": id}); err != nil {
+			// A socket already closed (by the reader, or StopWebSocket)
+			// ends the session anyway; that is not a ping failing.
+			if !errors.Is(err, net.ErrClosed) {
+				debuglog.WS("team=%s ping failed: %v", s.teamID, err)
+			}
 			return
 		}
 	}
 }
 
-// StopWebSocket disconnects the WebSocket connection.
+// StopWebSocket closes the current WebSocket connection, if there is one.
+// Safe from any goroutine: the reader then fails, the event owner calls
+// OnDisconnect and WsDone closes.
 func (c *Client) StopWebSocket() error {
-	if c.wsConn != nil {
-		return c.wsConn.Close()
+	if s := c.ws.Load(); s != nil {
+		return s.conn.Close()
 	}
 	return nil
 }
 
-// maxClientFrame is the largest frame the gateway accepts from a client.
-// A bigger one is not refused: the gateway closes the socket about five
-// seconds later with no error frame. Measured 2026-10-21 with presence_sub
-// on a workspace with 360 DM peers: a 4049-byte frame was accepted, a
-// 4115-byte one closed the connection every time, and the gateway does not
-// negotiate permessage-deflate, so compression cannot help.
-const maxClientFrame = 4096
+// maxClientFrame is the largest frame slk sends the gateway. A bigger one
+// than the gateway takes is not refused: the gateway closes the socket
+// about five seconds later with no error frame. Measured 2026-10-21 with
+// presence_sub on a workspace with 360 DM peers: a 4049-byte frame was
+// accepted and a 4115-byte one closed the connection every time, so the
+// real limit lies somewhere in that bracket. The cap sits below the
+// largest frame seen to work, with some margin, since nothing above 4049
+// is known to be safe. The gateway does not negotiate permessage-deflate,
+// so compression cannot help.
+const maxClientFrame = 4000
 
 // errFrameTooLarge is returned for a frame writeJSON refuses to send.
 var errFrameTooLarge = errors.New("websocket frame exceeds the gateway's limit")
 
-// writeJSON sends v as one text frame on conn, refusing any frame over
+// writeJSON sends v as one text frame, refusing any frame over
 // maxClientFrame rather than letting it take the connection down. Every
-// client write goes through it. The caller holds wsMu.
-func writeJSON(conn *websocket.Conn, v any) error {
+// data frame the client sends goes through it. The write has
+// writeTimeout to finish; a write that fails closes the connection,
+// because gorilla refuses every later write on it anyway and the reader
+// would otherwise keep a socket that can no longer send.
+func (s *wsSession) writeJSON(v any) error {
 	frame, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -593,21 +692,29 @@ func writeJSON(conn *websocket.Conn, v any) error {
 	if len(frame) > maxClientFrame {
 		return fmt.Errorf("%w: %d bytes", errFrameTooLarge, len(frame))
 	}
-	return conn.WriteMessage(websocket.TextMessage, frame)
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	s.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+	if err := s.conn.WriteMessage(websocket.TextMessage, frame); err != nil {
+		s.conn.Close()
+		return err
+	}
+	return nil
 }
+
+// errNotConnected is returned for a write with no WebSocket to send it on.
+var errNotConnected = errors.New("websocket not connected")
 
 // SendTyping sends a typing indicator to the given channel via WebSocket.
 func (c *Client) SendTyping(channelID string) error {
-	c.wsMu.Lock()
-	defer c.wsMu.Unlock()
-	if c.wsConn == nil {
-		return fmt.Errorf("websocket not connected")
+	s := c.ws.Load()
+	if s == nil {
+		return errNotConnected
 	}
-	msg := map[string]string{
+	return s.writeJSON(map[string]string{
 		"type":    "typing",
 		"channel": channelID,
-	}
-	return writeJSON(c.wsConn, msg)
+	})
 }
 
 // SubscribePresence asks Slack to deliver presence_change events for the
@@ -621,13 +728,12 @@ func (c *Client) SendTyping(channelID string) error {
 // It subscribes the longest prefix of userIDs that fits and returns how
 // many that was: put the IDs that matter most first.
 func (c *Client) SubscribePresence(userIDs []string) (int, error) {
-	c.wsMu.Lock()
-	defer c.wsMu.Unlock()
-	if c.wsConn == nil {
-		return 0, fmt.Errorf("websocket not connected")
+	s := c.ws.Load()
+	if s == nil {
+		return 0, errNotConnected
 	}
 	n := presenceSubFit(userIDs)
-	return n, writeJSON(c.wsConn, presenceSub(userIDs[:n]))
+	return n, s.writeJSON(presenceSub(userIDs[:n]))
 }
 
 // presenceSub is the presence_sub frame for ids.
