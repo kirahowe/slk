@@ -13,9 +13,10 @@ import (
 )
 
 // bootstrapPresenceAndDND fetches the user's current presence and DND
-// state from Slack, populates the WorkspaceContext, and sends an initial
-// StatusChangeMsg. Also subscribes to presence_change events for the self
-// user and every DM peer so external state changes arrive over the WS.
+// state from Slack, stores it in wctx.Self, and sends a StatusChangeMsg.
+// Also subscribes to presence_change events for the self user and every
+// DM peer so external state changes arrive over the WS.
+// OnConnect runs it through wctx.selfFetch, never two at once.
 func bootstrapPresenceAndDND(ctx context.Context, wctx *WorkspaceContext, program teaSender, peerIDs []string) {
 	if wctx == nil || wctx.Client == nil {
 		return
@@ -31,35 +32,52 @@ func bootstrapPresenceAndDND(ctx context.Context, wctx *WorkspaceContext, progra
 	// the subscription is connection-scoped.
 	subscribeWorkspacePresence(wctx, peerIDs)
 
-	// Initial presence fetch
+	// Record the write counts before asking, so a manual_presence_change
+	// or dnd_updated that lands while the requests are out is not
+	// overwritten by the older answer.
+	mark := wctx.Self.mark()
+
+	var presence *string
 	if p, err := wctx.Client.GetUserPresence(ctx, wctx.UserID); err == nil && p != nil {
-		wctx.Presence = p.Presence
+		presence = &p.Presence
 	}
 
-	// Initial DND fetch. DNDStateFromStatus distinguishes an active
-	// snooze/scheduled window from a merely configured DND schedule.
+	// DNDStateFromStatus distinguishes an active snooze/scheduled window
+	// from a merely configured DND schedule.
+	var dnd *fetchedDND
 	if st, err := wctx.Client.GetDNDInfo(ctx, wctx.UserID); err == nil && st != nil {
 		isDND, endUnix := slackclient.DNDStateFromStatus(*st, time.Now().Unix())
-		wctx.DNDEnabled = isDND
+		dnd = &fetchedDND{enabled: isDND}
 		if endUnix > 0 {
-			wctx.DNDEndTS = time.Unix(endUnix, 0)
-		} else {
-			wctx.DNDEndTS = time.Time{}
+			dnd.end = time.Unix(endUnix, 0)
 		}
 	}
+	wctx.Self.applyFetched(mark, presence, dnd)
 
 	// DM peers' DND, which the sidebar marks. Later changes arrive as
 	// dnd_invalidated and go through the same refresher. Runs on every
 	// connect because the socket does not replay missed invalidations.
 	wctx.PeerStatus.RefreshDND(ctx, peerIDs)
 
-	if program != nil {
-		program.Send(ui.StatusChangeMsg{
-			TeamID:     wctx.TeamID,
-			Presence:   wctx.Presence,
-			DNDEnabled: wctx.DNDEnabled,
-			DNDEndTS:   wctx.DNDEndTS,
-		})
+	wctx.Self.Report(func(st selfState) {
+		if program != nil {
+			program.Send(statusChangeMsg(wctx.TeamID, st))
+		}
+	})
+}
+
+// selfStatusTimeout bounds one connect-time presence and DND fetch, peer
+// DND included, so a run a hung request holds up cannot keep the next
+// connect's run waiting indefinitely.
+const selfStatusTimeout = 30 * time.Second
+
+// statusChangeMsg reports st as teamID's self status.
+func statusChangeMsg(teamID string, st selfState) ui.StatusChangeMsg {
+	return ui.StatusChangeMsg{
+		TeamID:     teamID,
+		Presence:   st.Presence,
+		DNDEnabled: st.DNDEnabled,
+		DNDEndTS:   st.DNDEndTS,
 	}
 }
 
@@ -149,35 +167,22 @@ func (h *rtmEventHandler) OnSelfPresenceChange(presence string) {
 		return
 	}
 	// Slack uses "active"/"away" in events; store verbatim.
-	h.wsCtx.Presence = presence
-	if h.program == nil {
-		return
-	}
-	h.program.Send(ui.StatusChangeMsg{
-		TeamID:     h.workspaceID,
-		Presence:   presence,
-		DNDEnabled: h.wsCtx.DNDEnabled,
-		DNDEndTS:   h.wsCtx.DNDEndTS,
-	})
+	h.wsCtx.Self.SetPresence(presence, h.reportSelfStatus)
 }
 
 func (h *rtmEventHandler) OnDNDChange(enabled bool, endUnix int64) {
 	if h.wsCtx == nil {
 		return
 	}
-	h.wsCtx.DNDEnabled = enabled
+	var end time.Time
 	if endUnix > 0 {
-		h.wsCtx.DNDEndTS = time.Unix(endUnix, 0)
-	} else {
-		h.wsCtx.DNDEndTS = time.Time{}
+		end = time.Unix(endUnix, 0)
 	}
-	if h.program == nil {
-		return
+	h.wsCtx.Self.SetDND(enabled, end, h.reportSelfStatus)
+}
+
+func (h *rtmEventHandler) reportSelfStatus(st selfState) {
+	if h.program != nil {
+		h.program.Send(statusChangeMsg(h.workspaceID, st))
 	}
-	h.program.Send(ui.StatusChangeMsg{
-		TeamID:     h.workspaceID,
-		Presence:   h.wsCtx.Presence,
-		DNDEnabled: h.wsCtx.DNDEnabled,
-		DNDEndTS:   h.wsCtx.DNDEndTS,
-	})
 }

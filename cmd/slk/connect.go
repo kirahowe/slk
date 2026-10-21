@@ -474,8 +474,17 @@ func (h *rtmEventHandler) OnConnect() {
 	h.connected = true
 	h.program.Send(ui.ConnectionStateMsg{TeamID: h.workspaceID, State: int(statusbar.StateConnected)})
 	if h.wsCtx != nil {
-		peerIDs := workspacePresenceIDs(h.wsCtx)
-		go bootstrapPresenceAndDND(context.Background(), h.wsCtx, h.program, peerIDs)
+		// Each connect queues a fetch rather than starting one: during a
+		// flap the runs would otherwise overlap and the slowest, not the
+		// newest, would decide what the status bar shows. A queued run
+		// still sends presence_sub, on the newest socket.
+		wctx, program := h.wsCtx, h.program
+		peerIDs := workspacePresenceIDs(wctx)
+		wctx.selfFetch.Run(func(ctx context.Context) {
+			ctx, cancel := context.WithTimeout(ctx, selfStatusTimeout)
+			defer cancel()
+			bootstrapPresenceAndDND(ctx, wctx, program, peerIDs)
+		})
 	}
 	// Refresh Slack-native section state on reconnect. MaybeRebootstrap
 	// is debounced to once per 30s (Task 6) so a rapid flap doesn't

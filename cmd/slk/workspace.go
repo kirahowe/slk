@@ -4,7 +4,6 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/service"
@@ -141,12 +140,15 @@ type WorkspaceContext struct {
 	// The stored map is published once and never mutated afterwards, so
 	// readers need no further synchronization.
 	userGroups atomic.Pointer[map[string]string]
-	// Self presence and DND state for this workspace. Populated on connect
-	// and updated by manual_presence_change / dnd_updated WS events plus
-	// optimistic writes from the presence menu.
-	Presence   string    // "active" or "away"; "" until first fetch
-	DNDEnabled bool      // true if either snooze or admin-DND is active
-	DNDEndTS   time.Time // unified end timestamp; zero if not in DND
+	// Self is the user's own presence and DND in this workspace, fetched
+	// on every connect and updated by manual_presence_change and
+	// dnd_updated. Locked: the connect-time fetch writes it off the event
+	// owner.
+	Self selfStatus
+	// selfFetch runs that connect-time fetch one at a time, newest
+	// connect last, so a reconnect flap cannot leave an older answer on
+	// top of a newer one.
+	selfFetch latestRunner
 	// LastVisitedByChannel maps channelID -> unix-second timestamp of
 	// the user's most recent visit to that channel in this workspace.
 	// Populated once at connect from cache.GetChannelVisits and

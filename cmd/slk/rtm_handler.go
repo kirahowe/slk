@@ -199,7 +199,7 @@ func (h *rtmEventHandler) OnMessage(channelID, userID, ts, text, threadTS, subty
 			OnMention:       h.notifyCfg.OnMention,
 			OnDM:            h.notifyCfg.OnDM,
 			OnKeyword:       h.notifyCfg.OnKeyword,
-			IsDND:           h.wsCtx != nil && h.wsCtx.DNDEnabled && (h.wsCtx.DNDEndTS.IsZero() || time.Now().Before(h.wsCtx.DNDEndTS)),
+			IsDND:           h.wsCtx != nil && h.wsCtx.Self.Get().InDND(time.Now()),
 			IsMuted:         h.wsCtx != nil && h.wsCtx.MuteStore != nil && h.wsCtx.MuteStore.IsMuted(channelID),
 		}
 		chType := h.channelTypes[channelID]
