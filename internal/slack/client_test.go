@@ -635,9 +635,8 @@ func TestClient_GetDNDInfo_Error(t *testing.T) {
 
 func TestSendTypingReturnsErrorWhenNotConnected(t *testing.T) {
 	c := &Client{}
-	err := c.SendTyping("C123")
-	if err == nil {
-		t.Error("expected error when wsConn is nil")
+	if err := c.SendTyping("C123"); !errors.Is(err, errNotConnected) {
+		t.Errorf("SendTyping with no WebSocket session = %v, want errNotConnected", err)
 	}
 }
 

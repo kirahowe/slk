@@ -113,7 +113,7 @@ func subscribeWorkspacePresence(wctx *WorkspaceContext, ids []string) {
 // skipped. Reads the published snapshots, so any goroutine may call it.
 //
 // The order is priority, because one presence_sub frame holds only about
-// 300 IDs (SubscribePresence keeps the prefix that fits): self, then
+// 280 IDs (SubscribePresence keeps the prefix that fits): self, then
 // starred DMs, then the rest by most recent visit, ties in sidebar order.
 func workspacePresenceIDs(wctx *WorkspaceContext) []string {
 	seen := make(map[string]struct{})

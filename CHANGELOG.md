@@ -28,12 +28,14 @@ Earlier history, up to v0.26.2, is in [upstream's releases](https://github.com/g
 
 - Workspaces stay connected. A workspace with no activity for a minute
   used to drop its connection and reconnect, and one with more than about
-  300 DM partners was disconnected five seconds after every connect, so it
+  290 DM partners was disconnected five seconds after every connect, so it
   never stayed connected for long. Either way, messages arrived in bursts
   and your own messages could seem slow to send. Reconnects now also back
-  off properly when Slack refuses them. On a workspace with that many DM
-  partners, live presence covers the roughly 300 you starred or visited
-  most recently, because Slack's connection takes no more.
+  off properly when Slack refuses them, and a connection that stops
+  responding is dropped and reopened instead of hanging. On a workspace
+  with that many DM partners, live presence covers the roughly 280 you
+  starred or visited most recently, because Slack's connection takes no
+  more.
 - slk no longer breaks its own config on a fresh install. The first run
   added a second `[workspaces.*]` block for the workspace it had just set
   up, and every launch after that failed with `workspaces "<slug>" and
