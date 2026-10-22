@@ -8,8 +8,17 @@ Earlier history, up to v0.26.2, is in [upstream's releases](https://github.com/g
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-10-22
+
 ### Added
 
+- A read-only canvas viewer. `c` (or `:canvas`) opens the focused
+  conversation's canvas full screen: a channel's canvas, or the notes canvas
+  on a DM. A canvas shared in a message now shows as `[Canvas]` with its
+  title, and `c` on that message opens it. In the viewer, `tab` moves
+  between canvases, `o` opens the canvas in Slack for editing and `r`
+  fetches it again. Headings, lists, quotes, code, links and mentions are
+  drawn; checklists, tables and images are not yet.
 - An Unreads section at the top of the sidebar, like Slack's "show unreads
   in a separate section" option. DMs and group DMs with unread messages, and
   any conversation that mentions you (muted ones included), move there until
@@ -268,6 +277,9 @@ v0.26.2.
   last-viewed channel drops its `▌` marker while Threads or Activity is the
   view on screen.
 
+[0.30.0]: https://github.com/kirahowe/slk/releases/tag/v0.30.0
+[0.29.2]: https://github.com/kirahowe/slk/releases/tag/v0.29.2
+[0.29.1]: https://github.com/kirahowe/slk/releases/tag/v0.29.1
 [0.29.0]: https://github.com/kirahowe/slk/releases/tag/v0.29.0
 [0.28.0]: https://github.com/kirahowe/slk/releases/tag/v0.28.0
 [0.27.0]: https://github.com/kirahowe/slk/releases/tag/v0.27.0
