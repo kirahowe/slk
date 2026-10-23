@@ -416,6 +416,14 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 			stats.blockKitTotal += time.Since(bkT0)
 			stats.blockKitCount++
 		}
+		if !opt.SixelRows {
+			// A pane without the sixel placement pipeline (the thread
+			// pane, plan decision P3) must not keep the renderer's
+			// blank placeholder rows for a block image: splice the
+			// halfblock fallback into the lines so the image stays
+			// visible as text instead of vanishing.
+			blockkit.SpliceSixelFallbacks(res.Lines, res.SixelRows)
+		}
 		bkLines = append(bkLines, res.Lines...)
 		out.BlockFlushes = append(out.BlockFlushes, res.Flushes...)
 		if opt.SixelRows {
@@ -463,6 +471,12 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 			phTotal, phCount := lgPerf.ImgPlaceholder()
 			stats.legacyImgPlaceholderTotal += phTotal
 			stats.legacyImgPlaceholderCount += phCount
+		}
+		if !opt.SixelRows {
+			// Same as the block branch above: keep legacy-attachment
+			// images visible as halfblock text in panes that cannot
+			// paint sixel placements.
+			blockkit.SpliceSixelFallbacks(res.Lines, res.SixelRows)
 		}
 		bkLines = append(bkLines, res.Lines...)
 		out.BlockFlushes = append(out.BlockFlushes, res.Flushes...)

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/gammons/slk/internal/core/blocks"
 	imgpkg "github.com/gammons/slk/internal/image"
 	"github.com/gammons/slk/internal/ui/imgrender"
@@ -121,5 +122,167 @@ func TestView_SixelBlockImage_PartialVisibilityUsesFallback(t *testing.T) {
 	// replacing the plain placeholder spaces.
 	if !strings.Contains(out, "▀") && !strings.Contains(out, "▄") {
 		t.Error("partially visible block image did not render its halfblock fallback; the rows are blank")
+	}
+}
+
+// The thread pane renders replies without the sixel placement
+// pipeline (plan decision P3: RenderOptions carries no SixelRows). It
+// must still show the image: the halfblock fallback is spliced into
+// the rendered lines in place of the blank reserved rows. Without the
+// splice a cached block image left its rows blank in threads.
+func TestRenderMessage_WithoutSixelRows_SplicesBlockImageFallback(t *testing.T) {
+	m := setupBlockImageMessageModel(t, imgpkg.ProtoSixel)
+	rc := m.renderContext()
+	r := RenderMessage(m.messages[0], 80, rc, RenderOptions{ImageHits: true})
+	if strings.Contains(r.Content, "\x1bP") {
+		t.Error("sixel bytes leaked into the rendered content")
+	}
+	if !strings.Contains(r.Content, "▀") && !strings.Contains(r.Content, "▄") {
+		t.Error("thread-pane render left the block image's rows blank; the halfblock fallback was not spliced")
+	}
+	if len(r.SixelRows) != 0 {
+		t.Fatalf("RenderedMessage.SixelRows = %d entries, want 0 without the sixel pipeline", len(r.SixelRows))
+	}
+}
+
+// setupLegacyImageMessageModel primes the cache for one legacy
+// attachment's image_url, for thread-splice tests over the striped
+// attachment body.
+func setupLegacyImageMessageModel(t *testing.T) *Model {
+	t.Helper()
+	cache, err := imgpkg.NewCache(t.TempDir(), 10)
+	if err != nil {
+		t.Fatalf("NewCache: %v", err)
+	}
+	fetcher := imgpkg.NewFetcher(cache, nil)
+	const url = "https://example.com/legacy-image.png"
+	key := blockImageCacheKey(url)
+	if _, err := cache.Put(key, "png", makeTestPNG(720, 720)); err != nil {
+		t.Fatalf("cache.Put: %v", err)
+	}
+	if _, err := fetcher.Fetch(context.Background(), imgpkg.FetchRequest{
+		Key: key,
+		URL: "unused://disk-cache-hits-skip-network",
+		// The attachment target is (71,20) cells at CellPixels (8,16):
+		// a 16:9 image at MaxRows 20 in a 78-column body.
+		Target: stdimage.Pt(568, 320),
+	}); err != nil {
+		t.Fatalf("Fetch (memo prime): %v", err)
+	}
+	msg := MessageItem{
+		TS:        "1700000000.000100",
+		UserID:    "U1",
+		UserName:  "alice",
+		Text:      "look at this",
+		Timestamp: "10:30 AM",
+		LegacyAttachments: []blocks.LegacyAttachment{{
+			Pretext:  "above the bar",
+			ImageURL: url,
+		}},
+	}
+	m := New([]MessageItem{msg}, "C123")
+	m.SetImageContext(imgrender.ImageContext{
+		Protocol:   imgpkg.ProtoSixel,
+		Fetcher:    fetcher,
+		CellPixels: stdimage.Pt(8, 16),
+		MaxRows:    20,
+	})
+	return m
+}
+
+// A thread-pane render of a legacy attachment's image grafts the bare
+// halfblock fallback at the entry's column, over the row's own stripe:
+// the stripe appears once, with the image right of it - not twice
+// (fallback baking it in) and not gone (bare row replacing the line).
+func TestRenderMessage_WithoutSixelRows_LegacyImageGraftsOverStripe(t *testing.T) {
+	m := setupLegacyImageMessageModel(t)
+	rc := m.renderContext()
+	r := RenderMessage(m.messages[0], 80, rc, RenderOptions{ImageHits: true})
+
+	var fallbackRows int
+	for _, line := range strings.Split(r.Content, "\n") {
+		plain := ansi.Strip(line)
+		if !strings.Contains(plain, "▀") && !strings.Contains(plain, "▄") {
+			continue
+		}
+		fallbackRows++
+		if n := strings.Count(plain, "█"); n != 1 {
+			t.Errorf("fallback row shows the stripe %d times, want exactly 1: %q", n, plain[:min(20, len(plain))])
+		}
+		if !strings.HasPrefix(plain, "█ ") {
+			t.Errorf("fallback row does not start with the stripe: %q", plain[:min(20, len(plain))])
+		}
+	}
+	if fallbackRows == 0 {
+		t.Fatal("no fallback rows in the thread render; the setup does not exercise the splice")
+	}
+}
+
+// A thread-pane render of a section with an image accessory grafts
+// the bare fallback at the accessory's column, over the composed row:
+// the body text appears once with the image beside it, not twice and
+// not blanked.
+func TestRenderMessage_WithoutSixelRows_SectionAccessoryGraftsAtColumn(t *testing.T) {
+	cache, err := imgpkg.NewCache(t.TempDir(), 10)
+	if err != nil {
+		t.Fatalf("NewCache: %v", err)
+	}
+	fetcher := imgpkg.NewFetcher(cache, nil)
+	const url = "https://example.com/accessory.png"
+	key := blockImageCacheKey(url)
+	if _, err := cache.Put(key, "png", makeTestPNG(720, 720)); err != nil {
+		t.Fatalf("cache.Put: %v", err)
+	}
+	if _, err := fetcher.Fetch(context.Background(), imgpkg.FetchRequest{
+		Key: key,
+		URL: "unused://disk-cache-hits-skip-network",
+		// The accessory target is (8,4) cells at CellPixels (8,16).
+		Target: stdimage.Pt(64, 64),
+	}); err != nil {
+		t.Fatalf("Fetch (memo prime): %v", err)
+	}
+	msg := MessageItem{
+		TS:        "1700000000.000100",
+		UserID:    "U1",
+		UserName:  "alice",
+		Text:      "look at this",
+		Timestamp: "10:30 AM",
+		Blocks: []blocks.Block{
+			blocks.SectionBlock{
+				Text:      "section body text",
+				Accessory: blocks.ImageAccessory{URL: url},
+			},
+		},
+	}
+	m := New([]MessageItem{msg}, "C123")
+	m.SetImageContext(imgrender.ImageContext{
+		Protocol:   imgpkg.ProtoSixel,
+		Fetcher:    fetcher,
+		CellPixels: stdimage.Pt(8, 16),
+		MaxRows:    20,
+	})
+
+	r := RenderMessage(m.messages[0], 80, m.renderContext(), RenderOptions{ImageHits: true})
+
+	// The body text must survive exactly once - not blanked by the
+	// fallback, not doubled by baking it into the fallback rows - and
+	// it must share its row with the image: the accessory sits beside
+	// the text, not below a replaced row.
+	total := strings.Count(r.Content, "section body text")
+	if total != 1 {
+		t.Fatalf("section body text appears %d times in the render, want exactly 1", total)
+	}
+	var beside bool
+	for _, line := range strings.Split(r.Content, "\n") {
+		plain := ansi.Strip(line)
+		if strings.Contains(plain, "section body text") && strings.ContainsAny(plain, "▀▄") {
+			beside = true
+		}
+	}
+	if !beside {
+		t.Error("the section body text does not share its row with the image; the fallback replaced the row instead of grafting beside it")
+	}
+	if !strings.ContainsAny(r.Content, "▀▄") {
+		t.Fatal("no fallback rows in the thread render; the setup does not exercise the splice")
 	}
 }

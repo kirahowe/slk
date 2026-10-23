@@ -1,8 +1,9 @@
 // Package blockkit parses and renders Slack Block Kit blocks and the
 // legacy `attachments` field. The package is intentionally
 // self-contained: it depends only on slack-go (for input types),
-// lipgloss (for styling), the project's styles package (for theme
-// colors), and the project's image package (for block image
+// lipgloss (for styling), charmbracelet/x/ansi (for width-aware line
+// surgery in SpliceSixelFallbacks), the project's styles package (for
+// theme colors), and the project's image package (for block image
 // rendering). It does NOT depend on the rest of internal/ui/messages
 // to keep import cycles impossible.
 //
@@ -18,6 +19,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/core/blocks"
 	imgpkg "github.com/gammons/slk/internal/image"
@@ -83,6 +85,32 @@ type SixelEntry struct {
 	// adds this to the entry's content column, exactly as the hit
 	// rects already carry their own column offsets.
 	Col int
+}
+
+// SpliceSixelFallbacks grafts, in place, each SixelRows entry's
+// halfblock fallback rows over the blank rows the render reserved for
+// its images. For hosts that cannot paint sixel placements (the
+// thread pane): without this, a cached image's reserved rows render
+// as blank space. Keys are row indexes into lines, the same
+// coordinate system as SixelRows itself.
+//
+// The fallback rows are bare halfblock; the entry's Col says where
+// the image sits. Each row is grafted at Col over the line's own
+// content - keeping what stands left of the image (a legacy
+// attachment's stripe, a section accessory's body text) and the line's
+// tail beyond it - so the spliced row keeps the surroundings the
+// reserved row carried, instead of replacing them.
+func SpliceSixelFallbacks(lines []string, rows map[int]SixelEntry) {
+	for k, v := range rows {
+		for i := 0; i < v.Height && i < len(v.Fallback); i++ {
+			if k+i < 0 || k+i >= len(lines) {
+				continue
+			}
+			end := v.Col + ansi.StringWidth(v.Fallback[i])
+			lines[k+i] = ansi.Cut(lines[k+i], 0, v.Col) + v.Fallback[i] +
+				ansi.Cut(lines[k+i], end, ansi.StringWidth(lines[k+i]))
+		}
+	}
 }
 
 // HitRect is one clickable image footprint expressed in (row, col)
