@@ -16,3 +16,7 @@ slk-debug.log
 # rapid writes a reproduction file here when a property fails; it is for
 # local replay, not for committing.
 **/testdata/rapid/
+
+# Editor swap files (vim sessions over PTY leave these behind; one was
+# committed by a `git add -A` that swept it in).
+*.swp

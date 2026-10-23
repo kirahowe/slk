@@ -55,7 +55,7 @@ func TestRenderBreadcrumb(t *testing.T) {
 			}
 			// The row is inset one column each side, like the channel
 			// pane header, so the table's widths are the inner budget.
-			got := renderBreadcrumb(tt.width+2*breadcrumbPad, tt.channel, tt.chType, tt.author, tt.replies)
+			got, _, _ := renderBreadcrumb(tt.width+2*breadcrumbPad, tt.channel, tt.chType, tt.author, tt.replies)
 			if w := ansi.StringWidth(got); w != tt.width+2 {
 				t.Errorf("width = %d, want %d", w, tt.width+2)
 			}
@@ -68,7 +68,7 @@ func TestRenderBreadcrumb(t *testing.T) {
 
 func TestRenderBreadcrumb_TinyWidthsStayExact(t *testing.T) {
 	for w := 1; w <= 14; w++ {
-		got := renderBreadcrumb(w, "general", "channel", "alice", 2)
+		got, _, _ := renderBreadcrumb(w, "general", "channel", "alice", 2)
 		if gw := ansi.StringWidth(got); gw != w {
 			t.Errorf("width %d: rendered %d cells", w, gw)
 		}
@@ -140,5 +140,20 @@ func TestView_BreadcrumbIgnoresEphemeralReplies(t *testing.T) {
 	got := ansi.Strip(firstLine(m.View(20, 60)))
 	if !strings.HasPrefix(got, " Thread from zed · 1 reply") || strings.Contains(got, "2 replies") {
 		t.Errorf("header = %q, want \"1 reply\": an ephemeral is not a reply", got)
+	}
+}
+
+func TestRenderBreadcrumb_ChannelLabelSpan(t *testing.T) {
+	// The span the click router turns into the up-level target is the
+	// glyph and name, after the row's one-column inset.
+	row, from, to := renderBreadcrumb(40, "general", "channel", "alice", 2)
+	if from != breadcrumbPad || to != breadcrumbPad+len("# general") {
+		t.Errorf("span = [%d, %d), want [%d, %d)", from, to, breadcrumbPad, breadcrumbPad+len("# general"))
+	}
+	if got := ansi.Cut(ansi.Strip(row), from, to); got != "# general" {
+		t.Errorf("span covers %q, want the channel label", got)
+	}
+	if _, from, to = renderBreadcrumb(40, "", "channel", "alice", 2); from != to {
+		t.Errorf("span = [%d, %d), want empty when the channel is omitted", from, to)
 	}
 }

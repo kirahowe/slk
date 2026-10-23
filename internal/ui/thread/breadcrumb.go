@@ -32,24 +32,32 @@ const breadcrumbHintGap = 2
 // empty channelName omits the channel and its separator; an empty
 // author omits "from". "Thread · N replies" is always kept and is only
 // hard-truncated when width is narrower than it.
-func renderBreadcrumb(width int, channelName, channelType, author string, replyCount int) string {
+//
+// The channel label (glyph and name as drawn, after truncation, without
+// the separator) covers cells [labelFrom, labelTo) of the row; the two
+// are equal when the channel is omitted. A click inside them closes the
+// thread.
+func renderBreadcrumb(width int, channelName, channelType, author string, replyCount int) (row string, labelFrom, labelTo int) {
 	if width <= 0 {
-		return ""
+		return "", 0, 0
 	}
 	// Inset one column each side, matching the channel pane's header
 	// (Padding(0, 1)), so the two titles line up. Every width decision
 	// in breadcrumbRow runs against the inner budget. Too narrow to
 	// spare the columns, the row goes unpadded.
 	if width <= 2*breadcrumbPad {
-		return breadcrumbRow(width, channelName, channelType, author, replyCount)
+		row, cols := breadcrumbRow(width, channelName, channelType, author, replyCount)
+		return row, 0, cols
 	}
 	padding := lipgloss.NewStyle().Background(styles.Background).Render(strings.Repeat(" ", breadcrumbPad))
-	return padding + breadcrumbRow(width-2*breadcrumbPad, channelName, channelType, author, replyCount) + padding
+	inner, cols := breadcrumbRow(width-2*breadcrumbPad, channelName, channelType, author, replyCount)
+	return padding + inner + padding, breadcrumbPad, breadcrumbPad + cols
 }
 
 // breadcrumbRow renders the breadcrumb at exactly width cells, with no
-// inset.
-func breadcrumbRow(width int, channelName, channelType, author string, replyCount int) string {
+// inset, and the width of the channel label that starts it (0 when the
+// channel is omitted).
+func breadcrumbRow(width int, channelName, channelType, author string, replyCount int) (string, int) {
 	label := "replies"
 	if replyCount == 1 {
 		label = "reply"
@@ -88,6 +96,10 @@ func breadcrumbRow(width int, channelName, channelType, author string, replyCoun
 		}
 	}
 
+	// Measured after truncation, so the click target is the label as
+	// drawn. When the row is narrower than "Thread · N replies" the
+	// channel is already gone and this is 0.
+	channelCols := emojiutil.Width(channel)
 	bg := lipgloss.NewStyle().Background(styles.Background)
 	var b strings.Builder
 	if channel != "" {
@@ -106,7 +118,7 @@ func breadcrumbRow(width int, channelName, channelType, author string, replyCoun
 	if showHint {
 		gap := width - used - emojiutil.Width(breadcrumbHint)
 		return left + bg.Render(strings.Repeat(" ", gap)) +
-			bg.Foreground(styles.TextMuted).Render(breadcrumbHint)
+			bg.Foreground(styles.TextMuted).Render(breadcrumbHint), channelCols
 	}
-	return left + bg.Render(strings.Repeat(" ", width-used))
+	return left + bg.Render(strings.Repeat(" ", width-used)), channelCols
 }
