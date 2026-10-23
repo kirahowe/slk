@@ -152,3 +152,48 @@ func TestImageBlockKittyStillFlushes(t *testing.T) {
 		t.Fatalf("kitty image block produced %d SixelRows entries, want 0", len(r.SixelRows))
 	}
 }
+
+// A sixel image in a legacy attachment's image_url must key its
+// placement below the rows that precede the body (pretext), not at
+// the body-relative row fetchOrPlaceholder stamped, and must carry
+// the stripe column so the painted image lands inside the striped
+// body instead of two columns left, covering the stripe. The hit gets
+// the same translations; the placement and the hit must agree or
+// clicks and pixels land on different rows. The fallback rows stay
+// bare - the splice site grafts them over the row's own stripe, and a
+// baked-in stripe would draw twice.
+func TestLegacyAttachmentSixelRowIncludesPretextOffset(t *testing.T) {
+	r := RenderLegacy([]LegacyAttachment{{
+		Pretext:  "above the bar",
+		ImageURL: "https://example.test/i.png",
+	}}, imageCtx(imgpkg.ProtoSixel), 80)
+
+	if len(r.SixelRows) != 1 {
+		t.Fatalf("legacy image_url produced %d SixelRows entries, want 1", len(r.SixelRows))
+	}
+	var hit HitRect
+	if len(r.Hits) == 1 {
+		hit = r.Hits[0]
+	} else {
+		t.Fatalf("legacy image_url produced %d hits, want 1", len(r.Hits))
+	}
+	for row, sx := range r.SixelRows {
+		if row != hit.RowStart {
+			t.Fatalf("SixelRows key %d does not match hit row %d; the placement and the click target disagree", row, hit.RowStart)
+		}
+		if row < 1 {
+			t.Fatalf("SixelRows key %d does not include the pretext row offset", row)
+		}
+		if sx.Col != hit.ColStart {
+			t.Fatalf("SixelRows Col %d does not match hit col %d; the image would paint over the attachment stripe", sx.Col, hit.ColStart)
+		}
+		if sx.Col < stripeCol {
+			t.Fatalf("SixelRows Col %d does not include the stripe prefix", sx.Col)
+		}
+		for i, fb := range sx.Fallback {
+			if plain := ansi.Strip(fb); strings.Contains(plain, stripeGlyph) {
+				t.Fatalf("fallback row %d bakes in the stripe; it must stay bare: %q", i, plain)
+			}
+		}
+	}
+}
