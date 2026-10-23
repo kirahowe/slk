@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/gammons/slk/internal/mention"
 	"io"
+	"slices"
 	"strings"
 	"time"
 
@@ -548,6 +549,30 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 				URL:    att.URL,
 				Thumbs: imgThumbs,
 			}, rc.ImageChannel, msg.TS, contentWidth, rowCursor, attIdx, contentColBase)
+			if !opt.SixelRows {
+				// Same treatment as the block branches above: a pane
+				// without the sixel pipeline keeps the image visible
+				// as halfblock text. Attachment SixelRows keys are
+				// entry-relative (RenderBlock stamps them with the
+				// rowCursor it was passed); shift them to be relative
+				// to res.Lines, which starts at that same row. Splice
+				// into a COPY: on RenderBlock's prerendered fast path
+				// res.Lines shares its backing array with the
+				// fetcher's cached Render, and writing through it
+				// would replace the cache's blank reserved rows with
+				// halfblock for every later render, including the
+				// channel pane's.
+				shifted := make(map[int]blockkit.SixelEntry, len(res.SixelRows))
+				for k, v := range res.SixelRows {
+					shifted[k-rowCursor] = blockkit.SixelEntry{
+						Key: v.Key, Bytes: v.Bytes, Fallback: v.Fallback,
+						Height: v.Height, Width: v.Width,
+					}
+				}
+				lines := slices.Clone(res.Lines)
+				blockkit.SpliceSixelFallbacks(lines, shifted)
+				res.Lines = lines
+			}
 			attachLineSlices = append(attachLineSlices, res.Lines)
 			out.AttachmentFlushes = append(out.AttachmentFlushes, res.Flushes...)
 			if opt.SixelRows {

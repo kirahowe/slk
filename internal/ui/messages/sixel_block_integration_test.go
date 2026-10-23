@@ -145,6 +145,83 @@ func TestRenderMessage_WithoutSixelRows_SplicesBlockImageFallback(t *testing.T) 
 	}
 }
 
+// setupAttachmentPrerenderMessageModel primes a FILE-attachment image
+// through the fetcher's prerender path: the fetch runs after
+// SetImageContext (so ConfigurePrerender is active) and carries the
+// cell target, so RenderBlock serves the cached Render - whose Lines
+// share the fetcher cache's backing array.
+func setupAttachmentPrerenderMessageModel(t *testing.T) *Model {
+	t.Helper()
+	cache, err := imgpkg.NewCache(t.TempDir(), 10)
+	if err != nil {
+		t.Fatalf("NewCache: %v", err)
+	}
+	fetcher := imgpkg.NewFetcher(cache, nil)
+	const fileID = "F0123ABCD"
+	const key = fileID + "-720"
+	pngBytes := makeTestPNG(720, 720)
+	if _, err := cache.Put(key, "png", pngBytes); err != nil {
+		t.Fatalf("cache.Put: %v", err)
+	}
+	msg := MessageItem{
+		TS:        "1700000000.000100",
+		UserID:    "U1",
+		UserName:  "alice",
+		Text:      "look at this",
+		Timestamp: "10:30 AM",
+		Attachments: []Attachment{{
+			Kind:   "image",
+			Name:   "screenshot.png",
+			URL:    "https://example.com/perma",
+			FileID: fileID,
+			Mime:   "image/png",
+			Thumbs: []ThumbSpec{{URL: "https://example.com/720.png", W: 720, H: 720}},
+		}},
+	}
+	m := New([]MessageItem{msg}, "C123")
+	m.SetImageContext(imgrender.ImageContext{
+		Protocol:   imgpkg.ProtoSixel,
+		Fetcher:    fetcher,
+		CellPixels: stdimage.Pt(8, 16),
+		MaxRows:    20,
+	})
+	// One fetch memoizes the decoded image under the pixel target AND
+	// bakes the prerender for the cell target RenderBlock looks up.
+	if _, err := fetcher.Fetch(context.Background(), imgpkg.FetchRequest{
+		Key:        key,
+		URL:        "unused://disk-cache-hits-skip-network",
+		Target:     stdimage.Pt(320, 320),
+		CellTarget: stdimage.Pt(40, 20),
+	}); err != nil {
+		t.Fatalf("Fetch (memo + prerender prime): %v", err)
+	}
+	return m
+}
+
+// The thread pane's fallback splice must not write through to the
+// fetcher's prerendered Render. RenderBlock's fast path returns the
+// cached Render's own Lines slice; splicing the halfblock fallback in
+// place would replace the cache's blank reserved rows, and every later
+// render of the same image - the channel pane's included - would draw
+// halfblock text under the sixel paint.
+func TestRenderMessage_ThreadSpliceDoesNotCorruptPrerenderedLines(t *testing.T) {
+	m := setupAttachmentPrerenderMessageModel(t)
+	rc := m.renderContext()
+
+	thread := RenderMessage(m.messages[0], 80, rc, RenderOptions{ImageHits: true})
+	if !strings.Contains(thread.Content, "▀") && !strings.Contains(thread.Content, "▄") {
+		t.Fatal("thread-pane render did not splice the attachment fallback; the setup does not exercise the splice")
+	}
+
+	channel := RenderMessage(m.messages[0], 80, rc, RenderOptions{ImageHits: true, SixelRows: true})
+	if strings.Contains(channel.Content, "▀") || strings.Contains(channel.Content, "▄") {
+		t.Error("channel-pane render drew halfblock rows for a prerendered image; the thread splice corrupted the cached lines")
+	}
+	if len(channel.SixelRows) != 1 {
+		t.Fatalf("RenderedMessage.SixelRows = %d entries, want 1 for the channel render", len(channel.SixelRows))
+	}
+}
+
 // setupLegacyImageMessageModel primes the cache for one legacy
 // attachment's image_url, for thread-splice tests over the striped
 // attachment body.
