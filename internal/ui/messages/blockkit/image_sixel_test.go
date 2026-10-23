@@ -1,0 +1,103 @@
+package blockkit
+
+import (
+	"context"
+	"image"
+	"image/color"
+	"testing"
+
+	imgpkg "github.com/gammons/slk/internal/image"
+)
+
+// stubImageFetcher satisfies core.ImageFetcher for the cached-path
+// tests below: every key is "already fetched", so fetchOrPlaceholder
+// runs its render step with no network, no disk cache, and no
+// prerender entries.
+type stubImageFetcher struct {
+	img image.Image
+}
+
+func (f *stubImageFetcher) Fetch(_ context.Context, _ imgpkg.FetchRequest) (imgpkg.FetchResult, error) {
+	return imgpkg.FetchResult{Img: f.img}, nil
+}
+
+func (f *stubImageFetcher) Cached(string, image.Point) (image.Image, bool) {
+	return f.img, true
+}
+
+func (f *stubImageFetcher) Prerendered(string, image.Point, imgpkg.Protocol) (imgpkg.Render, bool) {
+	return imgpkg.Render{}, false
+}
+
+func (f *stubImageFetcher) ConfigurePrerender(imgpkg.Protocol) {}
+
+func (f *stubImageFetcher) ConfigurePrerenderKitty(*imgpkg.KittyRenderer) {}
+
+// stubImage renders as a 32x18 RGBA gradient: non-trivial content for
+// the protocol encoders, small enough to keep the sixel encode fast.
+func stubImage() image.Image {
+	m := image.NewRGBA(image.Rect(0, 0, 32, 18))
+	for y := 0; y < 18; y++ {
+		for x := 0; x < 32; x++ {
+			m.Set(x, y, color.RGBA{R: uint8(x * 8), G: uint8(y * 14), B: 0x40, A: 0xff})
+		}
+	}
+	return m
+}
+
+func imageCtx(proto imgpkg.Protocol) Context {
+	return Context{
+		Protocol:   proto,
+		Fetcher:    &stubImageFetcher{img: stubImage()},
+		CellPixels: image.Pt(10, 20),
+		MaxRows:    4,
+		RenderText: func(s string, _ map[string]string) string { return s },
+		WrapText:   func(s string, _ int) string { return s },
+	}
+}
+
+// A sixel image block must come back as a SixelRows placement, never
+// as a flush. The flush writes the raw DCS pixel stream to the
+// terminal at whatever position the cursor happens to hold, and
+// nothing tracks the result for erase - so running it from every View
+// smeared images across the screen while scrolling. The placement row
+// hands the same bytes to the pane's painter, which positions,
+// repaints and erases them like any other image.
+func TestImageBlockSixelReturnsPlacementNotFlush(t *testing.T) {
+	r := Render([]Block{ImageBlock{URL: "https://example.test/i.png"}}, imageCtx(imgpkg.ProtoSixel), 80)
+
+	if len(r.Flushes) != 0 {
+		t.Fatalf("sixel image block produced %d flushes; a sixel payload must ride the placement pipeline, not the side channel", len(r.Flushes))
+	}
+	if len(r.SixelRows) != 1 {
+		t.Fatalf("sixel image block produced %d SixelRows entries, want 1", len(r.SixelRows))
+	}
+	for row, sx := range r.SixelRows {
+		if row < 0 || row >= len(r.Lines) {
+			t.Fatalf("SixelRows key %d outside rendered lines [0,%d)", row, len(r.Lines))
+		}
+		if row+sx.Height > len(r.Lines) {
+			t.Fatalf("placement rows [%d,%d) exceed rendered lines %d", row, row+sx.Height, len(r.Lines))
+		}
+		if len(sx.Bytes) == 0 || sx.Bytes[0] != 0x1b || sx.Bytes[1] != 'P' {
+			t.Fatalf("placement bytes do not start with a sixel DCS (ESC P), got %q", sx.Bytes[:min(8, len(sx.Bytes))])
+		}
+		if len(sx.Fallback) != sx.Height {
+			t.Fatalf("fallback has %d rows, want %d (one per placement row)", len(sx.Fallback), sx.Height)
+		}
+	}
+}
+
+// The kitty direction is unchanged: uploads are position-independent
+// APC commands, so they keep riding the flush and never produce a
+// placement row.
+func TestImageBlockKittyStillFlushes(t *testing.T) {
+	r := Render([]Block{ImageBlock{URL: "https://example.test/i.png"}}, imageCtx(imgpkg.ProtoKitty), 80)
+
+	if len(r.Flushes) != 1 {
+		t.Fatalf("kitty image block produced %d flushes, want 1", len(r.Flushes))
+	}
+	if len(r.SixelRows) != 0 {
+		t.Fatalf("kitty image block produced %d SixelRows entries, want 0", len(r.SixelRows))
+	}
+}
