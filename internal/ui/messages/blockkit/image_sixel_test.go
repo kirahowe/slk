@@ -4,7 +4,10 @@ import (
 	"context"
 	"image"
 	"image/color"
+	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 
 	imgpkg "github.com/gammons/slk/internal/image"
 )
@@ -59,10 +62,10 @@ func imageCtx(proto imgpkg.Protocol) Context {
 // A sixel image block must come back as a SixelRows placement, never
 // as a flush. The flush writes the raw DCS pixel stream to the
 // terminal at whatever position the cursor happens to hold, and
-// nothing tracks the result for erase - so running it from every View
-// smeared images across the screen while scrolling. The placement row
-// hands the same bytes to the pane's painter, which positions,
-// repaints and erases them like any other image.
+// nothing tracks the painted pixels for erase - re-running it from
+// every View smeared images across the screen while scrolling. The
+// placement row hands the same bytes to the pane's painter, which
+// positions, repaints and erases them like any other image.
 func TestImageBlockSixelReturnsPlacementNotFlush(t *testing.T) {
 	r := Render([]Block{ImageBlock{URL: "https://example.test/i.png"}}, imageCtx(imgpkg.ProtoSixel), 80)
 
@@ -84,6 +87,54 @@ func TestImageBlockSixelReturnsPlacementNotFlush(t *testing.T) {
 		}
 		if len(sx.Fallback) != sx.Height {
 			t.Fatalf("fallback has %d rows, want %d (one per placement row)", len(sx.Fallback), sx.Height)
+		}
+	}
+}
+
+// A section's image accessory must key its placement at the rows the
+// accessory actually occupies and carry the accessory's column, the
+// same translation its hit gets. fetchOrPlaceholder runs before the
+// side-by-side/stacked layout decision, so the merge happens after it;
+// before that fix a section below another block keyed its image at row
+// 0 and painted over the earlier block, and the painter placed it at
+// the content column, over the section's own body text.
+func TestSectionAccessorySixelMatchesHit(t *testing.T) {
+	r := Render([]Block{
+		HeaderBlock{Text: "a header block above"},
+		SectionBlock{
+			Text:      "section body text",
+			Accessory: ImageAccessory{URL: "https://example.test/i.png"},
+		},
+	}, imageCtx(imgpkg.ProtoSixel), 80)
+
+	var hit HitRect
+	if len(r.Hits) == 1 {
+		hit = r.Hits[0]
+	} else {
+		t.Fatalf("section accessory produced %d hits, want 1", len(r.Hits))
+	}
+	if len(r.SixelRows) != 1 {
+		t.Fatalf("section accessory produced %d SixelRows entries, want 1", len(r.SixelRows))
+	}
+	for row, sx := range r.SixelRows {
+		if row != hit.RowStart {
+			t.Fatalf("SixelRows key %d does not match hit row %d; the placement and the click target disagree", row, hit.RowStart)
+		}
+		if row < 1 {
+			t.Fatalf("SixelRows key %d ignores the header block rendered above the section", row)
+		}
+		if sx.Col != hit.ColStart {
+			t.Fatalf("SixelRows Col %d does not match hit col %d; the image would paint over the section's body text", sx.Col, hit.ColStart)
+		}
+		// The fallback rows must stay bare halfblock: Col alone says
+		// where the image sits, and the splice site grafts them over
+		// the row's own body text. Baking the body text into the
+		// fallback would draw it twice once the pane also keeps its
+		// side of the graft.
+		for i, fb := range sx.Fallback {
+			if plain := ansi.Strip(fb); strings.Contains(plain, "section body text") || ansi.StringWidth(plain) != sx.Width {
+				t.Fatalf("fallback row %d is not bare halfblock of width %d: %q", i, sx.Width, plain)
+			}
 		}
 	}
 }

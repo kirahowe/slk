@@ -76,6 +76,13 @@ type SixelEntry struct {
 	Fallback []string
 	Height   int
 	Width    int
+	// Col is the display column where the image starts, relative to
+	// the content column of the rendered lines (0 for full-width
+	// images). Section accessories sit right of the body text and
+	// legacy attachments sit right of the color stripe; the painter
+	// adds this to the entry's content column, exactly as the hit
+	// rects already carry their own column offsets.
+	Col int
 }
 
 // HitRect is one clickable image footprint expressed in (row, col)

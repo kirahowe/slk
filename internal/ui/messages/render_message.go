@@ -421,7 +421,7 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 		if opt.SixelRows {
 			rowOffset := preAttachmentRows + startInBk
 			for k, v := range res.SixelRows {
-				allSixel[rowOffset+k] = sixelEntry{key: v.Key, bytes: v.Bytes, fallback: v.Fallback, height: v.Height, width: v.Width}
+				allSixel[rowOffset+k] = sixelEntry{key: v.Key, bytes: v.Bytes, fallback: v.Fallback, height: v.Height, width: v.Width, col: v.Col}
 			}
 		}
 		// Note: res.Hits is intentionally NOT appended to out.Hits in
@@ -469,7 +469,7 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 		if opt.SixelRows {
 			rowOffset := preAttachmentRows + startInBk
 			for k, v := range res.SixelRows {
-				allSixel[rowOffset+k] = sixelEntry{key: v.Key, bytes: v.Bytes, fallback: v.Fallback, height: v.Height, width: v.Width}
+				allSixel[rowOffset+k] = sixelEntry{key: v.Key, bytes: v.Bytes, fallback: v.Fallback, height: v.Height, width: v.Width, col: v.Col}
 			}
 		}
 		// Note: res.Hits is intentionally NOT appended to out.Hits in
@@ -613,13 +613,17 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 	if len(allSixel) == 0 {
 		allSixel = nil
 	} else {
-		// Stamp every entry with the message's content column. Block kit,
-		// legacy, and attachment entries all start at contentColBase
-		// within linesNormal; without this the painter would place the
-		// image at the pane's content-left edge (col 0) instead of its
-		// placeholder, shifting it left under the avatar / border.
+		// Stamp every entry with the message's content column plus the
+		// image's own column offset within the rendered lines. Block
+		// kit, legacy, and attachment entries all start at
+		// contentColBase; section accessories sit right of their body
+		// text and legacy attachment images right of the color stripe,
+		// both of which carry Col offsets from their renderers. Without
+		// this the painter would place the image at the pane's
+		// content-left edge (col 0) instead of its placeholder,
+		// shifting it left under the avatar / border.
 		for k, v := range allSixel {
-			v.col = contentColBase
+			v.col = contentColBase + v.col
 			allSixel[k] = v
 		}
 	}
