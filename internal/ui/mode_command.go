@@ -34,6 +34,19 @@ type cmdCompletion struct {
 	idx     int
 }
 
+// beginInsertMode enters insert mode with a compose box focused - the
+// shared body of `i` and of a click on a compose region. toThread picks
+// which compose: the thread panel's when true, else the channel's.
+func (a *App) beginInsertMode(toThread bool) tea.Cmd {
+	a.SetMode(ModeInsert)
+	if toThread {
+		a.focusedPanel = PanelThread
+		return a.threadCompose.Focus()
+	}
+	a.focusedPanel = PanelMessages
+	return a.compose.Focus()
+}
+
 // enterCommandMode switches to ModeCommand with an empty buffer
 // and shows the bare ':' prompt in the status bar.
 func (a *App) enterCommandMode() {

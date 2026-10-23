@@ -212,6 +212,7 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Slack permalink parsing | `slackurl.Parse` |
 | Slack's edited mark on a fetched or WebSocket message, for the cache's `edited_at` (`IsEdited` is `m.Edited != nil`) | `editedAt(m.Edited)` (`cmd/slk/history.go`) |
 | Slack ts → `time.Time` (whole seconds, any timezone) | `export.TimeFromTS`; the other way, `messages.TSAt(t)` |
+| Enter insert mode with a compose box focused (the shared body of `i` and a click on a compose region) | `(*App).beginInsertMode(toThread bool)` (`internal/ui/mode_command.go`); the compose regions' tops are recorded per frame in `panelLayout` |
 | A since/until/overlap date range in a timezone, and "is this ts in it?" | `export.NewWindow`, `export.Window.Contains` |
 | The first instant of a local calendar date, safe in zones that skip midnight (Sao Paulo once did) | `export.dayStart(date, deltaDays, loc)`; `time.Date(y, m, d, 0, 0, 0, 0, loc)` returns the previous evening on such a day |
 | Sleep out a slack-go rate-limit error (ctx-aware) | `slackclient.WaitOutRateLimit` |
