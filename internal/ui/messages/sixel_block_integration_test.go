@@ -93,6 +93,13 @@ func TestView_SixelBlockImage_PublishesPlacement(t *testing.T) {
 	if p.Rows <= 0 || p.Cols <= 0 {
 		t.Errorf("placement footprint = %dx%d, want a positive erase region", p.Cols, p.Rows)
 	}
+	// The placement's identity must be the fetcher's BK- cache key, not
+	// a hash of the payload: the identity is recomputed every frame,
+	// and hashing hundreds of KB per visible image per frame is real
+	// CPU spent for nothing.
+	if want := blockImageCacheKey("https://example.com/block-image.png"); !strings.HasPrefix(p.Key, want+"/") {
+		t.Errorf("placement Key = %q, want prefix %q (the fetcher cache key, not a payload hash)", p.Key, want+"/")
+	}
 }
 
 // The halfblock fallback must cover the image's rows when the image is

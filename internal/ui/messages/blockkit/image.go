@@ -248,7 +248,7 @@ func fetchOrPlaceholder(url string, target image.Point, ctx Context, rowStart in
 		perf.imgRenderImageTotal += time.Since(riT0)
 		perf.imgRenderImageCount++
 	}
-	fl, sxl := sideChannelOutput(ctx.Protocol, out.OnFlush, out.Fallback, rowStart, target)
+	fl, sxl := sideChannelOutput(key, ctx.Protocol, out.OnFlush, out.Fallback, rowStart, target)
 	return out.Lines, fl, sxl, hit, true
 }
 
@@ -268,9 +268,16 @@ func fetchOrPlaceholder(url string, target image.Point, ctx Context, rowStart in
 // positions, repaints and erases it like any other image (the same
 // split imgrender.RenderBlock applies to legacy file attachments).
 //
+// key is the fetcher's cache key for the image (the "BK-" URL hash).
+// It flows into the placement's identity so the painter detects a
+// different image in the same slot without hashing the payload - the
+// block payloads are often hundreds of KB, and the identity is
+// recomputed every frame.
+//
 // Returns (nil, nil) when onFlush is nil or fails: the image then
 // renders as its reserved placeholder rows, never as a stray paint.
 func sideChannelOutput(
+	key string,
 	proto imgpkg.Protocol,
 	onFlush func(io.Writer) error,
 	fallback []string,
@@ -288,7 +295,7 @@ func sideChannelOutput(
 		return nil, nil
 	}
 	return nil, map[int]SixelEntry{
-		rowStart: {Bytes: bb.Bytes(), Fallback: fallback, Height: target.Y, Width: target.X},
+		rowStart: {Key: key, Bytes: bb.Bytes(), Fallback: fallback, Height: target.Y, Width: target.X},
 	}
 }
 

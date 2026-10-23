@@ -66,6 +66,12 @@ type RenderResult struct {
 // Mirrors internal/ui/messages.sixelEntry exactly so the integration
 // site can copy the contents without conversion.
 type SixelEntry struct {
+	// Key is the fetcher's cache key for the image (the "BK-" URL
+	// hash). It becomes the placement's content identity, so the
+	// painter detects a slot swap without hashing the payload - which
+	// it would otherwise do every frame, and block payloads are often
+	// hundreds of KB.
+	Key      string
 	Bytes    []byte
 	Fallback []string
 	Height   int

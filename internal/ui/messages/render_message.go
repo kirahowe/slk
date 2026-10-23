@@ -421,7 +421,7 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 		if opt.SixelRows {
 			rowOffset := preAttachmentRows + startInBk
 			for k, v := range res.SixelRows {
-				allSixel[rowOffset+k] = sixelEntry{bytes: v.Bytes, fallback: v.Fallback, height: v.Height, width: v.Width}
+				allSixel[rowOffset+k] = sixelEntry{key: v.Key, bytes: v.Bytes, fallback: v.Fallback, height: v.Height, width: v.Width}
 			}
 		}
 		// Note: res.Hits is intentionally NOT appended to out.Hits in
@@ -469,7 +469,7 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 		if opt.SixelRows {
 			rowOffset := preAttachmentRows + startInBk
 			for k, v := range res.SixelRows {
-				allSixel[rowOffset+k] = sixelEntry{bytes: v.Bytes, fallback: v.Fallback, height: v.Height, width: v.Width}
+				allSixel[rowOffset+k] = sixelEntry{key: v.Key, bytes: v.Bytes, fallback: v.Fallback, height: v.Height, width: v.Width}
 			}
 		}
 		// Note: res.Hits is intentionally NOT appended to out.Hits in
