@@ -395,6 +395,7 @@ greppable by name; no line numbers, because these files move.
 | Run a check under another local time zone | `tztest.Each(t, zones, body)` (`internal/tztest`): body runs in a child process of the test binary per zone, started with `TZ` set, and returns a string to the parent. Never assign `time.Local` in a test: every `time.Now` in every goroutine reads it, and timers left by earlier tests make that a data race under `-race` |
 | Keep a width property clear of the base+VS16 disagreement (#301) | `proptest.NoVS16(s)`; the messages pane's narrower `stripASCIIVS16` covers only an ASCII base |
 | Run the fuzz targets | `scripts/fuzz.sh [fuzztime] [pattern]`, `make fuzz` |
+| Fixture bytes for the inline-image disk cache (a w×h PNG, no network) | `makeTestPNG(w, h)` (`internal/ui/messages/blockkit/image_sixel_test.go`, `package blockkit`); unexported twins: `makeTestPNG` in `internal/ui/messages/model_test.go`, `makeTestPNGBytes` in `internal/ui/app_imagepreview_test.go` |
 | Load a config from a TOML string | `loadConfigString(t, body)` (`internal/config/config_test.go`, `package config`) |
 | A private `dbus-daemon` for one test (skips when not installed; no service directories, so an unowned name is never activated), a connection to it, and a spec-only Secret Service served on it | `startTestBus(t)`, `connectTestBus(t, addr)`, `serveSecretService(t, addr, svc)` with `specOnlyService()` (`internal/slackdesktop/password_linux_test.go`, `package slackdesktop`, Linux only) |
 
