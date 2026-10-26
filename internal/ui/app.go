@@ -284,14 +284,14 @@ type App struct {
 	// only.
 	activityReads map[string]*activityRead
 
-	// activityBadgeTotals holds each workspace's total unread activity
+	// activityBadges holds each workspace's total unread activity
 	// (from client.counts at boot and badge_counts_updated events
 	// after), keyed by team id. The sidebar's Activity badge shows the
 	// active workspace's value; it is never derived from the loaded
 	// feed page, whose unread count undercounts and moves when the
 	// unread filter re-fetches. A workspace with no entry (a
 	// grid-restricted member, whose counts call fails) shows zero.
-	activityBadgeTotals map[string]int
+	activityBadges map[string]activityBadge
 
 	threadsDirtyDebounce time.Duration
 

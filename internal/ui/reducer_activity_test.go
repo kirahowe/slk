@@ -145,13 +145,44 @@ func TestActivityBadge_FailedReadRollsBackSwitchedWorkspace(t *testing.T) {
 	if got := a.sidebar.ActivityUnreadCount(); got != 0 {
 		t.Fatalf("badge after switch = %d, want 0 (T2 has no stored total yet)", got)
 	}
-	if got := a.activityBadgeTotals["T1"]; got != 0 {
+	if got := a.activityBadges["T1"].total; got != 0 {
 		t.Fatalf("T1 stored total while the read is in flight = %d, want 0 (optimistically adjusted)", got)
 	}
 
 	a.Update(deliveredMsgs[ActivityReadSetMsg](t, cmd)[0])
 	<-calls
-	if got := a.activityBadgeTotals["T1"]; got != 1 {
+	if got := a.activityBadges["T1"].total; got != 1 {
 		t.Fatalf("T1 stored total after failed read = %d, want 1 (rolled back)", got)
+	}
+}
+
+// A server total that lands while a read request is out counts the
+// item as Slack holds it. When the request then fails there is nothing
+// to undo: rolling the badge back as well would count the item twice.
+func TestActivityBadge_FailedReadAfterServerTotalKeepsIt(t *testing.T) {
+	a, calls := activityReadApp(t, errors.New("nope"), unreadMention("k1"))
+	_, cmd := a.Update(keyPress('U'))
+	if got := a.sidebar.ActivityUnreadCount(); got != 0 {
+		t.Fatalf("badge after U = %d, want 0", got)
+	}
+
+	a.Update(ActivityBadgeUpdatedMsg{TeamID: "T1", Total: 1})
+	a.Update(deliveredMsgs[ActivityReadSetMsg](t, cmd)[0])
+	<-calls
+	if got := a.sidebar.ActivityUnreadCount(); got != 1 {
+		t.Fatalf("badge after the failed read = %d, want 1 (the server's total)", got)
+	}
+}
+
+// Reading an item the server's total does not count (the total can be
+// behind the feed) leaves the stored total at zero, so un-reading it
+// shows one rather than staying at zero.
+func TestActivityBadge_ReadBelowZeroStaysAtZero(t *testing.T) {
+	a, _ := activityReadApp(t, nil, unreadMention("k1"))
+	a.Update(ActivityBadgeUpdatedMsg{TeamID: "T1", Total: 0})
+	a.adjustActivityBadge("T1", true)
+	a.adjustActivityBadge("T1", false)
+	if got := a.activityBadges["T1"].total; got != 1 {
+		t.Fatalf("stored total after read then un-read from 0 = %d, want 1", got)
 	}
 }

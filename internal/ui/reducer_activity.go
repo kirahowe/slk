@@ -1,17 +1,19 @@
 // internal/ui/reducer_activity.go
 //
 // Activity-view reducer for App.Update. Modeled on reducer_threads.go's
-// ThreadsView arms — the Activity view mirrors the Threads view. Six arms:
+// ThreadsView arms — the Activity view mirrors the Threads view. Seven arms:
 //
 //	ActivityViewActivatedMsg  - user opened the Activity view (sidebar
 //	                            row or :activity): switch view + focus,
 //	                            mark the sidebar Activity row active,
 //	                            and kick a feed fetch.
 //	ActivityListLoadedMsg     - feed fetch returned: push items into
-//	                            the view, refresh the sidebar unread
-//	                            badge, and kick
-//	                            a second fetch to hydrate message bodies
-//	                            (activity.feed returns refs only).
+//	                            the view and kick a second fetch to
+//	                            hydrate message bodies (activity.feed
+//	                            returns refs only).
+//	ActivityBadgeUpdatedMsg   - a workspace's total unread activity
+//	                            (client.counts, badge_counts_updated):
+//	                            store it and show it if on screen.
 //	ActivityBodiesLoadedMsg   - messages.list hydration returned: install
 //	                            the bodies (team-guarded) via SetBodies so
 //	                            rows show what the activity actually was.
@@ -73,6 +75,20 @@ type activityRead struct {
 	want      bool // the read state the user asked for last
 	confirmed bool // the read state Slack holds, as far as we know
 	inFlight  bool
+	// badgeUpdates is the workspace badge's update count when the
+	// user last changed the item. A failed request rolls the badge back
+	// only if no server total has arrived since: a total that has
+	// arrived counts the item as Slack holds it, so rolling back would
+	// count it twice.
+	badgeUpdates uint64
+}
+
+// activityBadge is one workspace's Activity badge: the server's total
+// unread activity, moved by one for each item the user reads or
+// un-reads until the server's next total replaces it.
+type activityBadge struct {
+	total   int
+	updates uint64 // ActivityBadgeUpdatedMsgs applied
 }
 
 // activityReadKey scopes an Activity item key to its workspace.
@@ -102,6 +118,7 @@ func (a *App) setActivityItemRead(it core.ActivityItem, read bool) tea.Cmd {
 		a.activityReads[k] = r
 	}
 	r.want = read
+	r.badgeUpdates = a.activityBadges[a.activeTeamID].updates
 	if r.inFlight {
 		return nil
 	}
@@ -116,16 +133,18 @@ func (a *App) setActivityItemRead(it core.ActivityItem, read bool) tea.Cmd {
 // (grid-restricted members, whose counts call fails) keep their zero
 // badge: there is no number to adjust.
 func (a *App) adjustActivityBadge(teamID string, read bool) {
-	if _, ok := a.activityBadgeTotals[teamID]; !ok {
+	b, ok := a.activityBadges[teamID]
+	if !ok {
 		return
 	}
 	if read {
-		a.activityBadgeTotals[teamID]--
+		b.total = max(b.total-1, 0)
 	} else {
-		a.activityBadgeTotals[teamID]++
+		b.total++
 	}
+	a.activityBadges[teamID] = b
 	if teamID == a.activeTeamID {
-		a.sidebar.SetActivityUnreadCount(a.activityBadgeTotals[teamID])
+		a.sidebar.SetActivityUnreadCount(b.total)
 	}
 }
 
@@ -211,10 +230,11 @@ var reduceActivity reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		return func() tea.Msg { return activity.Hydrate(team, refs) }, true
 
 	case ActivityBadgeUpdatedMsg:
-		if a.activityBadgeTotals == nil {
-			a.activityBadgeTotals = make(map[string]int)
+		if a.activityBadges == nil {
+			a.activityBadges = make(map[string]activityBadge)
 		}
-		a.activityBadgeTotals[m.TeamID] = m.Total
+		b := a.activityBadges[m.TeamID]
+		a.activityBadges[m.TeamID] = activityBadge{total: m.Total, updates: b.updates + 1}
 		if m.TeamID == a.activeTeamID {
 			a.sidebar.SetActivityUnreadCount(m.Total)
 		}
@@ -250,12 +270,16 @@ var reduceActivity reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		// The badge rollback runs for EVERY workspace's failure: the
 		// optimistic change adjusted that workspace's stored total, and
 		// a failed request changes nothing on the server, so no
-		// badge_counts_updated will ever correct it. Leaving it to the
+		// badge_counts_updated will correct it. Leaving it to the
 		// active-workspace check below would strand a switched-away
 		// workspace's total one off until some other event recomputed
 		// it. adjustActivityBadge only touches the sidebar for the
-		// workspace on screen, so this is safe either way.
-		a.adjustActivityBadge(m.TeamID, r.confirmed)
+		// workspace on screen, so this is safe either way. A total that
+		// arrived since the change already counts the item as Slack
+		// holds it, and then there is nothing to undo.
+		if a.activityBadges[m.TeamID].updates == r.badgeUpdates {
+			a.adjustActivityBadge(m.TeamID, r.confirmed)
+		}
 		// Another workspace's view is not on screen, so there is no dot
 		// to undo; its feed reloads from Slack when the user returns.
 		if m.TeamID != a.activeTeamID {
