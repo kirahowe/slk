@@ -124,3 +124,66 @@ func FuzzExtractLinks(f *testing.F) {
 		}
 	})
 }
+
+// MessageLinks never invents a URL and never repeats one: every URL it
+// returns appears in some text source of the message (its text, Block
+// Kit section and context text, legacy attachment pretext, text, field
+// values, title_link and nested blocks), and no URL appears twice.
+func TestMessageLinksComeFromTheMessage(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		var sources []string
+		text := func(label string) string {
+			s := proptest.SlackText(nil, nil).Draw(t, label)
+			sources = append(sources, s)
+			return s
+		}
+		blockSet := func(label string) []blocks.Block {
+			var bs []blocks.Block
+			for range rapid.IntRange(0, 3).Draw(t, label+"N") {
+				if rapid.Bool().Draw(t, label+"Kind") {
+					bs = append(bs, blocks.SectionBlock{
+						Text:   text(label + "Text"),
+						Fields: []string{text(label + "Field")},
+					})
+				} else {
+					bs = append(bs, blocks.ContextBlock{Elements: []blocks.ContextElement{{Text: text(label + "Ctx")}}})
+				}
+			}
+			return bs
+		}
+
+		msg := MessageItem{Text: text("text"), Blocks: blockSet("blocks")}
+		for range rapid.IntRange(0, 3).Draw(t, "attachments") {
+			att := blocks.LegacyAttachment{
+				Pretext: text("pretext"),
+				Text:    text("atext"),
+				Fields:  []blocks.LegacyField{{Value: text("fvalue")}},
+				Blocks:  blockSet("ablocks"),
+			}
+			if rapid.Bool().Draw(t, "titled") {
+				att.Title = proptest.Word().Draw(t, "title")
+				att.TitleLink = "https://example.com/" + proptest.Word().Draw(t, "tl")
+				sources = append(sources, att.TitleLink)
+			}
+			msg.LegacyAttachments = append(msg.LegacyAttachments, att)
+		}
+
+		seen := map[string]bool{}
+		for _, l := range MessageLinks(msg) {
+			if seen[l.URL] {
+				t.Fatalf("%q returned twice", l.URL)
+			}
+			seen[l.URL] = true
+			found := false
+			for _, s := range sources {
+				if strings.Contains(s, l.URL) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("%q is in no text source of the message", l.URL)
+			}
+		}
+	})
+}
