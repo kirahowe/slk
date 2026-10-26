@@ -86,3 +86,21 @@ func TestMouseClick_BreadcrumbUploadInFlightRefused(t *testing.T) {
 		t.Errorf("mode moved from %v to %v during an upload; the guard must leave it untouched", mode, a.mode)
 	}
 }
+
+// TestMouseClick_StackedBreadcrumbShowsTheChannel pins the click in the
+// stacked layout, where the thread is drawn alone in the content band:
+// the label sits right after the band's left border, and closing the
+// thread from it puts the channel back in front.
+func TestMouseClick_StackedBreadcrumbShowsTheChannel(t *testing.T) {
+	a := stackedApp(t, 110)
+	updateAndRender(t, a, keyCode(tea.KeyEnter))
+	assertFront(t, a, false, true)
+	updateAndRender(t, a, tea.MouseClickMsg{X: a.layout.msgEnd + 3, Y: 1, Button: tea.MouseLeft})
+	if a.threadVisible {
+		t.Fatal("thread still open after clicking the breadcrumb's channel label")
+	}
+	if a.focusedPanel != PanelMessages {
+		t.Errorf("focus = %v, want PanelMessages", a.focusedPanel)
+	}
+	assertFront(t, a, true, false)
+}
