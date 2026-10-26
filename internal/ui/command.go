@@ -6,7 +6,8 @@
 //
 // executeCommand parses a command line (without the leading ':')
 // and dispatches through the commands map — the designated
-// extension point for :commands (ws, marks, sp, vsp, q, only, activity).
+// extension point for :commands (ws, marks, sp, vsp, q, only, activity,
+// help, version).
 package ui
 
 import (
@@ -48,6 +49,7 @@ var commands = map[string]commandFunc{
 	"on":       cmdOnlyWindow,
 	"activity": cmdActivity,
 	"help":     cmdHelp,
+	"version":  cmdVersion,
 	"quit":     cmdQuit,
 	"qa":       cmdQuit,
 }
@@ -56,6 +58,25 @@ var commands = map[string]commandFunc{
 func cmdHelp(a *App, _ commandArgs) tea.Cmd {
 	a.openHelp()
 	return nil
+}
+
+// versionToastDuration is how long :version's toast stays up when it
+// carries only the build identity. One that repeats the update hint
+// stays as long as the hint's own toast (updateHintDuration).
+const versionToastDuration = 5 * time.Second
+
+// cmdVersion toasts the running build's identity, the short form of what
+// `slk --version` prints, followed by the newer-release hint when the
+// update check has found one (the same text that check toasted).
+func cmdVersion(a *App, _ commandArgs) tea.Cmd {
+	info := a.buildInfo
+	if info == "" {
+		info = "slk (unknown build)"
+	}
+	if a.updateHint == "" {
+		return toastWithClear(a, info, versionToastDuration)
+	}
+	return toastWithClear(a, info+". "+a.updateHint, updateHintDuration)
 }
 
 // cmdQuit raises the quit confirmation, the same prompt `Q` opens.

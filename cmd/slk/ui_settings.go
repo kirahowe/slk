@@ -29,6 +29,7 @@ type uiSettings struct {
 func applyUISettings(app *ui.App, s uiSettings) {
 	app.SetHelpFooter(versionpkg.ModalFooter(version))
 	app.SetHelpFooterNote(versionpkg.UpstreamCredit())
+	app.SetBuildInfo(versionpkg.Short(version, commit))
 	app.SetNowTimestampFormatter(func() string {
 		return time.Now().Format(s.TimestampFormat)
 	})

@@ -64,6 +64,8 @@ type KeyMap struct {
 	NavBack             key.Binding `help:"Navigation"`
 	NavForward          key.Binding `help:"Navigation"`
 	Help                key.Binding `help:"App"`
+	HelpCommand         key.Binding `help:"App"`
+	VersionCommand      key.Binding `help:"App"`
 	SaveThread          key.Binding `help:"Threads"`
 	RespondButtons      key.Binding `help:"Messages"`
 	ListReactions       key.Binding `help:"Messages"`
@@ -91,7 +93,7 @@ func DefaultKeyMap() KeyMap {
 		Enter:           key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open/confirm")),
 		Escape:          key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 		InsertMode:      key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "insert mode")),
-		CommandMode:     key.NewBinding(key.WithKeys(":"), key.WithHelp(":", "command mode")),
+		CommandMode:     key.NewBinding(key.WithKeys(":"), key.WithHelp(":", "command mode (Tab completes the name)")),
 		SearchMode:      key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
 		SearchNext:      key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "next match")),
 		SearchPrev:      key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "prev match")),
@@ -136,7 +138,7 @@ func DefaultKeyMap() KeyMap {
 		MarksDelete:    key.NewBinding(key.WithHelp(":delmarks", "delete marks by letter")),
 		NextUnread:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "next unread channel")),
 		PrevUnread:     key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "prev unread channel")),
-		ActivityView:   key.NewBinding(key.WithKeys("ctrl+a"), key.WithHelp("ctrl+a", "open activity")),
+		ActivityView:   key.NewBinding(key.WithKeys("ctrl+a"), key.WithHelp("ctrl+a / :activity", "open activity")),
 		ActivityUnread: key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "Activity: toggle unread-only")),
 		// Keyless: ctrl+w is reserved as the window-command prefix
 		// (window-management design §4). The keyless binding never
@@ -153,8 +155,13 @@ func DefaultKeyMap() KeyMap {
 		NavBack:             key.NewBinding(key.WithKeys("ctrl+h"), key.WithHelp("ctrl+h", "navigate back")),
 		// ctrl+k was the original forward key. It stays bound for
 		// existing users but is left out of the help overlay.
-		NavForward:     key.NewBinding(key.WithKeys("ctrl+l", "ctrl+k"), key.WithHelp("ctrl+l", "navigate forward")),
-		Help:           key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "show keybindings")),
+		NavForward: key.NewBinding(key.WithKeys("ctrl+l", "ctrl+k"), key.WithHelp("ctrl+l", "navigate forward")),
+		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "show keybindings")),
+		// Keyless: :help and :version are dispatched from the command
+		// registry. :help is its own entry, not "? / :help" on Help,
+		// because the status-bar hint is built from Help's key.
+		HelpCommand:    key.NewBinding(key.WithHelp(":help", "show keybindings")),
+		VersionCommand: key.NewBinding(key.WithHelp(":version", "show the running build's version")),
 		SaveThread:     key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "save thread")),
 		RespondButtons: key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "respond to message buttons")),
 		ListReactions:  key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "list reactions")),

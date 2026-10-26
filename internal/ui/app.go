@@ -434,6 +434,13 @@ type App struct {
 	channelNames map[string]string
 	userGroups   map[string]string
 
+	// buildInfo is the build identity :version shows (version.Short),
+	// set once at startup by cmd/slk. updateHint is the last newer-release
+	// hint UpdateAvailableMsg carried, so :version can repeat it after
+	// its toast has gone; "" while slk knows of no newer release.
+	buildInfo  string
+	updateHint string
+
 	// externalUsers tracks which user IDs are Slack Connect / shared-channel
 	// guests. Populated by main.go via SetExternalUsers as users are
 	// resolved. Read by SetUserNames when building the mention-picker User
@@ -3624,6 +3631,12 @@ func (a *App) SetHelpFooter(s string) {
 // attribution (e.g. credit for earlier work). Pass "" to clear it.
 func (a *App) SetHelpFooterNote(s string) {
 	a.help.SetFooterNote(s)
+}
+
+// SetBuildInfo sets the build identity :version shows, e.g.
+// "slk v1.2.3 (commit abc1234)".
+func (a *App) SetBuildInfo(s string) {
+	a.buildInfo = s
 }
 
 // SetMouseWheelLines configures the number of lines the viewport scrolls per

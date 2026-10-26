@@ -159,7 +159,8 @@ version exists, a 12-second status-bar toast names the command for your
 install (`brew upgrade --cask slk` for Homebrew, otherwise the release page),
 and a muted `↑ <version>` stays at the right of the status bar for the rest of
 the session (it is the first thing dropped when the bar is narrow). `slk
---version` prints the same hint from the cache. Dev builds skip the check, and
+--version` prints the same hint from the cache, and `:version` shows the build
+with the hint after it once the check has found one. Dev builds skip the check, and
 `[general] check_for_updates = false` turns it off.
 
 ## Notifications

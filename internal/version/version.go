@@ -4,6 +4,26 @@
 // string in so this package stays free of build-time coupling.
 package version
 
+// Line is the build identity `slk --version` prints, e.g.
+// "slk v1.2.3 (commit abc1234, built 2026-01-02T03:04:05Z)".
+func Line(version, commit, date string) string {
+	return "slk " + version + " (commit " + commit + ", built " + date + ")"
+}
+
+// Short is the build identity :version shows in the status bar, which
+// has room for one short toast: the version and the commit cut to 7
+// characters, e.g. "slk v1.2.3 (commit abc1234)", or "slk v1.2.3" when
+// the build stamped no commit ("" or the "none" default).
+func Short(version, commit string) string {
+	if commit == "" || commit == "none" {
+		return "slk " + version
+	}
+	if len(commit) > 7 {
+		commit = commit[:7]
+	}
+	return "slk " + version + " (commit " + commit + ")"
+}
+
 // osc8 wraps url as a clickable OSC-8 hyperlink whose visible label is
 // the URL itself. Terminals without OSC-8 support render the label as
 // plain text.

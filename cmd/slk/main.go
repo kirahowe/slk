@@ -44,6 +44,7 @@ import (
 	"github.com/gammons/slk/internal/ui/styles"
 	"github.com/gammons/slk/internal/ui/themeswitcher"
 	"github.com/gammons/slk/internal/ui/workspace"
+	versionpkg "github.com/gammons/slk/internal/version"
 	"github.com/gammons/slk/internal/wake"
 	"github.com/slack-go/slack"
 	"golang.design/x/clipboard"
@@ -77,7 +78,7 @@ func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "--version", "-v", "version":
-			fmt.Printf("slk %s (commit %s, built %s)\n", version, commit, date)
+			fmt.Println(versionpkg.Line(version, commit, date))
 			if hint := versionUpdateLine(); hint != "" {
 				fmt.Println(hint)
 			}

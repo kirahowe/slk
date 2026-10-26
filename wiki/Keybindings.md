@@ -71,6 +71,7 @@
 | `Ctrl+w h/j/k/l`, `Ctrl+w w` | Normal | Focus the window in that direction / cycle windows |
 | `Ctrl+w o` / `:only` | Normal | Close every window but the focused one |
 | `:help` | Normal | Open the keybinding overlay, same as `?` |
+| `:version` | Normal | Show the running build's version and commit in the status bar, followed by the update hint when a newer release is out |
 | `:q` | Normal | Close the focused window; on the last window, quit (with confirmation) like `:quit`. `Ctrl+w q` only closes, and toasts "Cannot close last window" on the last one |
 | `Ctrl+c` | Any | Quit (with confirmation) |
 
