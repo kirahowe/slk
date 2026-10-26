@@ -1645,7 +1645,7 @@ func (a *App) downloadFilesOfSelected() tea.Cmd {
 	atts := msg.Attachments
 	files := make([]messages.Attachment, 0, len(atts))
 	for _, att := range atts {
-		if att.Kind == "file" && att.DownloadURL != "" {
+		if att.Downloadable() {
 			files = append(files, att)
 		}
 	}

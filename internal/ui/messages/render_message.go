@@ -591,7 +591,7 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 						ColStart: h.ColStart, ColEnd: h.ColEnd,
 						Kind: entrylist.HitImage, Key: h.FileID, Aux: h.AttIdx,
 					})
-				} else if att.Kind == "file" && att.DownloadURL != "" && len(res.Lines) > 0 {
+				} else if att.Downloadable() && len(res.Lines) > 0 {
 					// A "[File] <name>" line: clicking it downloads
 					// the file, like `d`.
 					imageHits = append(imageHits, entrylist.Hit{

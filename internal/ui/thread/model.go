@@ -1448,34 +1448,33 @@ func (m *Model) HitTestReaction(row, col int) (replyIdx int, emoji string, ok bo
 // thread's content area, or ok=false when no image footprint covers
 // that cell. Coordinate frame mirrors HitTestReaction.
 func (m *Model) HitTestImage(row, col int) (ts string, attIdx int, ok bool) {
-	h, ok := m.list.HitTest(entrylist.HitImage, row, col)
-	if !ok || h.Key == "" {
-		return "", 0, false
-	}
-	switch {
-	case h.Ref == parentSelected:
-		return m.parent.TS, h.Aux, m.parent.TS != ""
-	case h.Ref >= 0 && h.Ref < len(m.replies):
-		return m.replies[h.Ref].TS, h.Aux, true
-	}
-	return "", 0, false
+	ts, attIdx, fileID, ok := m.attachmentHit(entrylist.HitImage, row, col)
+	return ts, attIdx, ok && fileID != ""
 }
 
 // HitTestFile returns the ts of the message (the parent or a reply)
 // and the attachment index of the "[File]" line at (row, col), or
 // ok=false. Coordinate frame mirrors HitTestReaction.
 func (m *Model) HitTestFile(row, col int) (ts string, attIdx int, ok bool) {
-	h, ok := m.list.HitTest(entrylist.HitFile, row, col)
+	ts, attIdx, _, ok = m.attachmentHit(entrylist.HitFile, row, col)
+	return ts, attIdx, ok
+}
+
+// attachmentHit resolves an attachment hit of kind at (row, col) to the
+// ts of the parent or reply it is on, the attachment index and the
+// hit's key (the file ID for an image).
+func (m *Model) attachmentHit(kind entrylist.HitKind, row, col int) (ts string, attIdx int, key string, ok bool) {
+	h, ok := m.list.HitTest(kind, row, col)
 	if !ok {
-		return "", 0, false
+		return "", 0, "", false
 	}
 	switch {
 	case h.Ref == parentSelected:
-		return m.parent.TS, h.Aux, m.parent.TS != ""
+		return m.parent.TS, h.Aux, h.Key, m.parent.TS != ""
 	case h.Ref >= 0 && h.Ref < len(m.replies):
-		return m.replies[h.Ref].TS, h.Aux, true
+		return m.replies[h.Ref].TS, h.Aux, h.Key, true
 	}
-	return "", 0, false
+	return "", 0, "", false
 }
 
 // fitHeight keeps the first height rows of s, as the old outer

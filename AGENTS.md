@@ -185,6 +185,7 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Where a pane's "── new ──" line goes (first unread row; never the user's own message or a placeholder, and nothing before their last one) | `messages.UnreadStart(rows, lastRead, selfID)`; both panes |
 | Reaction pill rendering | `messages.ReactionPillText` |
 | The marker of an attachment drawn as a line (`[Image]`, `[Canvas]`, `[File]`) | `core.AttachmentMarker(kind)`; `renderSingleAttachment` and imgrender's fallback both use it |
+| Can `d`, or a click on its `[File]` line, download an attachment (a file, not an image or canvas, with a url_private)? | `core.Attachment.Downloadable()`; `downloadFilesOfSelected` and `RenderMessage`'s `HitFile` rects both ask it |
 | Is a `slack.File` a canvas? | `isCanvasFile(f)` (`cmd/slk/attachments.go`); `extractAttachments` gives one kind `"canvas"` and its `FileID` |
 | Parse a canvas download (Quip HTML) into blocks of marked spans; unknown elements keep their text, control characters and unsafe links are dropped | `canvas.Parse(html)` (`internal/canvas`); `canvas.ErrNotCanvas` for HTML without the canvas root (Slack's sign-in page) |
 | Draw a canvas document as lines exactly `width` wide on the theme background | `canvasview.Render(doc, width, names)` (`internal/ui/canvasview`) |

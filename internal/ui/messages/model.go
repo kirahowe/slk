@@ -1867,22 +1867,27 @@ func (m *Model) HitTest(row, col int) (msgIdx, attIdx int, fileID string, ok boo
 // HitTestImage is HitTest returning the message's ts instead of its
 // index, the form the App's click routing shares with the thread pane.
 func (m *Model) HitTestImage(row, col int) (ts string, attIdx int, ok bool) {
-	msgIdx, attIdx, fileID, ok := m.HitTest(row, col)
-	if !ok || fileID == "" || msgIdx < 0 || msgIdx >= len(m.messages) {
-		return "", 0, false
-	}
-	return m.messages[msgIdx].TS, attIdx, true
+	ts, attIdx, fileID, ok := m.attachmentHit(entrylist.HitImage, row, col)
+	return ts, attIdx, ok && fileID != ""
 }
 
 // HitTestFile returns the ts of the message and the attachment index
 // of the "[File]" line at (row, col), or ok=false. Coordinate frame
 // mirrors HitTest.
 func (m *Model) HitTestFile(row, col int) (ts string, attIdx int, ok bool) {
-	h, ok := m.list.HitTest(entrylist.HitFile, row, col)
+	ts, attIdx, _, ok = m.attachmentHit(entrylist.HitFile, row, col)
+	return ts, attIdx, ok
+}
+
+// attachmentHit resolves an attachment hit of kind at (row, col) to its
+// message's ts, the attachment index and the hit's key (the file ID for
+// an image). The thread pane's twin also resolves its parent row.
+func (m *Model) attachmentHit(kind entrylist.HitKind, row, col int) (ts string, attIdx int, key string, ok bool) {
+	h, ok := m.list.HitTest(kind, row, col)
 	if !ok || h.Ref < 0 || h.Ref >= len(m.messages) {
-		return "", 0, false
+		return "", 0, "", false
 	}
-	return m.messages[h.Ref].TS, h.Aux, true
+	return m.messages[h.Ref].TS, h.Aux, h.Key, true
 }
 
 // HitTestReaction returns the (message index, reaction emoji name) at

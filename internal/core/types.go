@@ -86,6 +86,13 @@ type Attachment struct {
 	Thumbs []ThumbSpec // sorted ascending; empty for non-image
 }
 
+// Downloadable reports whether the attachment is a file `d` and a click
+// on its "[File]" line can download: not an image or a canvas, and with
+// a url_private to fetch.
+func (a Attachment) Downloadable() bool {
+	return a.Kind == "file" && a.DownloadURL != ""
+}
+
 // AttachmentMarker is the label an attachment of the given kind is drawn
 // with when it is not rendered inline.
 func AttachmentMarker(kind string) string {
