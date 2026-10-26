@@ -295,7 +295,10 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		// The compose region: a click there starts composing, the
 		// mouse equivalent of `i`. Checked before the content hit
 		// tests because the compose rows sit below every message row.
-		if a.layout.msgComposeTop > 0 && py >= a.layout.msgComposeTop {
+		// Only from normal mode, the one mode `i` works in: in insert
+		// mode a compose may hold an edit, and in command or search
+		// mode the status bar holds a half-typed line.
+		if a.mode == ModeNormal && a.layout.msgComposeTop > 0 && py >= a.layout.msgComposeTop {
 			return a.beginInsertMode(false)
 		}
 		// Hit-test reactions and inline images first: a click
@@ -355,7 +358,7 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 
 		// The thread pane's own compose region, same as the channel
 		// pane's above but targeting the thread compose.
-		if a.layout.threadComposeTop > 0 && py >= a.layout.threadComposeTop {
+		if a.mode == ModeNormal && a.layout.threadComposeTop > 0 && py >= a.layout.threadComposeTop {
 			return a.beginInsertMode(true)
 		}
 		// Hit-test reactions and inline images first on the thread

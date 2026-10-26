@@ -42,6 +42,19 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+// beginInsertMode enters insert mode with a compose box focused: the
+// shared body of `i` and of a click on a compose region. toThread picks
+// which compose: the thread panel's when true, else the channel's.
+func (a *App) beginInsertMode(toThread bool) tea.Cmd {
+	a.SetMode(ModeInsert)
+	if toThread {
+		a.focusedPanel = PanelThread
+		return a.threadCompose.Focus()
+	}
+	a.focusedPanel = PanelMessages
+	return a.compose.Focus()
+}
+
 // leaveInsertMode is what Esc does once no picker is open: back to
 // normal mode with both composers blurred (their drafts stay where they
 // are), then a re-check for a queued action prompt.

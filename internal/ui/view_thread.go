@@ -58,8 +58,10 @@ func (a *App) renderThreadRegion(frame panelLayoutFrame, themeVer int64) string 
 	threadComposeView = threadComposeSpacer + "\n" + threadComposeView
 	// Unlike the channel pane's typing row, no row is reserved for
 	// this: it appears only while an app is working on this thread.
+	statusHeight := 0
 	if statusLine := a.renderThreadBotStatusLine(threadWidth - 2); statusLine != "" {
 		threadComposeView = statusLine + "\n" + threadComposeView
+		statusHeight = 1
 	}
 	threadComposeHeight := lipgloss.Height(threadComposeView)
 	threadContentHeight := contentHeight - 2 - threadComposeHeight
@@ -68,12 +70,12 @@ func (a *App) renderThreadRegion(frame panelLayoutFrame, themeVer int64) string 
 		threadContentHeight = 3
 	}
 	// Row layout within the pane: 0 top border, 1..threadContentHeight
-	// replies, then the compose region through to the bottom border at
-	// contentHeight-1 (no typing row is reserved in the thread pane).
-	// Recorded after the minimum clamp and in PanelAt's paneY frame
-	// (top border subtracted), mirroring the channel pane's compose
-	// top.
-	a.layout.SetThreadComposeTop(threadContentHeight)
+	// replies, the app status row while there is one, then the compose
+	// region through to the bottom border at contentHeight-1. Recorded
+	// after the minimum clamp and in PanelAt's paneY frame (top border
+	// subtracted), mirroring the channel pane, whose typing row is not
+	// part of the region either.
+	a.layout.SetThreadComposeTop(threadContentHeight + statusHeight)
 
 	// Cached top region.
 	threadTopVersion := a.threadPanel.Version()
