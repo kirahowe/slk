@@ -286,14 +286,18 @@ func TestOnMessage_EditEcho_DoesNotSetHasUnread(t *testing.T) {
 		isActive:        func() bool { return true },
 		activeChannelID: func() string { return "C2" },
 		currentUserID:   "USELF",
+		channelTypes:    map[string]string{"C1": "channel"},
 	}
-	// edited=true, and from someone else, so only the edit gate can
-	// suppress the write.
-	h.OnMessage("C1", "U1", "1.001", "hi (edited)", "", "", true, nil, nil, slack.Blocks{}, nil, "", "")
+	// changed=true, from someone else and mentioning the user, so only
+	// the changed gate can suppress the writes.
+	h.OnMessage("C1", "U1", "1.001", "hi <@USELF> (edited)", "", "", true, nil, nil, slack.Blocks{}, nil, "", "")
 
 	s, _ := db.GetChannelReadState("C1")
 	if s.HasUnread {
 		t.Error("HasUnread = true, want false: editing a message does not make a channel unread")
+	}
+	if n := mentionCount(t, db, "C1"); n != 0 {
+		t.Errorf("MentionCount = %d, want 0: a change does not badge a mention", n)
 	}
 }
 
