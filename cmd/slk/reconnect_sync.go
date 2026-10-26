@@ -85,10 +85,11 @@ type reconnectSync struct {
 	// tests substitute a recorder.
 	refreshChannel func(ctx context.Context, channelID string)
 
-	// badgeEvents is the workspace's badge_counts_updated clock, used
-	// to drop a counts snapshot an event superseded mid-request. Nil
-	// (tests) means no clock: the badge send always runs.
-	badgeEvents *badgeEventClock
+	// badge orders the counts answer's Activity total against the
+	// workspace's badge_counts_updated events (wsCtx.Badge). Nil in
+	// tests that do not look at the badge: the total is then reported
+	// unordered.
+	badge *activityBadge
 }
 
 // run performs one catch-up pass.
@@ -132,27 +133,24 @@ func (r *reconnectSync) run(ctx context.Context) error {
 // Failure is logged and swallowed: unread badges are cosmetic next to
 // the messages themselves, and the next boot refreshes them anyway.
 func (r *reconnectSync) refreshUnreadState() {
-	// Snapshot the badge event clock before the request: a
-	// badge_counts_updated that arrives while the HTTP call is in
-	// flight is newer than the response, and the event already
-	// delivered its total to the UI. Sending the snapshot's (older)
-	// total on top would roll the badge back until the next event.
-	badgeBefore := int64(0)
-	if r.badgeEvents != nil {
-		badgeBefore = r.badgeEvents.current()
+	// Record the badge's write count before asking: a
+	// badge_counts_updated that lands while the request is out is newer
+	// than the answer and has already reached the UI, so the answer's
+	// total must not overwrite it.
+	badge := r.badge
+	if badge == nil {
+		badge = &activityBadge{}
 	}
+	mark := badge.mark()
 	unreads, _, activityTotal, err := r.client.GetUnreadCounts()
 	if err != nil {
 		debuglog.Backfill("team=%s reconnect-sync counts err=%v (unread badges stay stale)", r.workspaceID, err)
 		return
 	}
-	if r.badgeEvents != nil && r.badgeEvents.current() != badgeBefore {
-		debuglog.Backfill("team=%s reconnect-sync counts snapshot superseded by a badge event mid-request; badge keeps the event's total", r.workspaceID)
-	} else {
-		// The Activity badge always refreshes: it is a single absolute
-		// number, so there is no "empty result" ambiguity to guard on
-		// (a zero total legitimately clears the badge).
-		r.program.Send(ui.ActivityBadgeUpdatedMsg{TeamID: r.workspaceID, Total: activityTotal})
+	// A zero total is a real answer (nothing unread) and clears the
+	// badge, so unlike the read state there is no empty-result guard.
+	if !badge.applyFetched(mark, activityTotal, activityBadgeReport(r.program, r.workspaceID)) {
+		debuglog.Backfill("team=%s reconnect-sync counts answer older than a badge event; badge keeps the event's total", r.workspaceID)
 	}
 	if len(unreads) == 0 {
 		return

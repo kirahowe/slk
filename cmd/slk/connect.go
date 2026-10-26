@@ -397,15 +397,15 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 		debuglog.Cache("workspace_unread_bootstrap: team=%s client.counts failed during bootstrap; leaving read state as cached", token.TeamName)
 	}
 	wctx.ThreadsHasUnreads = res.Counts.Threads.HasUnreads
-	wctx.BadgeEvents = &badgeEventClock{}
 	// The Activity badge rides the same call: the total unread
 	// activity, delivered to the UI before this workspace's WebSocket
-	// goes live so the first frame already shows the real number. The
-	// badge_counts_updated events that keep it current arrive on the
-	// socket; member tokens whose counts the grid restricts never send
-	// this and keep a zero badge.
+	// goes live so the first frame already shows the real number. No
+	// badge_counts_updated can have arrived yet, so the total is set
+	// rather than applied against a mark. The events that keep it
+	// current arrive on the socket; member tokens whose counts the grid
+	// restricts never send this and keep a zero badge.
 	if ucOK {
-		p.Send(ui.ActivityBadgeUpdatedMsg{TeamID: client.TeamID(), Total: res.Counts.ActivityTotal})
+		wctx.Badge.Set(res.Counts.ActivityTotal, activityBadgeReport(p, client.TeamID()))
 	}
 	// Boot applies an authoritative FULL snapshot: reset every channel
 	// in the workspace to read, then set the ones client.counts reports
@@ -607,7 +607,7 @@ func (h *rtmEventHandler) syncOnReconnect(trigger string) bool {
 		program:        h.program,
 		activeChannel:  h.activeChannelID,
 		refreshChannel: h.refreshChannel,
-		badgeEvents:    h.wsCtx.BadgeEvents,
+		badge:          &h.wsCtx.Badge,
 	}
 	go func() {
 		if err := sync.run(context.Background()); err != nil {
