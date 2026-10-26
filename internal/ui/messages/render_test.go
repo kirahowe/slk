@@ -6,6 +6,7 @@ import (
 	goimage "image"
 	"image/color"
 	"io"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -1026,3 +1027,47 @@ func TestBlockquoteRendersInlineFormatting(t *testing.T) {
 		t.Errorf("text after the last span is not muted; last fg before it: %q", last)
 	}
 }
+
+// TestImageEmojiKeepsTextColourAfterIt: a kitty placement ends in
+// \x1b[39m (foreground to the terminal default), so the text after an
+// inline image emoji must get the theme's colour back, or a light
+// theme draws it in the terminal's default grey. In a quote the colour
+// to restore is the quote's muted one.
+func TestImageEmojiKeepsTextColourAfterIt(t *testing.T) {
+	emojiutil.SetImageMode(true, 2)
+	t.Cleanup(func() { emojiutil.SetImageMode(false, 2) })
+
+	url, ok := emojiutil.URLForShortcode("wave", nil)
+	if !ok {
+		t.Fatal("no URL for :wave:")
+	}
+	const placement = "\x1b[38;2;0;0;7m\U0010EEEE\U0010EEEE\x1b[39m"
+	ff := newFakePlaceFetcher()
+	ff.setPrerendered(emojiutil.EmojiCacheKey(url), goimage.Pt(2, 1), imgpkg.Render{
+		Cells: goimage.Pt(2, 1),
+		Lines: []string{placement},
+	})
+	opts := RenderSlackMarkdownOpts{PlaceCtx: emojiutil.PlaceContext{Fetcher: ff}}
+
+	cases := []struct{ name, in, fg string }{
+		{"plain", ":wave: Howdy folks", FgANSI()},
+		{"quote", "> :wave: Howdy folks", fgANSIFor(styles.TextMuted)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			out := RenderSlackMarkdownWith(c.in, opts)
+			_, after, found := strings.Cut(out, placement)
+			if !found {
+				t.Fatalf("placement missing from %q", out)
+			}
+			before, _, _ := strings.Cut(after, "Howdy")
+			fgs := sgrForegroundRe.FindAllString(before, -1)
+			if len(fgs) == 0 || fgs[len(fgs)-1] != c.fg {
+				t.Errorf("text after the emoji is not coloured %q: %q", c.fg, before)
+			}
+		})
+	}
+}
+
+// sgrForegroundRe matches a truecolor foreground escape.
+var sgrForegroundRe = regexp.MustCompile(`\x1b\[38;2;[0-9;]*m`)

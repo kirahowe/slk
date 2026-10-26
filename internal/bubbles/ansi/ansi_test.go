@@ -26,3 +26,26 @@ func TestReapplyAfterResets(t *testing.T) {
 		})
 	}
 }
+
+func TestReapplyAfterFgResets(t *testing.T) {
+	t.Parallel()
+	const fg = "\x1b[38;2;224;224;224m"
+	const placement = "\x1b[38;2;0;0;7m\U0010EEEE\x1b[39m"
+	cases := []struct {
+		name, text, fg, want string
+	}{
+		{"empty fg is a no-op", "a\x1b[39mb", "", "a\x1b[39mb"},
+		{"no foreground resets", "plain\x1b[m", fg, "plain\x1b[m"},
+		{"after a kitty placement", placement + " tail", fg, placement + fg + " tail"},
+		{"each one", "a\x1b[39mb\x1b[39m", fg, "a\x1b[39m" + fg + "b\x1b[39m" + fg},
+		{"background reset left alone", "a\x1b[49mb", fg, "a\x1b[49mb"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			if got := ReapplyAfterFgResets(c.text, c.fg); got != c.want {
+				t.Errorf("ReapplyAfterFgResets(%q, %q) = %q, want %q", c.text, c.fg, got, c.want)
+			}
+		})
+	}
+}

@@ -723,6 +723,7 @@ func RenderSlackMarkdownWith(text string, opts RenderSlackMarkdownOpts) string {
 			// quote's muted colour after it, so the rest of the quote
 			// stays muted.
 			quoted = ReapplyBgAfterResets(quoted, BgANSI()+fgANSIFor(styles.TextMuted))
+			quoted = bubblesansi.ReapplyAfterFgResets(quoted, fgANSIFor(styles.TextMuted))
 			line = blockquoteStyle().Render(quoted)
 		} else {
 			line = renderInlineFormattingWith(line, opts)
@@ -743,6 +744,9 @@ func RenderSlackMarkdownWith(text string, opts RenderSlackMarkdownOpts) string {
 	// default fg (most noticeable on light-bg themes like Slack Default,
 	// where text after a mention would otherwise render in a light gray).
 	output = ReapplyBgAfterResets(output, BgANSI()+FgANSI())
+	// An inline image emoji resets only the foreground (see
+	// ReapplyAfterFgResets); give the text after it the theme's colour.
+	output = bubblesansi.ReapplyAfterFgResets(output, FgANSI())
 
 	return output
 }

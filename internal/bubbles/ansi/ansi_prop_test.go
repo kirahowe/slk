@@ -48,6 +48,25 @@ func TestReapplyInsertsOncePerReset(t *testing.T) {
 
 // FuzzReapplyAfterResets: no panic on arbitrary bytes, and the result
 // has one style per reset when the style cannot itself form a reset.
+// Every foreground reset is followed by fg, and nothing else changes.
+func TestReapplyFgFollowsEveryFgReset(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		s := proptest.StyledText().Draw(t, "s")
+		s += rapid.SampledFrom([]string{"", "\x1b[39m", "x\x1b[39my"}).Draw(t, "tail")
+		const fg = "\x1b[38;2;1;2;3m"
+		got := ReapplyAfterFgResets(s, fg)
+		if xansi.Strip(got) != xansi.Strip(s) {
+			t.Fatalf("visible text changed: %q -> %q", s, got)
+		}
+		if strings.Count(got, "\x1b[39m") != strings.Count(got, "\x1b[39m"+fg) {
+			t.Fatalf("a foreground reset is not followed by %q in %q", fg, got)
+		}
+		if n := strings.Count(s, "\x1b[39m"); len(got) != len(s)+n*len(fg) {
+			t.Fatalf("length %d, want %d", len(got), len(s)+n*len(fg))
+		}
+	})
+}
+
 func FuzzReapplyAfterResets(f *testing.F) {
 	f.Add("a\x1b[mb\x1b[0mc", "\x1b[48;5;1m")
 	f.Add("\x1b[", "x")

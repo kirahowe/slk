@@ -22,3 +22,16 @@ func ReapplyAfterResets(text, style string) string {
 	text = strings.ReplaceAll(text, "\x1b[0m", "\x1b[0m"+style)
 	return strings.ReplaceAll(text, "\x1b[m", "\x1b[m"+style)
 }
+
+// ReapplyAfterFgResets re-emits fg after every foreground reset (\x1b[39m)
+// in text. A kitty image placement ends in one, because it carries the
+// image ID in the foreground colour, so without this the text after an
+// inline image emoji takes the terminal's default foreground instead of
+// the theme's. ReapplyAfterResets does not cover it: a foreground reset
+// is not a full reset. An empty fg returns text unchanged.
+func ReapplyAfterFgResets(text, fg string) string {
+	if fg == "" {
+		return text
+	}
+	return strings.ReplaceAll(text, "\x1b[39m", "\x1b[39m"+fg)
+}
