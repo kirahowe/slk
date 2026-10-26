@@ -1,9 +1,9 @@
 // Package blockkit parses and renders Slack Block Kit blocks and the
 // legacy `attachments` field. The package is intentionally
 // self-contained: it depends only on slack-go (for input types),
-// lipgloss (for styling), charmbracelet/x/ansi (for width-aware line
-// surgery in SpliceSixelFallbacks), the project's styles package (for
-// theme colors), and the project's image package (for block image
+// lipgloss (for styling), internal/bubbles/ansi (for grafting image
+// fallback rows in SpliceSixelFallbacks), the project's styles package
+// (for theme colors), and the project's image package (for block image
 // rendering). It does NOT depend on the rest of internal/ui/messages
 // to keep import cycles impossible.
 //
@@ -19,7 +19,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/charmbracelet/x/ansi"
+	bubblesansi "github.com/gammons/slk/internal/bubbles/ansi"
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/core/blocks"
 	imgpkg "github.com/gammons/slk/internal/image"
@@ -106,9 +106,7 @@ func SpliceSixelFallbacks(lines []string, rows map[int]SixelEntry) {
 			if k+i < 0 || k+i >= len(lines) {
 				continue
 			}
-			end := v.Col + ansi.StringWidth(v.Fallback[i])
-			lines[k+i] = ansi.Cut(lines[k+i], 0, v.Col) + v.Fallback[i] +
-				ansi.Cut(lines[k+i], end, ansi.StringWidth(lines[k+i]))
+			lines[k+i] = bubblesansi.Graft(lines[k+i], v.Fallback[i], v.Col)
 		}
 	}
 }
