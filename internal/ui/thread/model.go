@@ -49,8 +49,9 @@ type Model struct {
 	// Reply cache: the payload and the list entry of every reply,
 	// index-aligned with m.replies, rebuilt when the replies or the width
 	// change. nil means the cache was discarded and the next View
-	// rebuilds it. The thread pane captures no sixel rows (v1 scope:
-	// sixel renders its placeholder only).
+	// rebuilds it. The thread pane captures no sixel rows: under sixel
+	// an image shows as its halfblock fallback, which RenderMessage
+	// splices into the lines when RenderOptions.SixelRows is off.
 	cache         []messages.EntryPayload
 	replyEntries  []entrylist.Entry
 	cacheWidth    int
@@ -121,10 +122,9 @@ type Model struct {
 	version int64
 
 	// imgRenderer is the inline-image rendering pipeline. Configured at
-	// startup via Model.SetImageContext (mirrors messages.Model). v1
-	// renders images inline (kitty + halfblock fully supported; sixel
-	// renders placeholder-only) but does not support click-to-preview
-	// from a thread reply.
+	// startup via Model.SetImageContext (mirrors messages.Model). Kitty
+	// and halfblock images render inline; sixel images render as their
+	// halfblock fallback (see cache above).
 	imgRenderer *imgrender.Renderer
 
 	// emojiCtx bundles the emoji-image rendering dependencies. Threaded
