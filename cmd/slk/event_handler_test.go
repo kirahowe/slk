@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/config"
 	"github.com/gammons/slk/internal/core"
+	"github.com/gammons/slk/internal/notify"
 	slackclient "github.com/gammons/slk/internal/slack"
 	"github.com/gammons/slk/internal/slack/edge"
 	"github.com/gammons/slk/internal/ui"
@@ -1041,4 +1043,34 @@ func TestApplyActionIDs_Misaligned(t *testing.T) {
 		t.Errorf("long ids: %+v", atts)
 	}
 	applyActionIDs(nil, [][]string{{"1"}}) // must not panic
+}
+
+// A change echo (an edit, an unfurl landing) re-delivers a message that
+// already had its chance to notify, so it does not notify again, even
+// when it mentions the user. The same message as a new event does.
+// deliver takes the notification on the event goroutine, so what
+// OnMessage notified is known once it returns.
+func TestOnMessage_ChangeEcho_DoesNotNotify(t *testing.T) {
+	var bodies []string
+	h := &rtmEventHandler{
+		workspaceID:     "T1",
+		currentUserID:   "USELF",
+		userNames:       newUserNameStore(nil),
+		channelTypes:    map[string]string{"C1": "channel"},
+		channelNames:    map[string]string{"C1": "general"},
+		isActive:        func() bool { return false },
+		activeChannelID: func() string { return "C2" },
+		wsCtx:           &WorkspaceContext{},
+		notifier:        notify.New(true, ""),
+		notifyCfg:       config.Notifications{Enabled: true, OnMention: true},
+		deliver:         func(_, body string) { bodies = append(bodies, body) },
+	}
+	edit := &slack.Edited{User: "U1", Timestamp: "1.005"}
+	h.OnMessage("C1", "U1", "1.001", "<!here> edited", "", "", true, edit, nil, slack.Blocks{}, nil, "", "")
+	h.OnMessage("C1", "U1", "1.002", "<!here> unfurled", "", "", true, nil, nil, slack.Blocks{}, nil, "", "")
+	h.OnMessage("C1", "U1", "1.003", "<!here> fresh", "", "", false, nil, nil, slack.Blocks{}, nil, "", "")
+
+	if len(bodies) != 1 || !strings.Contains(bodies[0], "fresh") {
+		t.Errorf("notified %q, want only the fresh message", bodies)
+	}
 }

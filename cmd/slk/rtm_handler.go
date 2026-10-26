@@ -33,8 +33,13 @@ type rtmEventHandler struct {
 	isActive    func() bool
 
 	// Notifications
-	notifier        *notify.Notifier
-	notifyCfg       config.Notifications
+	notifier  *notify.Notifier
+	notifyCfg config.Notifications
+	// deliver, when set, takes a notification in place of the
+	// goroutine that runs notifier.Notify, on the event goroutine.
+	// Tests set it so that what OnMessage notified is known once it
+	// returns. nil in production.
+	deliver         func(title, body string)
 	currentUserID   string
 	channelNames    map[string]string
 	channelTypes    map[string]string
@@ -195,8 +200,10 @@ func (h *rtmEventHandler) OnMessage(channelID, userID, ts, text, threadTS, subty
 
 	// Check if this message should trigger a desktop notification.
 	// Do this before the active workspace check so inactive workspaces
-	// can still trigger notifications.
-	if h.notifier != nil && h.notifyCfg.Enabled {
+	// can still trigger notifications. A change echo (an edit, an unfurl
+	// landing, a preview removed) re-delivers a message that already
+	// had its chance to notify, so it never does.
+	if !changed && h.notifier != nil && h.notifyCfg.Enabled {
 		isActiveWS := h.isActive != nil && h.isActive()
 		activeChID := ""
 		if h.activeChannelID != nil {
@@ -236,11 +243,7 @@ func (h *rtmEventHandler) OnMessage(channelID, userID, ts, text, threadTS, subty
 			// Just the mentioned names, not a copy of the whole store:
 			// the stripper wants a plain map.
 			body := senderName + ": " + notify.StripSlackMarkupWithUserGroups(text, h.userNames.MentionedNames(text), groupNames)
-			go func() {
-				if err := h.notifier.Notify(title, body); err != nil {
-					debuglog.Notify("notification failed: %v", err)
-				}
-			}()
+			h.sendNotification(title, body)
 		}
 	}
 
@@ -386,6 +389,21 @@ func (h *rtmEventHandler) OnMessage(channelID, userID, ts, text, threadTS, subty
 	if h.program != nil {
 		h.program.Send(ui.NewMessageMsg{TeamID: h.workspaceID, ChannelID: channelID, Changed: changed, Message: item})
 	}
+}
+
+// sendNotification shows a desktop notification without holding up the
+// event goroutine: the notifier may run a user's command or talk to
+// the OS notification daemon.
+func (h *rtmEventHandler) sendNotification(title, body string) {
+	if h.deliver != nil {
+		h.deliver(title, body)
+		return
+	}
+	go func() {
+		if err := h.notifier.Notify(title, body); err != nil {
+			debuglog.Notify("notification failed: %v", err)
+		}
+	}()
 }
 
 // cacheChange writes a message_changed echo (an edit, an unfurl
