@@ -488,15 +488,43 @@ func (m Model) commandCandidatesView(room int) string {
 		widths[i] = lipgloss.Width(rendered[i])
 	}
 
-	// Two spaces separate the entries; when names to the left of the window
-	// were dropped, a "< " prefix (its own trailing space included) marks
-	// them, and a " >" suffix marks names dropped on the right.
-	const marker, moreMarker = "< ", " >"
-	markerWidth, moreWidth := lipgloss.Width(marker), lipgloss.Width(moreMarker)
+	start, end, ok := candidateWindow(widths, idx, room)
+	if !ok {
+		return ""
+	}
 
-	// windowWidth is the rendered width of names[start:end]: the names, two
-	// spaces between each pair, the "< " marker when names[0] is hidden and
-	// the " >" marker when the last name is.
+	// The gap between entries carries the bar's background explicitly, the
+	// way the right-side separators do: a bare "  " would leave the
+	// terminal's default colour showing through on a themed bar.
+	gap := lipgloss.NewStyle().Background(styles.SurfaceDark).Render("  ")
+	joined := strings.Join(rendered[start:end], gap)
+	if start > 0 {
+		joined = plain.Render(candidateMarker) + joined
+	}
+	if end < n {
+		joined += plain.Render(candidateMoreMarker)
+	}
+	return joined
+}
+
+// candidateMarker and candidateMoreMarker mark names of the :prompt's
+// completion list dropped on the left and on the right.
+const candidateMarker, candidateMoreMarker = "< ", " >"
+
+// candidateWindow picks the names of the :prompt's completion list to
+// draw in room columns, given each name's rendered width and the current
+// name idx: names[start:end], two spaces between each pair, a "< "
+// marker when names before start are dropped and a " >" marker when
+// names from end on are. The current name is the anchor (the user is
+// cycling to it), so it is always in the window; when even it, with the
+// markers it needs, has no room, ok is false and nothing is drawn, since
+// a truncated name would name nothing the user could type. Otherwise the
+// window grows forward first, because the names just past the current
+// one are the ones Tab reaches next, then takes what room is left on the
+// left.
+func candidateWindow(widths []int, idx, room int) (start, end int, ok bool) {
+	n := len(widths)
+	markerWidth, moreWidth := len(candidateMarker), len(candidateMoreMarker)
 	windowWidth := func(start, end int) int {
 		w := 0
 		for i := start; i < end; i++ {
@@ -513,39 +541,17 @@ func (m Model) commandCandidatesView(room int) string {
 		}
 		return w
 	}
-
-	// The current name is the anchor — the user is cycling to it — so it is
-	// never dropped. If even it (with the markers for the names hidden on
-	// either side) has no room, the list is not drawn at all: a truncated command
-	// name would name nothing the user could type.
-	if windowWidth(idx, idx+1) > room {
-		return ""
+	if idx < 0 || idx >= n || windowWidth(idx, idx+1) > room {
+		return 0, 0, false
 	}
-
-	start, end := idx, idx+1
-	// Grow forward first: the names just past the current one are the ones
-	// Tab reaches next.
+	start, end = idx, idx+1
 	for end < n && windowWidth(start, end+1) <= room {
 		end++
 	}
-	// Then take whatever room is left on the left, the current name still
-	// anchored.
 	for start > 0 && windowWidth(start-1, end) <= room {
 		start--
 	}
-
-	// The gap between entries carries the bar's background explicitly, the
-	// way the right-side separators do: a bare "  " would leave the
-	// terminal's default colour showing through on a themed bar.
-	gap := lipgloss.NewStyle().Background(styles.SurfaceDark).Render("  ")
-	joined := strings.Join(rendered[start:end], gap)
-	if start > 0 {
-		joined = plain.Render(marker) + joined
-	}
-	if end < n {
-		joined += plain.Render(moreMarker)
-	}
-	return joined
+	return start, end, true
 }
 
 // formatDND renders the DND segment with an optional countdown to the

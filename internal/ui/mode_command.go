@@ -15,7 +15,8 @@
 package ui
 
 import (
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -68,55 +69,65 @@ func (a *App) clearCmdline() {
 	a.statusbar.SetCommandCandidates(nil, 0)
 }
 
-// matchingCommands returns the sorted names in the commands registry
-// that start with prefix; every name for an empty prefix.
-func matchingCommands(prefix string) []string {
+// prefixMatches returns the names that start with prefix, sorted, or nil
+// when none do. names is not modified.
+func prefixMatches(names []string, prefix string) []string {
 	var matches []string
-	for name := range commands {
+	for _, name := range names {
 		if strings.HasPrefix(name, prefix) {
 			matches = append(matches, name)
 		}
 	}
-	sort.Strings(matches)
+	slices.Sort(matches)
 	return matches
 }
 
-// completeCommandName runs Tab (backwards for Shift+Tab) at the prompt:
-// it puts the next command name matching the buffer into cmdline,
-// wrapping around the match list, and remembers the list so the next
-// Tab advances instead of restarting. A buffer holding a space names a
-// command's arguments, which are out of scope, and a Tab with no match
-// completes nothing; both only reset the cycle.
-func completeCommandName(a *App, backwards bool) {
-	if strings.Contains(a.cmdline, " ") {
-		a.cmdComplete = cmdCompletion{}
-		a.statusbar.SetCommandCandidates(nil, 0)
-		return
+// nextCompletion is one Tab (backwards for Shift+Tab) at the prompt, as a
+// pure function of the cycle in progress c, the buffer line and the
+// command names. It returns the new cycle: the line to show is
+// matches[idx]. A zero result means Tab completes nothing (a buffer
+// holding a space names arguments, which are out of scope, or no name
+// matches), and the caller keeps the line. A cycle continues only while
+// the buffer still holds its candidate; otherwise a new one starts from
+// the names matching the buffer, at the first match (the last going
+// backwards).
+func nextCompletion(c cmdCompletion, line string, backwards bool, names []string) cmdCompletion {
+	if strings.Contains(line, " ") {
+		return cmdCompletion{}
 	}
-	if c := a.cmdComplete; c.idx < len(c.matches) && c.matches[c.idx] == a.cmdline {
+	if c.idx < len(c.matches) && c.matches[c.idx] == line {
 		next := c.idx + 1
 		if backwards {
 			next = c.idx - 1 + len(c.matches)
 		}
-		next %= len(c.matches)
-		a.setCmdline(c.matches[next])
-		a.cmdComplete = cmdCompletion{matches: c.matches, idx: next}
-		a.showCommandCandidates(c.matches, next)
-		return
+		return cmdCompletion{matches: c.matches, idx: next % len(c.matches)}
 	}
-	matches := matchingCommands(a.cmdline)
+	matches := prefixMatches(names, line)
 	if len(matches) == 0 {
-		a.cmdComplete = cmdCompletion{}
-		a.statusbar.SetCommandCandidates(nil, 0)
-		return
+		return cmdCompletion{}
 	}
 	idx := 0
 	if backwards {
 		idx = len(matches) - 1
 	}
-	a.setCmdline(matches[idx])
-	a.cmdComplete = cmdCompletion{matches: matches, idx: idx}
-	a.showCommandCandidates(matches, idx)
+	return cmdCompletion{matches: matches, idx: idx}
+}
+
+// completeCommandName runs Tab (backwards for Shift+Tab) at the prompt
+// through nextCompletion over the commands registry: it puts the next
+// matching name into cmdline and remembers the cycle so the next Tab
+// advances instead of restarting. A Tab that completes nothing only
+// resets the cycle.
+func completeCommandName(a *App, backwards bool) {
+	c := nextCompletion(a.cmdComplete, a.cmdline, backwards, slices.Collect(maps.Keys(commands)))
+	if c.matches == nil {
+		a.cmdComplete = cmdCompletion{}
+		a.statusbar.SetCommandCandidates(nil, 0)
+		return
+	}
+	a.setCmdline(c.matches[c.idx])
+	a.cmdComplete = c
+	a.showCommandCandidates(c.matches, c.idx)
 }
 
 // showCommandCandidates mirrors a fresh match list into the status bar's
