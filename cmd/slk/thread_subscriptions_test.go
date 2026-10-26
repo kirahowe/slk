@@ -104,6 +104,30 @@ func TestThreadSubscriptions_UpsertsRootMessageIntoMessagesCache(t *testing.T) {
 	}
 }
 
+// A root_msg someone edited keeps Slack's edited mark in the cache.
+// UpsertMessage overwrites every column, so a root written without
+// edited_at would drop the "(edited)" label a history fetch stored.
+func TestThreadSubscriptions_RootMessageKeepsTheEditedMark(t *testing.T) {
+	db := newTestDB(t)
+	if err := db.UpsertChannel(cache.Channel{ID: "C1", WorkspaceID: "T1", Name: "general"}); err != nil {
+		t.Fatalf("UpsertChannel: %v", err)
+	}
+	view := subView("C1", "1700000100.000000", "1700000150.000000", "parent X", "U2", true)
+	view.RootMessage.Edited = &slack.Edited{User: "U2", Timestamp: "1700000120.000000"}
+	fake := &fakeSubscriptions{response: []slackclient.ThreadSubscriptionView{view}}
+	if err := newSubscriptionSync(db, fake, nil).sync(context.Background()); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+
+	got, err := db.GetMessage("C1", "1700000100.000000")
+	if err != nil {
+		t.Fatalf("GetMessage: %v", err)
+	}
+	if got.EditedAt != "1700000120.000000" {
+		t.Errorf("edited_at = %q, want the root's edited mark", got.EditedAt)
+	}
+}
+
 // TestThreadSubscriptions_ReconcilesUnsubscribes verifies a local
 // subscription absent from the server's fresh list is tombstoned.
 func TestThreadSubscriptions_ReconcilesUnsubscribes(t *testing.T) {

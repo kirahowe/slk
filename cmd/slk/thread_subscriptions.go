@@ -113,6 +113,7 @@ func (s *threadSubscriptionSync) sync(ctx context.Context) error {
 			ThreadTS:    v.RootMessage.ThreadTimestamp,
 			ReplyCount:  v.RootMessage.ReplyCount,
 			Subtype:     v.RootMessage.SubType,
+			EditedAt:    editedAt(v.RootMessage.Edited),
 			RawJSON:     string(raw),
 			CreatedAt:   time.Now().Unix(),
 		}); err != nil {
