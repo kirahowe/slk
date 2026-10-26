@@ -18,6 +18,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/debuglog"
@@ -309,17 +310,17 @@ func (r *Renderer) RenderBlock(att Block, channel, ts string, availWidth, baseRo
 	// or shouldn't render inline.
 	if att.Kind != "image" || r.ctx.Protocol == imgpkg.ProtoOff || r.ctx.Fetcher == nil {
 		debuglog.ImgRender("RenderBlock: file_id=%s decision=legacy_text reason=non_image_or_off", att.FileID)
-		return BlockResult{Lines: []string{renderLegacyLine(att)}, Height: 1}
+		return BlockResult{Lines: []string{renderLegacyLine(att, availWidth)}, Height: 1}
 	}
 	if att.FileID == "" {
 		debuglog.ImgRender("RenderBlock: decision=legacy_text reason=no_file_id name=%q", att.Name)
-		return BlockResult{Lines: []string{renderLegacyLine(att)}, Height: 1}
+		return BlockResult{Lines: []string{renderLegacyLine(att, availWidth)}, Height: 1}
 	}
 
 	target := computeImageTarget(att.Thumbs, r.ctx, availWidth)
 	if target.X <= 0 || target.Y <= 0 {
 		debuglog.ImgRender("RenderBlock: file_id=%s decision=legacy_text reason=zero_target", att.FileID)
-		return BlockResult{Lines: []string{renderLegacyLine(att)}, Height: 1}
+		return BlockResult{Lines: []string{renderLegacyLine(att, availWidth)}, Height: 1}
 	}
 
 	pixelTarget := image.Pt(target.X*r.ctx.CellPixels.X, target.Y*r.ctx.CellPixels.Y)
@@ -330,7 +331,7 @@ func (r *Renderer) RenderBlock(att Block, channel, ts string, availWidth, baseRo
 	url, suffix := imgpkg.PickThumb(imgThumbs, pixelTarget)
 	if url == "" {
 		debuglog.ImgRender("RenderBlock: file_id=%s decision=legacy_text reason=no_thumb_url", att.FileID)
-		return BlockResult{Lines: []string{renderLegacyLine(att)}, Height: 1}
+		return BlockResult{Lines: []string{renderLegacyLine(att, availWidth)}, Height: 1}
 	}
 	key := att.FileID + "-" + suffix
 
@@ -446,7 +447,11 @@ func (r *Renderer) RenderBlock(att Block, channel, ts string, availWidth, baseRo
 // style, OSC 8 wrapping the entire body, URL as label when name is
 // empty), but takes an imgrender.Block to keep imgrender independent
 // of the messages package.
-func renderLegacyLine(att Block) string {
+//
+// The line is cut to width with "…", because RenderMessage counts it as
+// one row: a line that wrapped would put every hit rect below it (later
+// attachments, reaction pills) a row off.
+func renderLegacyLine(att Block, width int) string {
 	markerStyle := lipgloss.NewStyle().Foreground(styles.TextMuted).Bold(true)
 	urlStyle := lipgloss.NewStyle().Foreground(styles.Primary).Underline(true)
 	marker := core.AttachmentMarker(att.Kind)
@@ -455,6 +460,9 @@ func renderLegacyLine(att Block) string {
 		label = att.URL
 	}
 	body := markerStyle.Render(marker) + " " + urlStyle.Render(label)
+	if width > 0 {
+		body = ansi.Truncate(body, width, "…")
+	}
 	// OSC 8 hyperlink: ESC ] 8 ;; URL ESC \ LABEL ESC ] 8 ;; ESC \
 	return "\x1b]8;;" + att.URL + "\x1b\\" + body + "\x1b]8;;\x1b\\"
 }
