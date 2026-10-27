@@ -18,6 +18,8 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -160,14 +162,15 @@ func handleCommandMode(a *App, msg tea.KeyMsg) tea.Cmd {
 			a.exitCommandMode()
 			return nil
 		}
-		a.setCmdline(a.cmdline[:len(a.cmdline)-1])
+		_, n := utf8.DecodeLastRuneInString(a.cmdline)
+		a.setCmdline(a.cmdline[:len(a.cmdline)-n])
 		return nil
 	}
 	s := msg.String()
 	if s == "space" {
 		s = " "
 	}
-	if len(s) == 1 && s[0] >= 32 && s[0] <= 126 {
+	if r := []rune(s); len(r) == 1 && unicode.IsPrint(r[0]) {
 		a.setCmdline(a.cmdline + s)
 	}
 	return nil
