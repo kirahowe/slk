@@ -13,6 +13,9 @@
 package ui
 
 import (
+	"unicode"
+	"unicode/utf8"
+
 	tea "charm.land/bubbletea/v2"
 )
 
@@ -46,7 +49,8 @@ func handleCommandMode(a *App, msg tea.KeyMsg) tea.Cmd {
 			a.exitCommandMode()
 			return nil
 		}
-		a.cmdline = a.cmdline[:len(a.cmdline)-1]
+		_, n := utf8.DecodeLastRuneInString(a.cmdline)
+		a.cmdline = a.cmdline[:len(a.cmdline)-n]
 		a.statusbar.SetCommandLine(":" + a.cmdline)
 		return nil
 	}
@@ -54,7 +58,7 @@ func handleCommandMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	if s == "space" {
 		s = " "
 	}
-	if len(s) == 1 && s[0] >= 32 && s[0] <= 126 {
+	if r := []rune(s); len(r) == 1 && unicode.IsPrint(r[0]) {
 		a.cmdline += s
 		a.statusbar.SetCommandLine(":" + a.cmdline)
 	}

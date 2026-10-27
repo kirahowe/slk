@@ -9,6 +9,9 @@
 package newmessagepicker
 
 import (
+	"unicode"
+	"unicode/utf8"
+
 	"github.com/gammons/slk/internal/bubbles/chrome"
 	"github.com/gammons/slk/internal/ui/messages"
 )
@@ -155,7 +158,7 @@ func (m *Model) setQuery(q string) {
 // HandleKey processes a single key event. The string form mirrors the
 // other picker packages (channelfinder, mentionpicker): "up", "down",
 // "ctrl+n", "ctrl+p", "backspace", "esc", "enter", "tab", " ", or
-// any single printable ASCII character.
+// any single printable character.
 //
 // Returns a non-nil Result when the user submits the picker; the
 // caller (the mode handler) closes the picker and dispatches the
@@ -188,8 +191,9 @@ func (m *Model) HandleKey(keyStr string) *Result {
 		return nil
 	}
 
-	// Single printable ASCII rune -> append to query.
-	if len(keyStr) == 1 && keyStr[0] >= 33 && keyStr[0] <= 126 {
+	// Single printable rune -> append to query. Space never gets here:
+	// the switch above takes it as toggle-selection.
+	if r := []rune(keyStr); len(r) == 1 && unicode.IsPrint(r[0]) {
 		m.query += keyStr
 		m.highlight = 0
 		m.filter()
@@ -230,7 +234,8 @@ func (m *Model) toggleHighlightedSelection() {
 // reaching for the mouse.
 func (m *Model) handleBackspace() {
 	if len(m.query) > 0 {
-		m.query = m.query[:len(m.query)-1]
+		_, n := utf8.DecodeLastRuneInString(m.query)
+		m.query = m.query[:len(m.query)-n]
 		m.highlight = 0
 		m.filter()
 		return
