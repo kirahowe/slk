@@ -23,6 +23,7 @@ const (
 	ModeUserProfile
 	ModeMarks
 	ModeCanvas
+	modeCount // must stay last: the number of modes
 )
 
 // IsModalOverlay reports whether the mode is a full-screen modal
