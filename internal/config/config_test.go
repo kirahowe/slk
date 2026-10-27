@@ -1053,3 +1053,20 @@ func TestConfig_SidebarUnreadsSection(t *testing.T) {
 		})
 	}
 }
+
+func TestConfig_ShowAvatars(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"unset defaults on", "", true},
+		{"off", "[appearance]\nshow_avatars = false\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := loadConfigString(t, tc.body).Appearance.ShowAvatars; got != tc.want {
+				t.Fatalf("ShowAvatars = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
