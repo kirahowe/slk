@@ -1449,14 +1449,15 @@ func run() error {
 		// Best-effort: nil on error (the picker shows no external flags).
 		external, _ := db.ExternalUsers(wctx.TeamID)
 
-		// Statuses are re-read from the cache, which live changes keep
-		// current, rather than the connect-time items. DND is not
-		// cached; RefreshPeerDND below fetches it after the switch
+		// Statuses and presence are re-read from the cache, which live
+		// changes keep current, rather than the connect-time items. DND
+		// is not cached; RefreshPeerDND below fetches it after the switch
 		// applies, so the switch itself returns without waiting on the
 		// network.
 		statuses := cachedPeerStatuses(db, wctx.TeamID)
 		wctx.PeerStatus.SeedHuddles(statuses)
 		channels, finderItems := switchLists(wctx, statuses)
+		channels = withCachedPresence(db, channels)
 
 		snap := workspacesStore.Snapshot()
 		// switchNames goes to the UI, which owns (and writes) it from
