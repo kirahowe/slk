@@ -60,7 +60,7 @@ func raceWorkspace() *WorkspaceContext {
 func TestSwitchListsRacesConversationOpened(t *testing.T) {
 	wctx := raceWorkspace()
 	raceWithConversationOpened(t, wctx, func() {
-		switchLists(wctx, map[string]peerstatus.Status{})
+		switchLists(nil, wctx, map[string]peerstatus.Status{})
 	})
 }
 

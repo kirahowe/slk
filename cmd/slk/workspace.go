@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/service"
 	slackclient "github.com/gammons/slk/internal/slack"
@@ -362,7 +363,9 @@ func lookupConversation(wctx *WorkspaceContext, channelID string) (name, chType 
 
 // switchLists returns the sidebar and finder lists a workspace switch
 // hands the UI. It runs inside a tea.Cmd, off the event owner. Both are
-// the UI's from then on, so neither shares the published snapshot.
-func switchLists(wctx *WorkspaceContext, statuses map[string]peerstatus.Status) ([]sidebar.ChannelItem, []core.ChannelFinderItem) {
-	return withPeerStatuses(wctx.Channels(), statuses), slices.Clone(wctx.FinderItems())
+// the UI's from then on, so neither shares the published snapshot. DM
+// rows take their peers' presence from db, which presence_change events
+// keep current: the snapshot's Presence is from connect time.
+func switchLists(db *cache.DB, wctx *WorkspaceContext, statuses map[string]peerstatus.Status) ([]sidebar.ChannelItem, []core.ChannelFinderItem) {
+	return withCachedPresence(db, withPeerStatuses(wctx.Channels(), statuses)), slices.Clone(wctx.FinderItems())
 }
