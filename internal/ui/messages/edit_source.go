@@ -1,0 +1,47 @@
+package messages
+
+import (
+	"regexp"
+	"strings"
+
+	"github.com/gammons/slk/internal/ui/messages/blockkit"
+)
+
+// wireLinkRe matches a Slack link token, <url> or <url|label>.
+var wireLinkRe = regexp.MustCompile(`<((?:https?://|mailto:)[^|>]+)(?:\|([^>]+))?>`)
+
+// EditSource returns msg's body as the markdown the composer takes,
+// for seeding it when the message is edited (`E`): lists, links, line
+// breaks and styles read as the author typed them, and sending it
+// unchanged posts the same message. Mentions stay in wire form for the
+// composer to turn into names (compose.MentionsForEdit).
+//
+// The body comes from the message's rich_text block when it has one,
+// because Slack's text field loses its line breaks (see
+// MessageTextSource). Otherwise it is msg.Text with each link written
+// as markdown and Slack's &lt; &gt; &amp; decoded.
+func EditSource(msg MessageItem) string {
+	for _, b := range msg.Blocks {
+		if rt, ok := b.(blockkit.RichTextBlock); ok {
+			if md := blockkit.RichTextToMarkdown(rt); md != "" {
+				return md
+			}
+		}
+	}
+	// Decode around the links, not across them, so an escaped "<" in
+	// the text cannot turn into the start of one.
+	var b strings.Builder
+	last := 0
+	for _, m := range wireLinkRe.FindAllStringSubmatchIndex(msg.Text, -1) {
+		b.WriteString(slackEntityDecoder.Replace(msg.Text[last:m[0]]))
+		url := slackEntityDecoder.Replace(msg.Text[m[2]:m[3]])
+		label := ""
+		if m[4] >= 0 {
+			label = slackEntityDecoder.Replace(msg.Text[m[4]:m[5]])
+		}
+		b.WriteString(blockkit.LinkToMarkdown(url, label))
+		last = m[1]
+	}
+	b.WriteString(slackEntityDecoder.Replace(msg.Text[last:]))
+	return b.String()
+}

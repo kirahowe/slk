@@ -4171,18 +4171,21 @@ func (a *App) tryAttachFromClipboard(target *compose.Model, pathCandidate string
 // in the focused pane. Returns a no-op + status toast if not owned;
 // returns nil if no message is selected.
 func (a *App) beginEditOfSelected() tea.Cmd {
-	channelID, ts, text, userID, panel, ok := a.selectedMessageContext()
+	p, channelID, focused := a.focusedContentPane()
+	if !focused {
+		return nil
+	}
+	msg, ok := p.SelectedMessage()
 	if !ok {
 		return nil
 	}
-	if cmd, blocked := a.noticeSelectionGuard("edit"); blocked {
+	if cmd, blocked := noticeGuard(msg, "edit"); blocked {
 		return cmd
 	}
-	// Build a synthetic MessageItem just for the ownership check;
-	// avoids fetching the full struct twice.
-	if !a.isOwnMessage(messages.MessageItem{UserID: userID}) {
+	if !a.isOwnMessage(msg) {
 		return func() tea.Msg { return statusbar.EditNotOwnMsg{} }
 	}
+	ts, panel := msg.TS, a.focusedPanel
 	if channelID == "" || ts == "" {
 		return nil
 	}
@@ -4190,7 +4193,7 @@ func (a *App) beginEditOfSelected() tea.Cmd {
 	if panel == PanelThread {
 		c = &a.threadCompose
 	}
-	return a.enterEdit(channelID, ts, panel, c.MentionsForEdit(text))
+	return a.enterEdit(channelID, ts, panel, c.MentionsForEdit(messages.EditSource(msg)))
 }
 
 // enterEdit opens the editor on message ts of channelID in panel's
