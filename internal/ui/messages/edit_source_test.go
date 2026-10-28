@@ -1,6 +1,13 @@
 package messages
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/slack-go/slack"
+
+	"github.com/gammons/slk/internal/core/blocks"
+	"github.com/gammons/slk/internal/ui/messages/blockkit"
+)
 
 // Without a rich_text block the text field is all there is: its links
 // read as markdown and Slack's escapes are decoded.
@@ -17,5 +24,20 @@ func TestEditSource_TextOnly(t *testing.T) {
 		if got := EditSource(MessageItem{Text: tc.text}); got != tc.want {
 			t.Errorf("EditSource(%q) = %q, want %q", tc.text, got, tc.want)
 		}
+	}
+}
+
+// Every rich_text block is kept, so saving does not drop the later ones.
+func TestEditSource_AllRichTextBlocks(t *testing.T) {
+	block := func(s string) blocks.Block {
+		return blockkit.RichTextBlock{Elements: []slack.RichTextElement{
+			&slack.RichTextSection{Type: slack.RTESection, Elements: []slack.RichTextSectionElement{
+				&slack.RichTextSectionTextElement{Type: slack.RTSEText, Text: s},
+			}},
+		}}
+	}
+	msg := MessageItem{Text: "first second", Blocks: []blocks.Block{block("first"), block("second")}}
+	if got, want := EditSource(msg), "first\n\nsecond"; got != want {
+		t.Errorf("EditSource = %q, want %q", got, want)
 	}
 }

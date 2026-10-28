@@ -16,17 +16,22 @@ var wireLinkRe = regexp.MustCompile(`<((?:https?://|mailto:)[^|>]+)(?:\|([^>]+))
 // unchanged posts the same message. Mentions stay in wire form for the
 // composer to turn into names (compose.MentionsForEdit).
 //
-// The body comes from the message's rich_text block when it has one,
+// The body comes from the message's rich_text blocks when it has any,
 // because Slack's text field loses its line breaks (see
-// MessageTextSource). Otherwise it is msg.Text with each link written
-// as markdown and Slack's &lt; &gt; &amp; decoded.
+// MessageTextSource); all of them, a blank line apart, so saving does
+// not drop the later ones. Otherwise it is msg.Text with each link
+// written as markdown and Slack's &lt; &gt; &amp; decoded.
 func EditSource(msg MessageItem) string {
+	var parts []string
 	for _, b := range msg.Blocks {
 		if rt, ok := b.(blockkit.RichTextBlock); ok {
 			if md := blockkit.RichTextToMarkdown(rt); md != "" {
-				return md
+				parts = append(parts, md)
 			}
 		}
+	}
+	if len(parts) > 0 {
+		return strings.Join(parts, "\n\n")
 	}
 	// Decode around the links, not across them, so an escaped "<" in
 	// the text cannot turn into the start of one.
