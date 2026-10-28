@@ -732,19 +732,48 @@ func (c *Client) SubscribePresence(userIDs []string) (int, error) {
 	if s == nil {
 		return 0, errNotConnected
 	}
-	n := presenceSubFit(userIDs)
-	return n, s.writeJSON(presenceSub(userIDs[:n]))
+	return c.sendPresenceFrame(presenceSubType, userIDs)
 }
 
-// presenceSub is the presence_sub frame for ids.
-func presenceSub(ids []string) map[string]any {
-	return map[string]any{"type": "presence_sub", "ids": ids}
+// QueryPresence asks Slack for the current presence of the given user
+// IDs; the answers arrive as ordinary presence_change events. The socket
+// is opened with no_query_on_subscribe=1, so presence_sub alone reports
+// only later transitions and a peer who stays online is never reported.
+//
+// Like SubscribePresence it sends the longest prefix of userIDs that fits
+// in one frame and returns how many that was. Pass it the prefix
+// SubscribePresence reported: a peer outside the subscription gets no
+// later presence_change, so its current presence would go stale anyway.
+func (c *Client) QueryPresence(userIDs []string) (int, error) {
+	return c.sendPresenceFrame(presenceQueryType, userIDs)
 }
 
-// presenceSubFit is the length of the longest prefix of ids whose
-// presence_sub frame fits in maxClientFrame.
-func presenceSubFit(ids []string) int {
-	empty, _ := json.Marshal(presenceSub([]string{}))
+// The presence frames slk sends: both carry a list of user IDs.
+const (
+	presenceSubType   = "presence_sub"
+	presenceQueryType = "presence_query"
+)
+
+// sendPresenceFrame sends the frame of type typ for the longest prefix of
+// ids that fits in maxClientFrame, and returns the prefix's length.
+func (c *Client) sendPresenceFrame(typ string, ids []string) (int, error) {
+	s := c.ws.Load()
+	if s == nil {
+		return 0, errNotConnected
+	}
+	n := presenceFrameFit(typ, ids)
+	return n, s.writeJSON(presenceFrame(typ, ids[:n]))
+}
+
+// presenceFrame is the presence frame of type typ for ids.
+func presenceFrame(typ string, ids []string) map[string]any {
+	return map[string]any{"type": typ, "ids": ids}
+}
+
+// presenceFrameFit is the length of the longest prefix of ids whose
+// presence frame of type typ fits in maxClientFrame.
+func presenceFrameFit(typ string, ids []string) int {
+	empty, _ := json.Marshal(presenceFrame(typ, []string{}))
 	size := len(empty)
 	for i, id := range ids {
 		enc, _ := json.Marshal(id)
