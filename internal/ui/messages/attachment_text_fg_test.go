@@ -1,9 +1,12 @@
 package messages
 
 import (
+	stdimage "image"
 	"strings"
 	"testing"
 
+	emojiutil "github.com/gammons/slk/internal/emoji"
+	imgpkg "github.com/gammons/slk/internal/image"
 	"github.com/gammons/slk/internal/ui/messages/blockkit"
 )
 
@@ -101,5 +104,29 @@ func TestBlockKitLines_KeepTheThemeTextBesideAnAvatar(t *testing.T) {
 		if explicit, found := explicitFgAt(out, word); !found || !explicit {
 			t.Errorf("%q drawn with the terminal's default foreground (found=%v)", word, found)
 		}
+	}
+}
+
+// TestInlineEmoji_TextAfterItKeepsTheThemeText: an image placement ends
+// in "default foreground", which isn't a reset, so the text after an
+// inline custom emoji took the terminal's default colour.
+func TestInlineEmoji_TextAfterItKeepsTheThemeText(t *testing.T) {
+	emojiutil.SetImageMode(true, 2)
+	t.Cleanup(func() { emojiutil.SetImageMode(false, 2) })
+	url := emojiutil.CDNBaseURL + "1f44d.png"
+	ff := newFakePlaceFetcher()
+	ff.setPrerendered(emojiutil.EmojiCacheKey(url), stdimage.Pt(2, 1), imgpkg.Render{
+		Cells: stdimage.Pt(2, 1),
+		Lines: []string{"\x1b[38;2;0;0;42m\U0010EEEE\U0010EEEE\x1b[39m"},
+	})
+	msg := MessageItem{TS: "1.0", UserName: "james", UserID: "U1", Text: "I (:thumbsup:) noticed a drift", Timestamp: "3:09 PM"}
+	m := New([]MessageItem{msg}, "general")
+	m.SetEmojiContext(EmojiContext{PlaceCtx: emojiutil.PlaceContext{Fetcher: ff}, Cells: 2})
+	out := RenderMessage(msg, 100, m.renderContext(), RenderOptions{Avatar: "AVAV\nAVAV"}).Content
+	if !strings.Contains(out, "\U0010EEEE") {
+		t.Fatalf("emoji not placed as an image:\n%q", out)
+	}
+	if explicit, found := explicitFgAt(out, "noticed"); !found || !explicit {
+		t.Errorf("text after the emoji drawn with the terminal's default foreground:\n%q", out)
 	}
 }
