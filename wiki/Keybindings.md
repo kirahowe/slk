@@ -54,7 +54,7 @@
 | `y` | Normal (message) | Copy message text |
 | `Y` / `C` | Normal (message) | Copy message permalink |
 | `F` | Normal (message / thread) | Forward selected message using the channel finder; Enter sends, Esc cancels |
-| `O` / `v` | Normal (message) | Open full-screen image preview |
+| `O` / `v` | Normal (message) | Open full-screen image preview. An image Slack made no thumbnail for (SVG) is downloaded and opened in the system viewer instead |
 | `Esc` / `q` | Preview | Close preview |
 | `Enter` | Preview | Open in system image viewer |
 | `h` / `←` | Preview | Previous image (when message has multiple) |

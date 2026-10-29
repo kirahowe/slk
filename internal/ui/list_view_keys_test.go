@@ -40,7 +40,7 @@ func listViewKeyApp(t *testing.T, view View) (*App, *sideEffects) {
 				{Emoji: "thumbsup", Count: 1, UserIDs: []string{"U2"}},
 			},
 			Attachments: []messages.Attachment{
-				{Kind: "image", FileID: "F1", Name: "a.png", URL: hiddenFiles + "a.png"},
+				{Kind: "image", FileID: "F1", Name: "a.png", URL: hiddenFiles + "a.png", Thumbs: []messages.ThumbSpec{{URL: hiddenFiles + "a-720.png", W: 720, H: 720}}},
 				{Kind: "file", Name: "b.pdf", DownloadURL: hiddenFiles + "b.pdf"},
 			},
 		}),
