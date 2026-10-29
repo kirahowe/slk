@@ -75,6 +75,26 @@ func TestThreadParentJump_BackJumpReturnsToThread(t *testing.T) {
 	}
 }
 
+// TestThreadParentJump_BackJumpFromTheChannelPane: p with the channel
+// pane focused still records the thread, not the pane's selection.
+func TestThreadParentJump_BackJumpFromTheChannelPane(t *testing.T) {
+	app := jumpMarkTestApp(t)
+	app.Update(ChannelSelectedMsg{ID: "C1", Name: "one", Type: "channel"})
+	app.messagepane.SelectByTS("1.0")
+	_ = app.openThreadPanel(messages.MessageItem{TS: "10.0", Text: "ten"}, "C2", "10.0")
+	app.focusedPanel = PanelMessages
+
+	driveJump(app, app.handleNormalMode(keyPress('p')))
+	want := Location{TeamID: "T1", ChannelID: "C2", MessageTS: "10.0", ThreadTS: "10.0"}
+	if app.backJump == nil || *app.backJump != want {
+		t.Fatalf("back-jump slot = %+v, want the thread %+v", app.backJump, want)
+	}
+	driveJump(app, pressBackJump(app))
+	if !app.threadVisible || app.threadPanel.ThreadTS() != "10.0" {
+		t.Errorf("back-jump did not reopen thread 10.0 (visible=%v ts=%q)", app.threadVisible, app.threadPanel.ThreadTS())
+	}
+}
+
 func TestThreadParentJump_NoThreadIsNoop(t *testing.T) {
 	app := jumpMarkTestApp(t)
 	app.Update(ChannelSelectedMsg{ID: "C1", Name: "one", Type: "channel"})
