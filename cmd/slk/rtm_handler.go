@@ -409,7 +409,7 @@ func (h *rtmEventHandler) messageItemFromEvent(authorID, userID, username, ts, t
 			userName = username
 		}
 	}
-	return messages.MessageItem{
+	item := messages.MessageItem{
 		TS:                ts,
 		UserID:            authorID,
 		UserName:          userName,
@@ -422,6 +422,12 @@ func (h *rtmEventHandler) messageItemFromEvent(authorID, userID, username, ts, t
 		Blocks:            extractBlocks(blocks),
 		LegacyAttachments: extractLegacyAttachments(attachments),
 	}
+	var resolver *userResolver
+	if h.wsCtx != nil {
+		resolver = h.wsCtx.UserResolver
+	}
+	resolveMessageMentions(item, h.userNames, h.db, resolver)
+	return item
 }
 
 // OnEphemeralMessage handles a message only the current user can see:
