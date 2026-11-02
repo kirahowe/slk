@@ -394,42 +394,7 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 	headerBudget := max(1, min(contentWidth, width-contentColBase))
 	header := line + editedMark
 	if lipgloss.Width(header) > headerBudget {
-		author := line[:len(line)-len(headerGap)-len(headerTimestamp)]
-		author = WordWrap(author, headerBudget)
-		var wrapped strings.Builder
-		wrapped.WriteString(author)
-		lastWidth := lipgloss.Width(author[strings.LastIndexByte(author, '\n')+1:])
-		// Timestamp spaces belong to one metadata unit, not the name's prose.
-		// Wrap within a unit only when it cannot fit on a header line by itself.
-		for _, part := range [2]struct{ text, gap string }{
-			{headerTimestamp, headerGap},
-			{strings.TrimPrefix(editedMark, " "), " "},
-		} {
-			if part.text == "" {
-				continue
-			}
-			partWidth, gapWidth := lipgloss.Width(part.text), lipgloss.Width(part.gap)
-			if wrapped.Len() > 0 && lastWidth+gapWidth+partWidth <= headerBudget {
-				wrapped.WriteString(part.gap)
-				wrapped.WriteString(part.text)
-				lastWidth += gapWidth + partWidth
-				continue
-			}
-			if wrapped.Len() > 0 {
-				wrapped.WriteByte('\n')
-			}
-			if partWidth > headerBudget {
-				part.text = WordWrap(part.text, headerBudget)
-				partWidth = lipgloss.Width(part.text[strings.LastIndexByte(part.text, '\n')+1:])
-			}
-			wrapped.WriteString(part.text)
-			lastWidth = partWidth
-		}
-		var buf strings.Builder
-		writer := lipgloss.NewWrapWriter(&buf)
-		_, _ = io.WriteString(writer, wrapped.String())
-		_ = writer.Close()
-		header = buf.String()
+		header = wrapAuthorHeader(line[:len(line)-len(headerGap)-len(headerTimestamp)], headerGap, headerTimestamp, editedMark, headerBudget)
 	}
 	preAttachmentRows += lipgloss.Height(header)
 
@@ -666,4 +631,47 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 	out.HeaderBudget = headerBudget
 	out.SixelRows = allSixel
 	return out
+}
+
+// wrapAuthorHeader lays out an author header that does not fit budget
+// columns: author (name and status suffix) word-wrapped, then the
+// timestamp (after gap) and the edited mark (after one space), each kept
+// whole on a line whenever it fits one by itself. Every line restores its
+// own styles, because the avatar gutter composed beside it resets the pen.
+func wrapAuthorHeader(author, gap, timestamp, editedMark string, budget int) string {
+	author = WordWrap(author, budget)
+	var wrapped strings.Builder
+	wrapped.WriteString(author)
+	lastWidth := lipgloss.Width(author[strings.LastIndexByte(author, '\n')+1:])
+	// Timestamp spaces belong to one metadata unit, not the name's prose.
+	// Wrap within a unit only when it cannot fit on a header line by itself.
+	for _, part := range [2]struct{ text, gap string }{
+		{timestamp, gap},
+		{strings.TrimPrefix(editedMark, " "), " "},
+	} {
+		if part.text == "" {
+			continue
+		}
+		partWidth, gapWidth := lipgloss.Width(part.text), lipgloss.Width(part.gap)
+		if wrapped.Len() > 0 && lastWidth+gapWidth+partWidth <= budget {
+			wrapped.WriteString(part.gap)
+			wrapped.WriteString(part.text)
+			lastWidth += gapWidth + partWidth
+			continue
+		}
+		if wrapped.Len() > 0 {
+			wrapped.WriteByte('\n')
+		}
+		if partWidth > budget {
+			part.text = WordWrap(part.text, budget)
+			partWidth = lipgloss.Width(part.text[strings.LastIndexByte(part.text, '\n')+1:])
+		}
+		wrapped.WriteString(part.text)
+		lastWidth = partWidth
+	}
+	var buf strings.Builder
+	writer := lipgloss.NewWrapWriter(&buf)
+	_, _ = io.WriteString(writer, wrapped.String())
+	_ = writer.Close()
+	return buf.String()
 }
