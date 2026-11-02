@@ -84,7 +84,7 @@ func inlineToMarkdown(e slack.RichTextSectionElement) string {
 	case *slack.RichTextSectionTextElement:
 		return textToMarkdown(v.Text, v.Style)
 	case *slack.RichTextSectionLinkElement:
-		return LinkToMarkdown(v.URL, v.Text)
+		return emphasize(LinkToMarkdown(v.URL, v.Text), v.Style)
 	case *slack.RichTextSectionUnknownElement:
 		if m, ok := attachmentMention(v); ok {
 			return LinkToMarkdown(m.URL, m.Text)
@@ -113,18 +113,28 @@ func textToMarkdown(text string, style *slack.RichTextSectionTextStyle) string {
 		if style.Code {
 			core = codeSpan(core)
 		}
-		if style.Strike {
-			core = "~~" + core + "~~"
-		}
-		if style.Italic {
-			core = "_" + core + "_"
-		}
-		if style.Bold {
-			core = "**" + core + "**"
-		}
+		core = emphasize(core, style)
 		lines[i] = lead + core + trail
 	}
 	return strings.Join(lines, "\n")
+}
+
+// emphasize wraps s in the strike, italic and bold markers style asks
+// for, bold outermost. Code is the caller's: a link can't be one.
+func emphasize(s string, style *slack.RichTextSectionTextStyle) string {
+	if style == nil {
+		return s
+	}
+	if style.Strike {
+		s = "~~" + s + "~~"
+	}
+	if style.Italic {
+		s = "_" + s + "_"
+	}
+	if style.Bold {
+		s = "**" + s + "**"
+	}
+	return s
 }
 
 // codeSpan wraps s in a run of backticks one longer than the longest
