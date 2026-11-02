@@ -4,6 +4,7 @@ package compose
 import (
 	"fmt"
 	"image/color"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -1265,6 +1266,90 @@ func translateMentions(text string, names, channels, groups map[string]string) s
 	}
 
 	return text
+}
+
+// wireMentionRe matches the mention tokens translateMentions emits,
+// plus the unlabeled forms other clients send: <@UID>, <#CID|name> /
+// <#CID>, <!here> and friends, <!subteam^SID|@handle>.
+var wireMentionRe = regexp.MustCompile(`<@([A-Z0-9]+)(?:\|[^>]*)?>|<#([A-Z0-9]+)(?:\|([^>]*))?>|<!(here|channel|everyone)(?:\|[^>]*)?>|<!subteam\^([A-Z0-9]+)(?:\|[^>]*)?>`)
+
+// MentionsForEdit is the inverse of TranslateMentionsForSend, for
+// seeding the box with a sent message's text (`E`): it rewrites each
+// mention token as the "@name" / "#name" a person would type.
+func (m Model) MentionsForEdit(text string) string {
+	return mentionsForEdit(text, m.reverseNames, m.reverseChannels, m.userGroups)
+}
+
+// mentionsForEdit is MentionsForEdit's pure core, over the same three
+// maps as translateMentions. A token is only rewritten when
+// translateMentions turns the rewritten text back into the same
+// mention; an ID the maps don't hold, a name another mention wins (a
+// usergroup sharing a person's name), or a name glued to the text
+// after it stays in wire form, which Slack still accepts. When several
+// names share an ID, the first in byte order that translates back is
+// used, so the result never depends on map order.
+func mentionsForEdit(text string, names, channels, groups map[string]string) string {
+	locs := wireMentionRe.FindAllStringSubmatchIndex(text, -1)
+	if len(locs) == 0 {
+		return text
+	}
+	userNames, channelNames := namesByID(names), namesByID(channels)
+
+	type candidate struct{ typed, want string }
+	var b strings.Builder
+	last := 0
+	for _, loc := range locs {
+		group := func(i int) string {
+			if loc[2*i] < 0 {
+				return ""
+			}
+			return text[loc[2*i]:loc[2*i+1]]
+		}
+		var cands []candidate
+		switch {
+		case group(1) != "":
+			for _, name := range userNames[group(1)] {
+				cands = append(cands, candidate{"@" + name, "<@" + group(1) + ">"})
+			}
+		case group(2) != "":
+			id, label := group(2), group(3)
+			if label != "" && channels[label] == id {
+				cands = append(cands, candidate{"#" + label, "<#" + id + "|" + label + ">"})
+			}
+			for _, name := range channelNames[id] {
+				cands = append(cands, candidate{"#" + name, "<#" + id + "|" + name + ">"})
+			}
+		case group(4) != "":
+			cands = append(cands, candidate{"@" + group(4), "<!" + group(4) + ">"})
+		case group(5) != "":
+			if handle := groups[group(5)]; handle != "" {
+				cands = append(cands, candidate{"@" + handle, "<!subteam^" + group(5) + "|@" + handle + ">"})
+			}
+		}
+		rest := text[loc[1]:]
+		for _, c := range cands {
+			if strings.HasPrefix(translateMentions(c.typed+rest, names, channels, groups), c.want) {
+				b.WriteString(text[last:loc[0]])
+				b.WriteString(c.typed)
+				last = loc[1]
+				break
+			}
+		}
+	}
+	b.WriteString(text[last:])
+	return b.String()
+}
+
+// namesByID inverts a name -> ID map, each ID's names sorted.
+func namesByID(byName map[string]string) map[string][]string {
+	out := make(map[string][]string, len(byName))
+	for name, id := range byName {
+		out[id] = append(out[id], name)
+	}
+	for _, ns := range out {
+		sort.Strings(ns)
+	}
+	return out
 }
 
 // MentionPickerView returns the rendered mention picker dropdown, or "" if not active.
