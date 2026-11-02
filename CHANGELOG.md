@@ -15,6 +15,16 @@ Earlier history, up to v0.26.2, is in [upstream's releases](https://github.com/g
 
 ### Fixed
 
+- `E` opens the editor on the message as you typed it: `@name` and
+  `#channel` instead of `<@U…>` tokens, with its line breaks, lists and
+  links, and saving it untouched sends the same message.
+- A nested list sent as `1. a`, `- b`, `2. c` reached Slack as a, c, b.
+  It now keeps its order.
+- Sending text that already holds a mention token, such as a user-group
+  mention left in wire form, no longer turns a name inside the token into
+  a second mention.
+- Links to other Slack messages written in rich text no longer vanish from
+  the message body.
 - DM partners who were already online when slk connected now show as
   online. A reply from someone no longer resets them to away, and switching
   workspaces no longer shows presence from when slk connected.
