@@ -8,6 +8,53 @@ Earlier history, up to v0.26.2, is in [upstream's releases](https://github.com/g
 
 ## [Unreleased]
 
+### Added
+
+- `p` with a thread open goes to the thread's message in its channel; `''`
+  goes back to the thread.
+
+### Fixed
+
+- `E` opens the editor on the message as you typed it: `@name` and
+  `#channel` instead of `<@U…>` tokens, with its line breaks, lists and
+  links, and saving it untouched sends the same message.
+- A nested list sent as `1. a`, `- b`, `2. c` reached Slack as a, c, b.
+  It now keeps its order.
+- Sending text that already holds a mention token, such as a user-group
+  mention left in wire form, no longer turns a name inside the token into
+  a second mention.
+- Links to other Slack messages written in rich text no longer vanish from
+  the message body.
+- DM partners who were already online when slk connected now show as
+  online. A reply from someone no longer resets them to away, and switching
+  workspaces no longer shows presence from when slk connected.
+- Mentions of people slk had not looked up yet showed as `@U123` for good;
+  they now resolve to names, including mentions inside attachments.
+- `y`, the markdown export and `o` now see the text of a forwarded message.
+- `o` finds links inside Block Kit and attachment bodies (Jira-style
+  notifications used to say "No links in message"), and app link chips
+  (Linear and similar) show their title instead of disappearing.
+- The query boxes, finders and the `:` line accept accented and CJK
+  characters, and backspace removes a whole character.
+- shift+enter and shift+esc submit and cancel a `/` search.
+- `O` and `v` on an SVG image download it and open it in the system viewer
+  instead of doing nothing.
+- A long display name no longer splits the avatar or moves reaction click
+  targets in a narrow pane.
+- On themes whose text colour is not the terminal's, Block Kit lines,
+  attachment text and text after an inline custom emoji keep the theme's
+  colour.
+- Custom emoji in Block Kit text show as images with kitty graphics.
+- The composer redraws in the new theme after a theme change.
+- `appearance.show_avatars = false` now turns avatars off.
+- The Starred section is filled from the boot snapshot, so it is no longer
+  empty on Enterprise Grid. Starred DMs recovered on connect get presence,
+  and a flapping connection refreshes sections at most every 30 seconds.
+- A failing cache write of channel members no longer refetches them
+  from Slack in a loop.
+- The link picker no longer keeps a stale "files" kind after a link is
+  chosen.
+
 ## [0.30.0] - 2026-10-22
 
 ### Added

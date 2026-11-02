@@ -1516,7 +1516,7 @@ func (a *App) copyMessageOfSelected() tea.Cmd {
 		return nil
 	}
 
-	text := messages.MessageTextSource(msg)
+	text := messages.MessageCopyText(msg)
 	if text == "" {
 		return func() tea.Msg { return ToastMsg{Text: "Message has no text"} }
 	}
@@ -4079,24 +4079,37 @@ func (a *App) tryAttachFromClipboard(target *compose.Model, pathCandidate string
 // in the focused pane. Returns a no-op + status toast if not owned;
 // returns nil if no message is selected.
 func (a *App) beginEditOfSelected() tea.Cmd {
-	channelID, ts, text, userID, panel, ok := a.selectedMessageContext()
+	p, channelID, focused := a.focusedContentPane()
+	if !focused {
+		return nil
+	}
+	msg, ok := p.SelectedMessage()
 	if !ok {
 		return nil
 	}
-	// Build a synthetic MessageItem just for the ownership check;
-	// avoids fetching the full struct twice.
-	if !a.isOwnMessage(messages.MessageItem{UserID: userID}) {
+	if !a.isOwnMessage(msg) {
 		return func() tea.Msg { return statusbar.EditNotOwnMsg{} }
 	}
+	ts, panel := msg.TS, a.focusedPanel
 	if channelID == "" || ts == "" {
 		return nil
 	}
-	return a.enterEdit(channelID, ts, panel, text)
+	// The composer shows the message as it was typed: its rich_text
+	// block as markdown (Slack's text field has lost the line breaks)
+	// and mentions as the names a person types, which it turns back
+	// into the same message when the edit is saved.
+	c := &a.compose
+	if panel == PanelThread {
+		c = &a.threadCompose
+	}
+	return a.enterEdit(channelID, ts, panel, c.MentionsForEdit(messages.EditSource(msg)))
 }
 
 // enterEdit opens the editor on message ts of channelID in panel's
-// composer, seeded with text. The composer's own text is stashed and
-// comes back when the edit ends.
+// composer, seeded with text as the user would type it (reopenEdit
+// passes what they typed; beginEditOfSelected the message turned back
+// into composer text). The composer's own text is stashed and comes
+// back when the edit ends.
 func (a *App) enterEdit(channelID, ts string, panel Panel, text string) tea.Cmd {
 	var stashed string
 	switch panel {
@@ -4439,9 +4452,11 @@ func (a *App) markUnreadOfSelected() tea.Cmd {
 }
 
 // openImagePreviewOfSelected dispatches OpenImagePreviewMsg for the
-// first image attachment on the currently-selected message in the
-// focused pane (messages or thread). Returns nil if no message is
-// selected or the selected message has no image attachment.
+// first previewable image attachment on the currently-selected message in
+// the focused pane (messages or thread). An image Slack made no thumbnail
+// for (SVG) has nothing to preview, so it is downloaded and opened in the
+// system viewer instead, through DownloadFileMsg. Returns nil if no message
+// is selected or the selected message has no image attachment.
 func (a *App) openImagePreviewOfSelected() tea.Cmd {
 	channelID, ts, _, _, _, ok := a.selectedMessageContext()
 	if !ok {
@@ -4451,21 +4466,44 @@ func (a *App) openImagePreviewOfSelected() tea.Cmd {
 	if !found {
 		return nil
 	}
+	fallback := -1
 	for i, att := range msgItem.Attachments {
-		if att.Kind == "image" && att.FileID != "" {
-			channel := channelID
-			messageTS := ts
-			idx := i
-			return func() tea.Msg {
-				return messages.OpenImagePreviewMsg{
-					Channel: channel,
-					TS:      messageTS,
-					AttIdx:  idx,
-				}
+		if att.Kind != "image" || att.FileID == "" {
+			continue
+		}
+		if !hasPreviewThumb(att) {
+			if fallback < 0 && att.DownloadURL != "" {
+				fallback = i
+			}
+			continue
+		}
+		channel := channelID
+		messageTS := ts
+		idx := i
+		return func() tea.Msg {
+			return messages.OpenImagePreviewMsg{
+				Channel: channel,
+				TS:      messageTS,
+				AttIdx:  idx,
 			}
 		}
 	}
+	if fallback >= 0 {
+		att := msgItem.Attachments[fallback]
+		return func() tea.Msg { return DownloadFileMsg{Attachment: att} }
+	}
 	return nil
+}
+
+// hasPreviewThumb reports whether att has a thumbnail previewFetchCmd can
+// load.
+func hasPreviewThumb(att messages.Attachment) bool {
+	for _, t := range att.Thumbs {
+		if t.URL != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // submitEdit begins the edit (beginEdit) if the edit text is non-empty

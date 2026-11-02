@@ -390,8 +390,11 @@ func (w *walker) walkList(n *ast.List, indent int) {
 	}
 
 	// Nested lists from this list's children are emitted as sibling
-	// top-level lists (Slack flat-with-indent shape). Collect them
-	// here so they append AFTER this list in w.block.Elements.
+	// top-level lists (Slack flat-with-indent shape), right after the
+	// item that holds them. The items after it go on in a new list,
+	// an ordered one counting on from where this one stopped, the
+	// shape Slack's own client sends; appending every nested list
+	// after the whole list drew "1. a / - b / 2. c" as a, c, b.
 	var nested []*slack.RichTextList
 
 	itemIdx := 0
@@ -437,14 +440,25 @@ func (w *walker) walkList(n *ast.List, indent int) {
 
 		w.curSection = prev
 		list.Elements = append(list.Elements, sec)
+		if len(nested) > 0 {
+			w.block.Elements = append(w.block.Elements, list)
+			for _, nl := range nested {
+				w.block.Elements = append(w.block.Elements, nl)
+			}
+			nested = nil
+			offset := list.Offset + len(list.Elements)
+			list = slack.NewRichTextList(style, indent)
+			if n.IsOrdered() {
+				list.Offset = offset
+			}
+		}
 	}
 	// Trim the trailing newline added by the last item so that the
 	// list doesn't add an extra blank line before the next block.
 	trimTrailingNewline(&w.mrkdwn)
 
-	w.block.Elements = append(w.block.Elements, list)
-	for _, nl := range nested {
-		w.block.Elements = append(w.block.Elements, nl)
+	if len(list.Elements) > 0 {
+		w.block.Elements = append(w.block.Elements, list)
 	}
 }
 

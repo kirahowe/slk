@@ -164,6 +164,76 @@ func TestSubscribePresenceSendsOnlyWhatFits(t *testing.T) {
 	}
 }
 
+// QueryPresence sends every ID, in frames the gateway accepts.
+func TestQueryPresenceSendsEveryIDInFittingFrames(t *testing.T) {
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	ids := make([]string, 700)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("U%010d", i)
+	}
+	want := len(presenceQueryBatches(ids))
+	got := make(chan []byte, want)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade: %v", err)
+			return
+		}
+		defer conn.Close()
+		for range want {
+			_, frame, err := conn.ReadMessage()
+			if err != nil {
+				t.Errorf("read: %v", err)
+				return
+			}
+			got <- frame
+		}
+		_, _, _ = conn.ReadMessage() // until the client closes
+	}))
+	defer srv.Close()
+	c := &Client{wsBaseURL: "ws://" + srv.Listener.Addr().String(), pingInterval: time.Hour}
+	if _, err := c.StartWebSocket(t.Context(), &mockEventHandler{}); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = c.StopWebSocket()
+		<-c.WsDone()
+	}()
+	if err := c.QueryPresence(ids); err != nil {
+		t.Fatal(err)
+	}
+	if want < 2 {
+		t.Fatalf("fixture fits one frame; want it to need several")
+	}
+	var sent []string
+	for range want {
+		frame := <-got
+		if len(frame) > maxClientFrame {
+			t.Fatalf("sent a %d-byte frame", len(frame))
+		}
+		var q struct {
+			Type string
+			IDs  []string
+		}
+		if err := json.Unmarshal(frame, &q); err != nil {
+			t.Fatal(err)
+		}
+		if q.Type != "presence_query" {
+			t.Fatalf("frame type %q, want presence_query", q.Type)
+		}
+		sent = append(sent, q.IDs...)
+	}
+	if !slices.Equal(sent, ids) {
+		t.Fatalf("queried %d ids, want all %d in order", len(sent), len(ids))
+	}
+}
+
+func TestQueryPresenceReturnsErrorWhenNotConnected(t *testing.T) {
+	if err := (&Client{}).QueryPresence([]string{"U1"}); err == nil {
+		t.Error("expected error when websocket not connected")
+	}
+}
+
 // writeJSON refuses a frame over the limit instead of sending it. The
 // session has no connection, so any attempt to write would panic.
 func TestWriteJSONRefusesAnOversizedFrame(t *testing.T) {

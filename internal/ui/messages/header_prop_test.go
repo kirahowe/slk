@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/gammons/slk/internal/config"
 	"github.com/gammons/slk/internal/ui/styles"
 	"pgregory.net/rapid"
@@ -56,6 +57,53 @@ func TestReplaceHeaderTimestamp(t *testing.T) {
 		}
 		if strings.Count(got, styledShort) < strings.Count(rendered, styledShort)-1 {
 			t.Fatalf("more than one timestamp replaced: %q", got)
+		}
+	})
+}
+
+// wrapAuthorHeader loses no text, fits every line in budget, and keeps
+// the timestamp and the edited mark whole on one line whenever each fits
+// a line by itself.
+func TestWrapAuthorHeaderFitsAndKeepsMetadataWhole(t *testing.T) {
+	applyDarkTheme(t)
+	rapid.Check(t, func(t *rapid.T) {
+		words := rapid.SliceOfN(rapid.StringMatching(`[a-zA-Z(),]{1,8}`), 1, 8).Draw(t, "words")
+		name := strings.Join(words, " ")
+		ts := rapid.SampledFrom([]string{"3:04 PM", "15:04", "9:00 AM"}).Draw(t, "ts")
+		edited := rapid.SampledFrom([]string{"", " (edited)"}).Draw(t, "edited")
+		budget := rapid.IntRange(10, 40).Draw(t, "budget")
+
+		author := styles.Username("U1", true).Render(name)
+		gap := lipgloss.NewStyle().Background(styles.Background).Render("  ")
+		stamp := styles.Timestamp.Render(ts)
+		editedMark := ""
+		if edited != "" {
+			editedMark = " " + styles.Timestamp.Render(strings.TrimPrefix(edited, " "))
+		}
+		got := wrapAuthorHeader(author, gap, stamp, editedMark, budget)
+
+		plain := ansi.Strip(got)
+		squash := func(s string) string { return strings.Join(strings.Fields(s), "") }
+		if want := squash(name + ts + edited); squash(plain) != want {
+			t.Fatalf("text changed: got %q, want the characters of %q", plain, name+ts+edited)
+		}
+		lines := strings.Split(plain, "\n")
+		for _, l := range lines {
+			if w := lipgloss.Width(l); w > budget {
+				t.Fatalf("line %q is %d wide, budget %d", l, w, budget)
+			}
+		}
+		for _, unit := range []string{ts, strings.TrimPrefix(edited, " ")} {
+			if unit == "" {
+				continue
+			}
+			whole := false
+			for _, l := range lines {
+				whole = whole || strings.Contains(l, unit)
+			}
+			if !whole {
+				t.Fatalf("%q split across lines: %q", unit, plain)
+			}
 		}
 	})
 }

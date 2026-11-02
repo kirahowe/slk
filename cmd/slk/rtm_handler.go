@@ -24,13 +24,17 @@ import (
 type rtmEventHandler struct {
 	// program is the running *tea.Program, narrowed to teaSender so
 	// tests can capture what the handler dispatches.
-	program     teaSender
-	userNames   *userNameStore
-	tsFormat    string
-	db          *cache.DB
-	workspaceID string
-	connected   bool
-	isActive    func() bool
+	program          teaSender
+	userNames        *userNameStore
+	tsFormat         string
+	db               *cache.DB
+	workspaceID      string
+	connected        bool
+	sectionRefreshAt time.Time // when OnConnect last refreshed sections
+	isActive         func() bool
+	// now is the clock for OnConnect's section refresh debounce; nil is
+	// time.Now. Tests set it.
+	now func() time.Time
 
 	// Notifications
 	notifier        *notify.Notifier
@@ -409,7 +413,7 @@ func (h *rtmEventHandler) messageItemFromEvent(authorID, userID, username, ts, t
 			userName = username
 		}
 	}
-	return messages.MessageItem{
+	item := messages.MessageItem{
 		TS:                ts,
 		UserID:            authorID,
 		UserName:          userName,
@@ -422,6 +426,12 @@ func (h *rtmEventHandler) messageItemFromEvent(authorID, userID, username, ts, t
 		Blocks:            extractBlocks(blocks),
 		LegacyAttachments: extractLegacyAttachments(attachments),
 	}
+	var resolver *userResolver
+	if h.wsCtx != nil {
+		resolver = h.wsCtx.UserResolver
+	}
+	resolveMessageMentions(item, h.userNames, h.db, resolver)
+	return item
 }
 
 // OnEphemeralMessage handles a message only the current user can see:
@@ -569,4 +579,16 @@ func (h *rtmEventHandler) OnAssistantStatus(s slackclient.AssistantStatus) {
 		BotUserID:   s.BotUserID,
 		Status:      s.Status,
 	})
+}
+
+// sectionRefreshInterval is the least time between two of OnConnect's
+// section refreshes, so a flapping socket does not repeat them.
+const sectionRefreshInterval = 30 * time.Second
+
+// clock is h.now, or time.Now when it is unset.
+func (h *rtmEventHandler) clock() time.Time {
+	if h.now != nil {
+		return h.now()
+	}
+	return time.Now()
 }

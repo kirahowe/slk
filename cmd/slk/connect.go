@@ -243,14 +243,11 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 	// already sees a Ready store.
 	if cfg.EffectiveUseSlackSections(client.TeamID()) {
 		store := service.NewSectionStore()
-		if err := store.Bootstrap(ctx, client); err != nil {
+		if err := store.Bootstrap(ctx, bootSectionsClient{client, res.Starred}); err != nil {
 			log.Printf("section store bootstrap for %s failed: %v (falling back to config sections)", token.TeamName, err)
 		} else {
-			// Bootstrap repopulates the stars section from stars.list
-			// itself (channelSections.list returns built-in section
-			// types with empty channel_ids), so the Starred header is
-			// live at first render and survives reconnect-triggered
-			// re-bootstraps without caller help.
+			// The section list omits built-in stars membership. Reuse the
+			// authoritative IDs from the boot response without another RPC.
 			wctx.SectionStore = store
 			// One-time info log when the user has both Slack sections
 			// active AND a non-empty [sections.*] config — the latter
@@ -473,31 +470,21 @@ func (h *rtmEventHandler) OnConnect() {
 	firstConnect := !h.connected
 	h.connected = true
 	h.program.Send(ui.ConnectionStateMsg{TeamID: h.workspaceID, State: int(statusbar.StateConnected)})
-	if h.wsCtx != nil {
-		// Each connect queues a fetch rather than starting one: during a
-		// flap the runs would otherwise overlap and the slowest, not the
-		// newest, would decide what the status bar shows. A queued run
-		// still sends presence_sub, on the newest socket.
-		wctx, program := h.wsCtx, h.program
-		peerIDs := workspacePresenceIDs(wctx)
-		wctx.selfFetch.Run(func(ctx context.Context) {
-			ctx, cancel := context.WithTimeout(ctx, selfStatusTimeout)
-			defer cancel()
-			bootstrapPresenceAndDND(ctx, wctx, program, peerIDs)
-		})
-	}
-	// Refresh Slack-native section state on reconnect. MaybeRebootstrap
-	// is debounced to once per 30s (Task 6) so a rapid flap doesn't
-	// thunder; a real long-disconnect-then-reconnect refreshes section
-	// state we may have missed during the gap.
+	// Refresh Slack-native section state and reconcile starred rows on connect.
+	// The whole block is debounced to once per 30s so a rapid flap doesn't
+	// repeat missing-row lookups even when MaybeRebootstrap skips its fetch.
+	// A real long-disconnect-then-reconnect refreshes missed section state.
 	//
-	// Run synchronously on the event owner. This briefly blocks
-	// inbound event delivery during the bootstrap HTTP call, but that
-	// cost is bounded — at most one call per 30s per workspace — and
-	// avoids racing wsCtx.channels mutations against the same loop's
-	// next event (which could be an OnConversationOpened that also
-	// touches wsCtx.channels).
-	if h.wsCtx != nil && h.wsCtx.SectionStore != nil && h.wsCtx.Client != nil {
+	// Run synchronously on the event owner, blocking inbound event delivery
+	// while sections and starred membership refresh. Membership now needs a
+	// full client.userBoot response rather than the smaller stars.list result;
+	// the cost is bounded by one refresh pass per 30s per workspace and the
+	// deadline below. Keeping it here avoids racing wsCtx.channels mutations
+	// against the same loop's next event (such as OnConversationOpened).
+	now := h.clock()
+	if h.wsCtx != nil && h.wsCtx.SectionStore != nil && h.wsCtx.Client != nil &&
+		(h.sectionRefreshAt.IsZero() || now.Sub(h.sectionRefreshAt) >= sectionRefreshInterval) {
+		h.sectionRefreshAt = now
 		// Bound section refresh and missing-row hydration together so a slow
 		// workspace cannot indefinitely stall serialized WebSocket delivery.
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -508,6 +495,21 @@ func (h *rtmEventHandler) OnConnect() {
 			h.refreshSectionsForActive()
 		}
 		cancel()
+	}
+	if h.wsCtx != nil {
+		// After the section refresh, so starred peers it recovered are
+		// among the IDs. Each connect queues a fetch rather than
+		// starting one: during a flap the runs would otherwise overlap
+		// and the slowest, not the newest, would decide what the status
+		// bar shows. A queued run still sends presence_sub, on the
+		// newest socket.
+		wctx, program := h.wsCtx, h.program
+		peerIDs := workspacePresenceIDs(wctx)
+		wctx.selfFetch.Run(func(ctx context.Context) {
+			ctx, cancel := context.WithTimeout(ctx, selfStatusTimeout)
+			defer cancel()
+			bootstrapPresenceAndDND(ctx, wctx, program, peerIDs)
+		})
 	}
 
 	// Bounded reconnect catch-up: client.counts, the channel on

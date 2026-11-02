@@ -783,7 +783,10 @@ func renderInlineFormattingWith(text string, opts RenderSlackMarkdownOpts) strin
 	// duplicated noise on every labeled link.
 	text = linkWithLabelRe.ReplaceAllStringFunc(text, func(match string) string {
 		parts := linkWithLabelRe.FindStringSubmatch(match)
-		url, label := parts[1], parts[2]
+		// Decode the label's entities here: linkStyle underlines each
+		// rune separately, so the line-level slackEntityDecoder pass
+		// below can no longer see "&amp;" once it is styled.
+		url, label := parts[1], slackEntityDecoder.Replace(parts[2])
 		return osc8Hyperlink(url, linkStyle().Render(label))
 	})
 
@@ -917,6 +920,10 @@ func renderEmojiTokensInline(
 				placement, flush, ok := emojiutil.Place(placeCtx, tok.URL, cells)
 				if ok {
 					b.WriteString(placement)
+					// The image ends in "default foreground", not a reset.
+					if strings.HasSuffix(placement, "\x1b[39m") {
+						b.WriteString(FgANSI())
+					}
 					if flush != nil && flushes != nil {
 						*flushes = append(*flushes, flush)
 					}

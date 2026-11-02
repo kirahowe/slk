@@ -70,6 +70,7 @@ func fetchMessagesAround(client *slackclient.Client, channelID, targetTS string,
 // throughout slk.
 func convertAndCacheHistory(client *slackclient.Client, channelID string, history []slack.Message, db *cache.DB, userNames *userNameStore, tsFormat string, router *workspaceRouter) []messages.MessageItem {
 	var msgItems []messages.MessageItem
+	resolver := messageUserResolver(router, client.TeamID())
 	for _, m := range history {
 		rawBytes, _ := json.Marshal(m)
 		debuglog.Cache("convertAndCacheHistory: upsert channel=%s ts=%s subtype=%q reply_count=%d files=%d",
@@ -108,7 +109,7 @@ func convertAndCacheHistory(client *slackclient.Client, channelID string, histor
 			_ = db.UpsertReaction(m.Timestamp, channelID, r.Name, r.Users, r.Count)
 		}
 
-		msgItems = append(msgItems, messages.MessageItem{
+		item := messages.MessageItem{
 			TS:                m.Timestamp,
 			UserID:            authorID,
 			UserName:          userName,
@@ -123,7 +124,9 @@ func convertAndCacheHistory(client *slackclient.Client, channelID string, histor
 			Attachments:       extractAttachments(m.Files),
 			Blocks:            extractBlocks(m.Blocks),
 			LegacyAttachments: extractLegacyAttachments(m.Attachments),
-		})
+		}
+		resolveMessageMentions(item, userNames, db, resolver)
+		msgItems = append(msgItems, item)
 	}
 
 	// Reverse: Slack returns newest first
@@ -165,12 +168,10 @@ func summarizeCachedRows(rows []cache.Message) string {
 // Returns nil on cache miss (no rows for the channel) or any DB error;
 // callers treat nil as "fall through to the network fetch path".
 //
-// selfUserID is used to compute ReactionItem.HasReacted; it is NOT used
-// to drive any network call. Cache reads must remain offline-capable —
-// unknown user IDs render with their userID as a fallback rather than
-// triggering a fresh GetUserProfile RPC. Resolving them on-demand would
-// defeat the cache-first goal (and is what fetchChannelMessages already
-// does on the network path, populating the name store for next time).
+// selfUserID is used only to compute ReactionItem.HasReacted. Names are
+// hydrated locally; unknown authors and visible mentions may queue background
+// resolution when a resolver is available. Cache display never waits for a
+// profile RPC, and a nil router keeps the read local-only.
 //
 // raw_json unmarshal failures on a single row degrade gracefully: that
 // row renders as text-only (no attachments / blocks / legacy
@@ -251,6 +252,8 @@ func loadCachedMessages(
 //
 // userNames may be nil — username resolution still works via the
 // cached users table or the userID fallback, but nothing is recorded.
+// With a resolver available, unknown authors and visible mentions may queue
+// background network lookups; enrichment never waits for those lookups.
 //
 // raw_json unmarshal failures degrade the row to text-only without
 // failing the caller. logPrefix tags the per-row log lines so callers
@@ -401,7 +404,7 @@ func enrichCachedRow(
 		}
 	}
 
-	return messages.MessageItem{
+	item := messages.MessageItem{
 		TS:                m.TS,
 		UserID:            effUserID,
 		UserName:          userName,
@@ -417,11 +420,14 @@ func enrichCachedRow(
 		Blocks:            blocks,
 		LegacyAttachments: legacy,
 	}
+	resolveMessageMentions(item, userNames, db, messageUserResolver(router, m.WorkspaceID))
+	return item
 }
 
 // loadCachedThreadReplies reads cached parent + replies for a thread
 // from SQLite and reconstructs []messages.MessageItem with the same
-// fidelity as fetchThreadReplies. Offline-pure (no network).
+// fidelity as fetchThreadReplies. Like loadCachedMessages, displays local data
+// immediately and may queue background name resolution.
 //
 // The returned slice includes the parent message at index 0 followed
 // by replies in chronological order, matching db.GetThreadReplies'
@@ -485,6 +491,7 @@ func fetchChannelMessages(client *slackclient.Client, channelID string, db *cach
 	}
 
 	msgItems := make([]messages.MessageItem, 0, len(history))
+	resolver := messageUserResolver(router, client.TeamID())
 	for _, m := range history {
 		rawBytes, _ := json.Marshal(m)
 		debuglog.Cache("fetchChannelMessages: upsert channel=%s ts=%s subtype=%q reply_count=%d files=%d",
@@ -523,7 +530,7 @@ func fetchChannelMessages(client *slackclient.Client, channelID string, db *cach
 			_ = db.UpsertReaction(m.Timestamp, channelID, r.Name, r.Users, r.Count)
 		}
 
-		msgItems = append(msgItems, messages.MessageItem{
+		item := messages.MessageItem{
 			TS:                m.Timestamp,
 			UserID:            authorID,
 			UserName:          userName,
@@ -538,7 +545,9 @@ func fetchChannelMessages(client *slackclient.Client, channelID string, db *cach
 			Attachments:       extractAttachments(m.Files),
 			Blocks:            extractBlocks(m.Blocks),
 			LegacyAttachments: extractLegacyAttachments(m.Attachments),
-		})
+		}
+		resolveMessageMentions(item, userNames, db, resolver)
+		msgItems = append(msgItems, item)
 	}
 
 	// Reverse: Slack returns newest first
@@ -589,6 +598,7 @@ func fetchThreadReplies(client *slackclient.Client, channelID, threadTS string, 
 	}
 
 	msgItems := make([]messages.MessageItem, 0, len(history))
+	resolver := messageUserResolver(router, client.TeamID())
 	for _, m := range history {
 		rawBytes, _ := json.Marshal(m)
 		debuglog.Cache("fetchThreadReplies: upsert channel=%s ts=%s subtype=%q reply_count=%d files=%d",
@@ -627,7 +637,7 @@ func fetchThreadReplies(client *slackclient.Client, channelID, threadTS string, 
 			_ = db.UpsertReaction(m.Timestamp, channelID, r.Name, r.Users, r.Count)
 		}
 
-		msgItems = append(msgItems, messages.MessageItem{
+		item := messages.MessageItem{
 			TS:                m.Timestamp,
 			UserID:            authorID,
 			UserName:          userName,
@@ -642,7 +652,9 @@ func fetchThreadReplies(client *slackclient.Client, channelID, threadTS string, 
 			Attachments:       extractAttachments(m.Files),
 			Blocks:            extractBlocks(m.Blocks),
 			LegacyAttachments: extractLegacyAttachments(m.Attachments),
-		})
+		}
+		resolveMessageMentions(item, userNames, db, resolver)
+		msgItems = append(msgItems, item)
 	}
 
 	// First message from GetConversationReplies is the parent -- skip it for the replies list.

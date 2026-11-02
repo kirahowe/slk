@@ -625,9 +625,13 @@ func run() error {
 	// thousands of users) wrote ~100MB of kitty graphics APC escape
 	// data to stdout at startup and produced a multi-minute hang on
 	// terminals that decode kitty graphics (kitty, ghostty).
-	app.SetAvatarService(core.NewAvatarService(func(userID string) string {
-		return lazyAvatar(router.Active(), avatarCache, userID)
-	}))
+	// show_avatars = false leaves the service unset, so messages render
+	// through the no-avatar path and no avatar fetches are started.
+	if cfg.Appearance.ShowAvatars {
+		app.SetAvatarService(core.NewAvatarService(func(userID string) string {
+			return lazyAvatar(router.Active(), avatarCache, userID)
+		}))
+	}
 
 	// Wire theme switcher: dispatch to the appropriate saver based on scope.
 	// A workspace save names its workspace instead of reading
@@ -1445,14 +1449,15 @@ func run() error {
 		// Best-effort: nil on error (the picker shows no external flags).
 		external, _ := db.ExternalUsers(wctx.TeamID)
 
-		// Statuses are re-read from the cache, which live changes keep
-		// current, rather than the connect-time items. DND is not
-		// cached; RefreshPeerDND below fetches it after the switch
+		// Statuses and presence are re-read from the cache, which live
+		// changes keep current, rather than the connect-time items. DND
+		// is not cached; RefreshPeerDND below fetches it after the switch
 		// applies, so the switch itself returns without waiting on the
 		// network.
 		statuses := cachedPeerStatuses(db, wctx.TeamID)
 		wctx.PeerStatus.SeedHuddles(statuses)
 		channels, finderItems := switchLists(wctx, statuses)
+		channels = withCachedPresence(db, channels)
 
 		snap := workspacesStore.Snapshot()
 		// switchNames goes to the UI, which owns (and writes) it from

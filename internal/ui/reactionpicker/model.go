@@ -296,13 +296,13 @@ func (m *Model) HandleKey(keyStr string) *ReactionResult {
 
 	case "backspace":
 		if len(m.query) > 0 {
-			m.query = m.query[:len(m.query)-1]
+			m.query = text.DropLastRune(m.query)
 			m.filter()
 		}
 		return nil
 
 	default:
-		if len(keyStr) == 1 && keyStr[0] >= 32 && keyStr[0] <= 126 {
+		if text.IsTypedRune(keyStr) {
 			m.query += keyStr
 			m.filter()
 		}

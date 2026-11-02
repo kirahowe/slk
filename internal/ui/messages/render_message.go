@@ -50,7 +50,7 @@ type RenderOptions struct {
 // RenderedMessage is one message, rendered, before the pane's border and fill.
 type RenderedMessage struct {
 	Content      string
-	Header       string // the author line (with "(edited)"), for SelectedHeader
+	Header       string // the wrapped author header (with "(edited)"), for SelectedHeader
 	HeaderBudget int
 	Hits         []entrylist.Hit // image hits (when ImageHits), then reaction pills
 	// Mention is how the message mentions the current user (never for the
@@ -65,7 +65,8 @@ type RenderedMessage struct {
 // from the pane's image context, theme, and per-message identity.
 // Built per message rather than once so it picks up runtime changes to
 // the image context (e.g., when image_protocol is reconfigured).
-func BlockkitContext(msg MessageItem, rc *RenderContext) blockkit.Context {
+// Warm-path emoji uploads in block text are appended to emojiFlushes.
+func BlockkitContext(msg MessageItem, rc *RenderContext, emojiFlushes *[]func(io.Writer) error) blockkit.Context {
 	imgCtx := rc.Images.Context()
 	send := imgCtx.SendMsg
 	channelNames := rc.ChannelNames
@@ -82,15 +83,6 @@ func BlockkitContext(msg MessageItem, rc *RenderContext) blockkit.Context {
 		// Capture channelNames in a closure so blockkit's two-arg
 		// RenderText signature stays stable; channel-name resolution
 		// is a host concern.
-		//
-		// blockkit's RenderText is called from inside block rendering
-		// where the per-call flush accumulator isn't accessible. Pass
-		// the emoji opts but no flush collector: warm-path emoji
-		// flushes inside rich-text blocks are best-effort in v1
-		// (they'll be re-collected on the next render when the
-		// per-message buildCache walks the entry again). Worst case:
-		// one extra frame of cold-cache spacing for a block-kit
-		// emoji on first reveal. Acceptable.
 		RenderText: func(s string, un map[string]string) string {
 			return RenderSlackMarkdownWith(s, RenderSlackMarkdownOpts{
 				UserNames:    un,
@@ -100,7 +92,7 @@ func BlockkitContext(msg MessageItem, rc *RenderContext) blockkit.Context {
 				PlaceCtx:     rc.Emoji.PlaceCtx,
 				EmojiCells:   rc.Emoji.Cells,
 				Customs:      rc.Emoji.Customs,
-				EmojiFlushes: nil,
+				EmojiFlushes: emojiFlushes,
 			})
 		},
 		WrapText: WordWrap,
@@ -134,7 +126,9 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 	}
 	avatarStr := opt.Avatar
 	stats := opt.stats
-	line := styles.Username(msg.UserID, rc.ColoredUsernames).Render(msg.UserName) + AuthorStatusSuffix(rc.UserStatuses, msg.UserID, time.Now()) + lipgloss.NewStyle().Background(styles.Background).Render("  ") + styles.Timestamp.Render(msg.Timestamp)
+	headerTimestamp := styles.Timestamp.Render(msg.Timestamp)
+	headerGap := lipgloss.NewStyle().Background(styles.Background).Render("  ")
+	line := styles.Username(msg.UserID, rc.ColoredUsernames).Render(msg.UserName) + AuthorStatusSuffix(rc.UserStatuses, msg.UserID, time.Now()) + headerGap + headerTimestamp
 
 	// If we have an avatar, reserve space on the left for it
 	contentWidth := width - 4
@@ -358,7 +352,7 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 	// absolute row index (used as the sixelRows key).
 	//
 	//   rows 0..: label rows (ephemeral, then thread_broadcast), each optional
-	//   next row: username line + editedMark
+	//   next rows: wrapped author header + editedMark
 	//   row N: wrapped body text (lipgloss.Height of styled `text`);
 	//          absent when BlocksCarryBody
 	//
@@ -373,7 +367,6 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 		labelRows += styles.Timestamp.Render("\u21b3 replied to a thread") + "\n"
 		preAttachmentRows++ // the broadcast label occupies its own row
 	}
-	preAttachmentRows++ // username + ts row
 	if hasBody {
 		preAttachmentRows += lipgloss.Height(text) // wrapped body text
 	}
@@ -396,13 +389,21 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 	if avatarStr != "" {
 		contentColBase += 5
 	}
+	// Wrap before adding the avatar's fixed two-row gutter. Each wrapped
+	// line must restore its own styles after that gutter resets the pen.
+	headerBudget := max(1, min(contentWidth, width-contentColBase))
+	header := line + editedMark
+	if lipgloss.Width(header) > headerBudget {
+		header = wrapAuthorHeader(line[:len(line)-len(headerGap)-len(headerTimestamp)], headerGap, headerTimestamp, editedMark, headerBudget)
+	}
+	preAttachmentRows += lipgloss.Height(header)
 
 	var attachLineSlices [][]string
 	var imageHits []entrylist.Hit
 	allSixel := map[int]sixelEntry{}
 
 	// Block Kit blocks render between the body text and file attachments.
-	bkCtx := BlockkitContext(msg, rc)
+	bkCtx := BlockkitContext(msg, rc, &out.BlockFlushes)
 	var bkLines []string
 	bkInteractive := false
 	if len(msg.Blocks) > 0 {
@@ -513,7 +514,13 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 		// avatar gutter that placeAvatarBeside prepends to every line
 		// afterwards, so the run at the start of the content has no
 		// preceding reset here to attach a background to.
-		bkBlock = "\n" + WithBackground(bkLines, BgANSI())
+		// The gutter's reset clears the text colour too; an image sets its own.
+		fg := FgANSI()
+		lines := make([]string, len(bkLines))
+		for i, l := range bkLines {
+			lines[i] = fg + l
+		}
+		bkBlock = "\n" + WithBackground(lines, BgANSI())
 	}
 
 	if len(msg.Attachments) > 0 {
@@ -576,7 +583,7 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 	if hasBody {
 		bodyRow = "\n" + text
 	}
-	msgContent := labelRows + line + editedMark + bodyRow + bkBlock + attachmentLines + threadLine + reactionLine
+	msgContent := labelRows + header + bodyRow + bkBlock + attachmentLines + threadLine + reactionLine
 
 	// Translate per-pill specs into entry-relative reaction hit rects.
 	// reactionRowBase is the row index (within linesNormal) where the
@@ -623,13 +630,54 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 			allSixel[k] = v
 		}
 	}
-	// The header row is the only row SelectedHeader may lengthen. It
-	// must fit both the width the body wraps to and the columns the row
-	// really has: contentWidth is floored at 20, which at narrow widths
-	// exceeds width-1 (the fill) minus the avatar gutter.
+	// Timestamp substitution may lengthen a header line, but must not
+	// introduce another row after the avatar and hit rects are composed.
 	out.Content = msgContent
-	out.Header = line + editedMark
-	out.HeaderBudget = min(contentWidth, width-1-(contentColBase-1))
+	out.Header = header
+	out.HeaderBudget = headerBudget
 	out.SixelRows = allSixel
 	return out
+}
+
+// wrapAuthorHeader lays out an author header that does not fit budget
+// columns: author (name and status suffix) word-wrapped, then the
+// timestamp (after gap) and the edited mark (after one space), each kept
+// whole on a line whenever it fits one by itself. Every line restores its
+// own styles, because the avatar gutter composed beside it resets the pen.
+func wrapAuthorHeader(author, gap, timestamp, editedMark string, budget int) string {
+	author = WordWrap(author, budget)
+	var wrapped strings.Builder
+	wrapped.WriteString(author)
+	lastWidth := lipgloss.Width(author[strings.LastIndexByte(author, '\n')+1:])
+	// Timestamp spaces belong to one metadata unit, not the name's prose.
+	// Wrap within a unit only when it cannot fit on a header line by itself.
+	for _, part := range [2]struct{ text, gap string }{
+		{timestamp, gap},
+		{strings.TrimPrefix(editedMark, " "), " "},
+	} {
+		if part.text == "" {
+			continue
+		}
+		partWidth, gapWidth := lipgloss.Width(part.text), lipgloss.Width(part.gap)
+		if wrapped.Len() > 0 && lastWidth+gapWidth+partWidth <= budget {
+			wrapped.WriteString(part.gap)
+			wrapped.WriteString(part.text)
+			lastWidth += gapWidth + partWidth
+			continue
+		}
+		if wrapped.Len() > 0 {
+			wrapped.WriteByte('\n')
+		}
+		if partWidth > budget {
+			part.text = WordWrap(part.text, budget)
+			partWidth = lipgloss.Width(part.text[strings.LastIndexByte(part.text, '\n')+1:])
+		}
+		wrapped.WriteString(part.text)
+		lastWidth = partWidth
+	}
+	var buf strings.Builder
+	writer := lipgloss.NewWrapWriter(&buf)
+	_, _ = io.WriteString(writer, wrapped.String())
+	_ = writer.Close()
+	return buf.String()
 }

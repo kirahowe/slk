@@ -1,11 +1,14 @@
 package messages
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/gammons/slk/internal/core/blocks"
 	"github.com/gammons/slk/internal/proptest"
+	"github.com/gammons/slk/internal/ui/messages/blockkit"
+	"github.com/slack-go/slack"
 	"pgregory.net/rapid"
 )
 
@@ -121,6 +124,77 @@ func FuzzExtractLinks(f *testing.F) {
 				t.Fatalf("bad link %+v from %q", l, s)
 			}
 			seen[l.URL] = true
+		}
+	})
+}
+
+// MessageLinks over a message whose links sit in legacy attachment
+// bodies (pretext, text, fields, a titled title_link) returns each URL
+// once, and every URL it returns is in one of those drawn sources or
+// is the permalink of a shared message.
+func TestMessageLinksOnlyFromDrawnSources(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		text := linkText().Draw(t, "text")
+		permalink := "https://acme.slack.com/archives/C0123ABCD/p1700000000000100"
+		var atts []blocks.LegacyAttachment
+		sources := text
+		for range rapid.IntRange(0, 3).Draw(t, "atts") {
+			att := blocks.LegacyAttachment{
+				Pretext: linkText().Draw(t, "pretext"),
+				Text:    linkText().Draw(t, "attText"),
+				FromURL: rapid.SampledFrom([]string{"", permalink}).Draw(t, "from"),
+			}
+			if rapid.Bool().Draw(t, "field") {
+				att.Fields = []blocks.LegacyField{{Value: linkText().Draw(t, "field")}}
+			}
+			if rapid.Bool().Draw(t, "title") {
+				att.Title, att.TitleLink = "Title", "https://title.example/t"
+				sources += " " + att.TitleLink
+			}
+			sources += " " + att.Pretext + " " + att.Text
+			for _, f := range att.Fields {
+				sources += " " + f.Value
+			}
+			atts = append(atts, att)
+		}
+		all := MessageLinks(MessageItem{Text: text, LegacyAttachments: atts})
+		seen := map[string]bool{}
+		for _, l := range all {
+			if seen[l.URL] {
+				t.Fatalf("URL %q twice in %+v", l.URL, all)
+			}
+			seen[l.URL] = true
+			if l.URL != permalink && !strings.Contains(sources, l.URL) {
+				t.Fatalf("URL %q is in no drawn source", l.URL)
+			}
+		}
+	})
+}
+
+// An app's link chip (attachment_mention) keeps its title through
+// RichTextToMrkdwn's escaping and ExtractLinks' decoding: the link
+// offered to `o` is the chip's URL, labelled with exactly its title,
+// whatever &, < or > the title holds. (A "|" in a title is Slack's own
+// label separator and is not drawn from.)
+func TestAttachmentMentionTitleRoundTrips(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		title := rapid.StringMatching(`[a-zA-Z0-9 &<>\-.]{1,20}`).Draw(t, "title")
+		if strings.TrimSpace(title) == "" {
+			t.Skip("blank title")
+		}
+		raw, err := json.Marshal(map[string]string{"type": "attachment_mention", "url": "https://linear.app/acme/issue/ENG-1", "text": title})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var rt slack.RichTextBlock
+		doc := `{"type":"rich_text","elements":[{"type":"rich_text_section","elements":[` + string(raw) + `]}]}`
+		if err := json.Unmarshal([]byte(doc), &rt); err != nil {
+			t.Fatal(err)
+		}
+		mrkdwn := blockkit.RichTextToMrkdwn(blockkit.RichTextBlock{Elements: rt.Elements})
+		links := ExtractLinks(mrkdwn)
+		if len(links) != 1 || links[0].URL != "https://linear.app/acme/issue/ENG-1" || links[0].Label != title {
+			t.Fatalf("title %q: mrkdwn %q gave links %+v", title, mrkdwn, links)
 		}
 	})
 }
