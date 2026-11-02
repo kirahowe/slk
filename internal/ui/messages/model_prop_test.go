@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gammons/slk/internal/core/blocks"
 	"pgregory.net/rapid"
 )
 
@@ -340,5 +341,44 @@ func TestModelListOperations(t *testing.T) {
 			},
 			"": func(t *rapid.T) { s.check(t) },
 		})
+	})
+}
+
+// MessageCopyText starts with the message's own text whenever it has
+// some, adds an attachment's text only for a shared Slack message (a
+// from_url permalink), and with no text of its own falls back to the
+// first attachment that has text.
+func TestMessageCopyTextKeepsTypedTextFirst(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		permalink := "https://acme.slack.com/archives/C0123ABCD/p1700000000000100"
+		msg := MessageItem{Text: rapid.SampledFrom([]string{"", "typed text"}).Draw(t, "text")}
+		for i := range rapid.IntRange(0, 3).Draw(t, "atts") {
+			msg.LegacyAttachments = append(msg.LegacyAttachments, blocks.LegacyAttachment{
+				Text:    rapid.SampledFrom([]string{"", fmt.Sprintf("shared %d", i)}).Draw(t, "attText"),
+				FromURL: rapid.SampledFrom([]string{"", permalink, "https://news.example/story"}).Draw(t, "from"),
+			})
+		}
+		got := MessageCopyText(msg)
+		if msg.Text != "" {
+			if !strings.HasPrefix(got, msg.Text) {
+				t.Fatalf("MessageCopyText = %q, want it to start with %q", got, msg.Text)
+			}
+			for _, la := range msg.LegacyAttachments {
+				if la.Text != "" && la.FromURL != permalink && strings.Contains(got, la.Text) {
+					t.Fatalf("attachment %q without a Slack permalink was appended: %q", la.Text, got)
+				}
+			}
+			return
+		}
+		want := ""
+		for _, la := range msg.LegacyAttachments {
+			if la.Text != "" {
+				want = la.Text
+				break
+			}
+		}
+		if got != want {
+			t.Fatalf("MessageCopyText = %q, want the first attachment text %q", got, want)
+		}
 	})
 }
