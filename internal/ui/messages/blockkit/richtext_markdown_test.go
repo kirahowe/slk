@@ -137,3 +137,26 @@ func TestRichTextToMarkdown_OrphanIndent(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+// Saving an edit of literal mention-shaped text (here in plain text and
+// in code) sends no mention: the composer has no escape for a literal
+// token, so the text keeps Slack's escaped spelling instead of pinging.
+func TestRichTextToMarkdown_LiteralMentionDoesNotPingOnSave(t *testing.T) {
+	rt := rtSection(
+		&slack.RichTextSectionTextElement{Type: slack.RTSEText, Text: "<!here> <@U1> "},
+		&slack.RichTextSectionTextElement{Type: slack.RTSEText, Text: "<!channel>", Style: &slack.RichTextSectionTextStyle{Code: true}},
+	)
+	_, block := mrkdwn.Convert(RichTextToMarkdown(rt))
+	for _, e := range block.Elements {
+		sec, ok := e.(*slack.RichTextSection)
+		if !ok {
+			continue
+		}
+		for _, el := range sec.Elements {
+			switch el.(type) {
+			case *slack.RichTextSectionBroadcastElement, *slack.RichTextSectionUserElement:
+				t.Errorf("saved edit has a mention element %#v", el)
+			}
+		}
+	}
+}
