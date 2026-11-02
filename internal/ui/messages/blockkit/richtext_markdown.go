@@ -1,6 +1,7 @@
 package blockkit
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -99,6 +100,7 @@ func inlineToMarkdown(e slack.RichTextSectionElement) string {
 // spaces left outside, because CommonMark only reads "**" as bold when
 // it touches the text, and emphasis cannot span a blank line.
 func textToMarkdown(text string, style *slack.RichTextSectionTextStyle) string {
+	text = EscapeLiteralMentions(text)
 	if style == nil || !(style.Bold || style.Italic || style.Strike || style.Code) {
 		return text
 	}
@@ -117,6 +119,21 @@ func textToMarkdown(text string, style *slack.RichTextSectionTextStyle) string {
 		lines[i] = lead + core + trail
 	}
 	return strings.Join(lines, "\n")
+}
+
+// literalMentionRe matches text shaped like a Slack mention or
+// broadcast token: <@…>, <#…>, <!…>.
+var literalMentionRe = regexp.MustCompile(`<([@#!][^<>]*)>`)
+
+// EscapeLiteralMentions entity-escapes text that would read as a
+// mention in the composer, where <!here> typed as text is a broadcast.
+// Literal text that only looks like one, such as "<!here>" written in
+// Slack's client, then stays text when an edit is saved, and reads as
+// Slack's text field shows it ("&lt;!here&gt;"), as before
+// MentionsForEdit. Link-shaped text is left alone: on save it becomes
+// the link it looks like, which pings no one.
+func EscapeLiteralMentions(s string) string {
+	return literalMentionRe.ReplaceAllString(s, "&lt;$1&gt;")
 }
 
 // emphasize wraps s in the strike, italic and bold markers style asks
@@ -160,8 +177,10 @@ func codeSpan(s string) string {
 // LinkToMarkdown writes a link the way a person would type it: the
 // bare URL when the label adds nothing (the composer turns a typed URL
 // into a link), else [label](url). A URL or label that markdown's link
-// syntax cannot hold as typed keeps Slack's <url|label> form, which
-// the composer also sends as a link.
+// syntax cannot hold as typed (brackets or spaces in the URL; brackets
+// or formatting characters in the label, which markdown would read as
+// styles and drop) keeps Slack's <url|label> form, which the composer
+// also sends as a link.
 func LinkToMarkdown(url, label string) string {
 	if label == "" || label == url || url == "mailto:"+label {
 		if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") || strings.HasPrefix(url, "mailto:") {
@@ -169,7 +188,7 @@ func LinkToMarkdown(url, label string) string {
 		}
 		label = url
 	}
-	if strings.ContainsAny(url, " ()<>") || strings.ContainsAny(label, "[]") {
+	if strings.ContainsAny(url, " ()<>") || strings.ContainsAny(label, "[]*_~`\\") {
 		return linkToMrkdwn(url, label)
 	}
 	return "[" + label + "](" + url + ")"

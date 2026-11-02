@@ -109,6 +109,9 @@ func TestRichTextToMarkdown_Inline(t *testing.T) {
 		{"mailto", []slack.RichTextSectionElement{link("mailto:a@b.com", "a@b.com")}, "a@b.com"},
 		{"url markdown can't hold", []slack.RichTextSectionElement{link("https://x.com/a_(b)", "wiki")}, "<https://x.com/a_(b)|wiki>"},
 		{"literal text unescaped", []slack.RichTextSectionElement{text("a < b & c", nil)}, "a < b & c"},
+		{"literal mentions stay text", []slack.RichTextSectionElement{text("<!here> <@U1> <#C1>", nil)}, "&lt;!here&gt; &lt;@U1&gt; &lt;#C1&gt;"},
+		{"literal link becomes a link", []slack.RichTextSectionElement{text("<https://x.com/|x>", nil)}, "<https://x.com/|x>"},
+		{"label markdown would restyle", []slack.RichTextSectionElement{link("https://x.com", "**docs**")}, "<https://x.com|**docs**>"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := RichTextToMarkdown(rtSection(tc.el...)); got != tc.want {

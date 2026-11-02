@@ -20,6 +20,8 @@ func TestEditSource_TextOnly(t *testing.T) {
 		{"mail <mailto:a@b.com|a@b.com>", "mail a@b.com"},
 		{"hi <@U1> in <#C2>", "hi <@U1> in <#C2>"},
 		{"&lt;https://x.com/|not a link&gt;", "<https://x.com/|not a link>"},
+		{"&lt;!here&gt; is text, <!here> is not", "&lt;!here&gt; is text, <!here> is not"},
+		{"&lt;@U1&gt; vs <@U1>", "&lt;@U1&gt; vs <@U1>"},
 	} {
 		if got := EditSource(MessageItem{Text: tc.text}); got != tc.want {
 			t.Errorf("EditSource(%q) = %q, want %q", tc.text, got, tc.want)
