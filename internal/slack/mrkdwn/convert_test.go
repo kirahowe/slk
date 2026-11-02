@@ -2,6 +2,7 @@ package mrkdwn
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -592,6 +593,40 @@ func TestConvert_NestedList(t *testing.T) {
 	inner := blk.Elements[1].(*slack.RichTextList)
 	if inner.Indent != 1 {
 		t.Errorf("inner.Indent = %d, want 1", inner.Indent)
+	}
+}
+
+// A list nested under an item in the middle of a list is sent right
+// after that item, and the items after it go on in a list of their
+// own, an ordered one counting on (offset): Slack draws the block's
+// lists in order, so appending the nested one after the whole list
+// moved it below the later items.
+func TestConvert_NestedListMidway(t *testing.T) {
+	for _, tc := range []struct {
+		in     string
+		style  slack.RichTextListElementType
+		offset int
+	}{
+		{"1. a\n    - b\n2. c", slack.RTEListOrdered, 1},
+		{"- a\n    - b\n- c", slack.RTEListBullet, 0},
+	} {
+		_, blk := Convert(tc.in)
+		var got []string
+		for _, e := range blk.Elements {
+			l := e.(*slack.RichTextList)
+			for _, it := range l.Elements {
+				text := it.(*slack.RichTextSection).Elements[0].(*slack.RichTextSectionTextElement).Text
+				got = append(got, fmt.Sprintf("%s/%d/%d/%s", l.Style, l.Indent, l.Offset, text))
+			}
+		}
+		want := []string{
+			fmt.Sprintf("%s/0/0/a", tc.style),
+			"bullet/1/0/b",
+			fmt.Sprintf("%s/0/%d/c", tc.style, tc.offset),
+		}
+		if strings.Join(got, " ") != strings.Join(want, " ") {
+			t.Errorf("Convert(%q) lists %v, want %v", tc.in, got, want)
+		}
 	}
 }
 
