@@ -124,3 +124,46 @@ func FuzzExtractLinks(f *testing.F) {
 		}
 	})
 }
+
+// MessageLinks over a message whose links sit in legacy attachment
+// bodies (pretext, text, fields, a titled title_link) returns each URL
+// once, and every URL it returns is in one of those drawn sources or
+// is the permalink of a shared message.
+func TestMessageLinksOnlyFromDrawnSources(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		text := linkText().Draw(t, "text")
+		permalink := "https://acme.slack.com/archives/C0123ABCD/p1700000000000100"
+		var atts []blocks.LegacyAttachment
+		sources := text
+		for range rapid.IntRange(0, 3).Draw(t, "atts") {
+			att := blocks.LegacyAttachment{
+				Pretext: linkText().Draw(t, "pretext"),
+				Text:    linkText().Draw(t, "attText"),
+				FromURL: rapid.SampledFrom([]string{"", permalink}).Draw(t, "from"),
+			}
+			if rapid.Bool().Draw(t, "field") {
+				att.Fields = []blocks.LegacyField{{Value: linkText().Draw(t, "field")}}
+			}
+			if rapid.Bool().Draw(t, "title") {
+				att.Title, att.TitleLink = "Title", "https://title.example/t"
+				sources += " " + att.TitleLink
+			}
+			sources += " " + att.Pretext + " " + att.Text
+			for _, f := range att.Fields {
+				sources += " " + f.Value
+			}
+			atts = append(atts, att)
+		}
+		all := MessageLinks(MessageItem{Text: text, LegacyAttachments: atts})
+		seen := map[string]bool{}
+		for _, l := range all {
+			if seen[l.URL] {
+				t.Fatalf("URL %q twice in %+v", l.URL, all)
+			}
+			seen[l.URL] = true
+			if l.URL != permalink && !strings.Contains(sources, l.URL) {
+				t.Fatalf("URL %q is in no drawn source", l.URL)
+			}
+		}
+	})
+}
