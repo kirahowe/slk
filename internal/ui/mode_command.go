@@ -13,10 +13,9 @@
 package ui
 
 import (
-	"unicode"
-	"unicode/utf8"
-
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/gammons/slk/internal/text"
 )
 
 // enterCommandMode switches to ModeCommand with an empty buffer
@@ -49,8 +48,7 @@ func handleCommandMode(a *App, msg tea.KeyMsg) tea.Cmd {
 			a.exitCommandMode()
 			return nil
 		}
-		_, n := utf8.DecodeLastRuneInString(a.cmdline)
-		a.cmdline = a.cmdline[:len(a.cmdline)-n]
+		a.cmdline = text.DropLastRune(a.cmdline)
 		a.statusbar.SetCommandLine(":" + a.cmdline)
 		return nil
 	}
@@ -58,7 +56,7 @@ func handleCommandMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	if s == "space" {
 		s = " "
 	}
-	if r := []rune(s); len(r) == 1 && unicode.IsPrint(r[0]) {
+	if text.IsTypedRune(s) {
 		a.cmdline += s
 		a.statusbar.SetCommandLine(":" + a.cmdline)
 	}

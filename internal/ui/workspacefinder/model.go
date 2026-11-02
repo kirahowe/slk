@@ -2,8 +2,6 @@ package workspacefinder
 
 import (
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
 	"github.com/gammons/slk/internal/bubbles/chrome"
@@ -151,8 +149,7 @@ func (m *Model) HandleKey(keyStr string) *WorkspaceResult {
 
 	case "backspace":
 		if len(m.query) > 0 {
-			_, n := utf8.DecodeLastRuneInString(m.query)
-			m.query = m.query[:len(m.query)-n]
+			m.query = text.DropLastRune(m.query)
 			m.selected = 0
 			m.filter()
 		}
@@ -160,7 +157,7 @@ func (m *Model) HandleKey(keyStr string) *WorkspaceResult {
 	}
 
 	// If it's a single printable rune, add to query
-	if r := []rune(keyStr); len(r) == 1 && unicode.IsPrint(r[0]) {
+	if text.IsTypedRune(keyStr) {
 		m.query += keyStr
 		m.selected = 0
 		m.filter()

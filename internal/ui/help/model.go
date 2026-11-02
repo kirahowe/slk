@@ -8,8 +8,6 @@ import (
 	"reflect"
 	"sort"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/lipgloss/v2"
@@ -214,14 +212,13 @@ func (m *Model) handleSearchKey(keyStr string) {
 		m.searching = false
 	case "backspace":
 		if len(m.query) > 0 {
-			_, n := utf8.DecodeLastRuneInString(m.query)
-			m.query = m.query[:len(m.query)-n]
+			m.query = text.DropLastRune(m.query)
 			m.selected = 0
 			m.filter()
 		}
 	default:
 		// Single printable rune — append to query.
-		if r := []rune(keyStr); len(r) == 1 && unicode.IsPrint(r[0]) {
+		if text.IsTypedRune(keyStr) {
 			m.query += keyStr
 			m.selected = 0
 			m.filter()
