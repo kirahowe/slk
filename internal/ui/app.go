@@ -4079,25 +4079,30 @@ func (a *App) tryAttachFromClipboard(target *compose.Model, pathCandidate string
 // in the focused pane. Returns a no-op + status toast if not owned;
 // returns nil if no message is selected.
 func (a *App) beginEditOfSelected() tea.Cmd {
-	channelID, ts, text, userID, panel, ok := a.selectedMessageContext()
+	p, channelID, focused := a.focusedContentPane()
+	if !focused {
+		return nil
+	}
+	msg, ok := p.SelectedMessage()
 	if !ok {
 		return nil
 	}
-	// Build a synthetic MessageItem just for the ownership check;
-	// avoids fetching the full struct twice.
-	if !a.isOwnMessage(messages.MessageItem{UserID: userID}) {
+	if !a.isOwnMessage(msg) {
 		return func() tea.Msg { return statusbar.EditNotOwnMsg{} }
 	}
+	ts, panel := msg.TS, a.focusedPanel
 	if channelID == "" || ts == "" {
 		return nil
 	}
-	// The composer shows mentions as the names a person types, which
-	// it turns back into the same tokens when the edit is saved.
+	// The composer shows the message as it was typed: its rich_text
+	// block as markdown (Slack's text field has lost the line breaks)
+	// and mentions as the names a person types, which it turns back
+	// into the same message when the edit is saved.
 	c := &a.compose
 	if panel == PanelThread {
 		c = &a.threadCompose
 	}
-	return a.enterEdit(channelID, ts, panel, c.MentionsForEdit(text))
+	return a.enterEdit(channelID, ts, panel, c.MentionsForEdit(messages.EditSource(msg)))
 }
 
 // enterEdit opens the editor on message ts of channelID in panel's
