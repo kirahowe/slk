@@ -156,12 +156,13 @@ func TestTranslateMentionsNoTriggerUnchanged(t *testing.T) {
 	})
 }
 
-// KNOWN: translateMentions rewrites entry by entry, so a replacement can be
-// re-matched by a later, shorter entry. With names {"bob": "U1", "U1": "U2"},
-// "@bob @U1" becomes "<<@U2>> <@U2>". It needs a display name equal to
-// another user's ID, so these generators keep names lowercase and IDs
-// uppercase. A display name containing '>' or '|' ("a>b") is replaced
-// correctly, since the wire token is built from the ID, not the name.
+// translateMentions rewrites entry by entry, but never inside a wire
+// token, so a replacement is not re-matched by a later, shorter entry:
+// with names {"bob": "U1", "U1": "U2"}, "@bob @U1" becomes
+// "<@U1> <@U2>" (TestTranslateMentionsSkipsWireTokens). These
+// generators keep names lowercase and IDs uppercase all the same. A
+// display name containing '>' or '|' ("a>b") is replaced correctly,
+// since the wire token is built from the ID, not the name.
 func genMaps(t *rapid.T) (names, channels, groups map[string]string) {
 	word := rapid.StringMatching(`[a-z]{1,6}`)
 	names = rapid.MapOfN(word, rapid.StringMatching(`U[A-Z0-9]{4}`), 0, 6).Draw(t, "names")

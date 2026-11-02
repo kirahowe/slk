@@ -57,3 +57,23 @@ func TestMentionsForEditRoundTrips(t *testing.T) {
 		t.Errorf("round trip = %q, want %q", got, want)
 	}
 }
+
+// A name inside a token is part of it: the label of a usergroup token
+// an edit left in wire form, or a token an earlier name wrote.
+func TestTranslateMentionsSkipsWireTokens(t *testing.T) {
+	for _, c := range []struct {
+		in    string
+		names map[string]string
+		want  string
+	}{
+		{"cc <!subteam^S2|@design>", map[string]string{"design": "U2"}, "cc <!subteam^S2|@design>"},
+		{"see <#C9|general>", nil, "see <#C9|general>"},
+		{"<https://x.com/@bob|@bob>", map[string]string{"bob": "U1"}, "<https://x.com/@bob|@bob>"},
+		{"@bob @U1", map[string]string{"bob": "U1", "U1": "U2"}, "<@U1> <@U2>"},
+		{"a <b @bob> c", map[string]string{"bob": "U1"}, "a <b <@U1>> c"},
+	} {
+		if got := translateMentions(c.in, c.names, map[string]string{"general": "C1"}, nil); got != c.want {
+			t.Errorf("translateMentions(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

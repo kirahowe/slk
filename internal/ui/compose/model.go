@@ -1251,6 +1251,13 @@ func translateMentions(text string, names, channels, groups map[string]string) s
 			}
 			idx := searchFrom + rel
 			end := idx + len(mention)
+			// A name inside a token is part of it: the label of a
+			// <!subteam^S1|@design> left in wire form, or a token an
+			// earlier entry wrote (<@U1> holds "@U1").
+			if inWireToken(text, idx) {
+				searchFrom = end
+				continue
+			}
 			// Require a word boundary after the mention so #general
 			// doesn't match inside #general-help, etc.
 			if end < len(text) {
@@ -1266,6 +1273,24 @@ func translateMentions(text string, names, channels, groups map[string]string) s
 	}
 
 	return text
+}
+
+// inWireToken reports whether position i of text lies inside a Slack
+// wire token: <@U…>, <#C…|name>, <!here>, <!subteam^S…|@handle>,
+// <https://…|label> or <mailto:…>. A "<" that starts anything else is
+// text the user typed.
+func inWireToken(text string, i int) bool {
+	open := strings.LastIndexAny(text[:i], "<>")
+	if open < 0 || text[open] != '<' {
+		return false
+	}
+	end := strings.IndexAny(text[i:], "<>")
+	if end < 0 || text[i+end] != '>' {
+		return false
+	}
+	body := text[open+1:]
+	return strings.HasPrefix(body, "@") || strings.HasPrefix(body, "#") || strings.HasPrefix(body, "!") ||
+		strings.HasPrefix(body, "http://") || strings.HasPrefix(body, "https://") || strings.HasPrefix(body, "mailto:")
 }
 
 // wireMentionRe matches the mention tokens translateMentions emits,
