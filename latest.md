@@ -1,118 +1,223 @@
-# Upstream review 2026-10-26
+# Upstream review 2026-11-02
 
-Range: `07bdfab0..04d0a2d4` (ledger and last report both stopped at `07bdfab0`). 23 upstream PRs, 75 non-merge commits; none of them are already in the fork by patch, and none are in the ledger. Counts: 11 take, 7 maybe, 5 skip. The most important item is the sixel group (#362, #365, plus #357 and #363). On a sixel terminal, every frame that shows a Block Kit image writes the raw DCS pixel stream at whatever the cursor position is, and nothing erases it. The screen corrupts until you restart. A smaller but real cache bug comes second: the fork caches a `message_changed` echo with an empty subtype and refreshes `synced_at`. Editing a thread broadcast therefore drops it from the cached channel feed, and an edit makes a channel that a reconnect marked stale look fresh again (#348, cache commits only; the fork already has the UI-side changed/edited split). Stacked in commit order, the clean TAKE commits (#342, #339, #340, #364, #357, #362) build, and `go test` passes for `internal/emoji`, `internal/image`, `internal/ui`, `internal/ui/messages/...`, `internal/slack` and `cmd/slk`.
+Range: `04d0a2d4..4428adf0`. That is 44 upstream units: 43 merged PRs, plus #319, which landed as 23 direct commits on upstream main. There are 157 non-merge commits in all. None is already in the fork by patch, and none is in the ledger. The ledger still says "reviewed through `07bdfab0`" and does not yet record the decisions from the 2026-10-26 report. Counts: 21 take, 4 maybe, 19 skip.
+
+The most important item is #399. slk shows DM peers as away while they are online, for two reasons:
+- The socket is opened with `no_query_on_subscribe=1` and slk never sends a `presence_query`.
+- Every `UpsertUser` overwrites the cached presence with a placeholder.
+
+Second is #395: `E` on a message with a mention, list or link opens the editor on wire tokens (`<@U…>`) and loses line breaks. Both need hand-ports onto the fork's code (wsSession, `switchLists`, `enterEdit`/`translateMentions`).
+
+Many of the takes are one-line or very small, and four of them pick cleanly together: #383, #385, #386 and #381. A trial merge found no common merge base between origin/main and upstream/main, so 3-way cherry-picks sometimes fall back to plain patch application.
 
 ## Take
 
-- **#362: fix: paint block-kit sixel images through the placement pipeline** ([PR](https://github.com/gammons/slk/pull/362)), together with **#365: fix: split the prerendered block image's side channel by protocol** ([PR](https://github.com/gammons/slk/pull/365))
-  - What: Block Kit images under sixel stop firing `OnFlush` from View, which wrote the DCS stream at the cursor every frame. They now go through the same SixelRows placement path that file attachments use, keyed by the fetcher cache key. Follow-ups fix where section accessories and legacy-attachment images are placed, and graft halfblock fallbacks into thread renders through a shared `SpliceSixelFallbacks`. #365 closes the same leak on the prerendered fast path that #357 added.
-  - Why: screen corruption that only a restart clears, for any sixel user who views a message with a block image. It also stops hashing hundreds of KB of payload per image per frame.
-  - Conflict: low. `internal/ui/messages/blockkit/image.go`, `layout`/`attachments.go`, `internal/ui/messages/model.go`, `internal/ui/thread/model.go`, plus the AGENTS.md vocabulary row.
-  - Cherry-pick: #362 (`13738d57..42f82bbe`, 8 commits) is clean on its own and on top of #357. #365 (`e61ebe87`) needs #357 first and conflicts in `AGENTS.md`, `blockkit/image.go` and `image_sixel_test.go` when #362 is not already applied. Take #357, #362, #363 and #365 in that order. Done that way, only `internal/ui/messages/model_test.go` conflicts (from #363). Add the new `SpliceSixelFallbacks` row to AGENTS.md's table in the fork's wording.
+- **#399: fix(presence): DM peers shown away while they are online** ([PR](https://github.com/gammons/slk/pull/399))
+  - What: `UpsertUser` no longer overwrites `presence` on conflict. A workspace switch rereads DM presence from the cache (`withCachedPresence`). A `presence_query` is sent after `presence_sub`.
+  - Why: a peer's reply re-upserts their profile and resets them to away. Peers already online before connect are never reported, because the socket uses `no_query_on_subscribe=1`.
+  - Conflict: high in `cmd/slk/main.go`: the fork uses `switchLists(wctx, statuses)`, so put `withCachedPresence` inside `switchLists` in `cmd/slk/workspace.go`. High in `internal/slack/client.go`: upstream's `QueryPresence` uses `c.wsMu`/`c.wsConn`, which the fork replaced with `wsSession`.
+  - Cherry-pick: `18f0a57a` (cache) is clean, and `internal/cache` and `cmd/slk` pass. `4d375891` conflicts in `cmd/slk/main.go`. `752fa085` conflicts in `cmd/slk/presence.go` and does not build against the fork's client. `6155923a` conflicts in AGENTS.md.
+  - Fit:
+    - Rewrite `QueryPresence` over `(*wsSession).writeJSON` with the `maxClientFrame` limit.
+    - Query only the `ids[:n]` prefix that `SubscribePresence` reports it sent. Size the frame the way `presenceSubFit` does, since the gateway closes the socket on an oversized frame.
+    - Add the AGENTS.md row in the fork's table, next to the WebSocket write row.
 
-- **#357: fix: keep the prerender cache across same-protocol reconfigures** ([PR](https://github.com/gammons/slk/pull/357))
-  - What: `ConfigurePrerender` drops the fetcher's prerender cache only when the image protocol changes. Before this, it dropped it on every workspace switch.
-  - Why: after a switch, every visible image was re-encoded synchronously in View, 140-400 ms per image on sixel, which means a freeze of several seconds. Small fix.
-  - Conflict: none (`internal/image/fetcher.go`, `blockkit/image.go`).
-  - Cherry-pick: `02178c5a` clean.
+- **#395: fix(compose): edit a message as it was typed (mentions, lists, links)** ([PR](https://github.com/gammons/slk/pull/395))
+  - What: `E` seeds the composer from the message's rich_text blocks rendered as typed markdown (`messages.EditSource`, `blockkit.RichTextToMarkdown`). It also turns `<@U…>`/`<#C…>` back into `@name`/`#name` (`compose.MentionsForEdit`).
+  - Why: the fork seeds the editor with raw text through `beginEditOfSelected` → `enterEdit`. Editing any message with a mention, list or link shows wire tokens. This is a common action.
+  - Conflict: high in `internal/ui/app.go` and `internal/ui/compose/model.go`. The fork split `beginEditOfSelected`/`enterEdit` and has the pure `compose.translateMentions` where upstream refactored `sendMentions`.
+  - Cherry-pick: `11badcf5 8770792b e779dd25 15ba6a6f 1155b325 6eca0380 c1415834` conflict in those two files. The other 8 files apply. Hand-port.
+  - Fit:
+    - Write `MentionsForEdit` as a pure function of the same maps, beside `translateMentions`.
+    - Add a rapid round-trip property against `mrkdwn.Convert`. Today `RichTextToMarkdown`, `EditSource` and `MentionsForEdit` have example tests only.
+    - Check that `reopenEdit` and `messages.Body`/`TypedBody` agree with the new seed text.
+    - Merge upstream's two AGENTS.md rows into the fork's table.
 
-- **#363: fix: keep border and gutter on clipped-image fallback rows** ([PR](https://github.com/gammons/slk/pull/363))
-  - What: when a partly visible sixel image falls back to halfblock, the fallback is grafted onto the placeholder row (prefix, image, tail) instead of replacing the whole row.
-  - Why: clipped images lost the border and gutter, sat 1-6 columns left of their slot, and left stale cells to their right.
-  - Conflict: low (`internal/ui/messages/model.go`). The test file conflicts.
-  - Cherry-pick: `40957ec0` conflicts in `internal/ui/messages/model_test.go` only (test-placement hunk).
+- **#415: fix(mentions): resolve user names in message content** ([PR](https://github.com/gammons/slk/pull/415))
+  - What: new `cmd/slk/resolveMessageMentions`. It collects `<@U…>` mentions from every visible text part (body, section and context blocks, legacy attachment pretext, text, fields and blocks), fills names from the cache, and queues misses on the source workspace's `UserResolver`. It runs on history fetches, cache reads, thread replies and live events.
+  - Why: a mention of a user slk has never resolved shows as `@U123` permanently. The fork has nothing for this; `MentionedNames` only feeds notifications.
+  - Conflict: low, `wiki/Features.md` only. It adds one line to each of the three duplicated fetch functions in `cmd/slk/history.go`.
+  - Cherry-pick: `eb85e7f5` conflicts only in `wiki/Features.md` (keep ours). Build, vet, `cmd/slk` and `internal/ui` all pass.
+  - Fit: `cmd/slk/message_mentions_test.go` (two places) uses `select { case <-watch.done: case <-time.After(2s) }`. Make each a bare `<-watch.done`. Keep the AGENTS.md row it adds.
 
-- **#348 (cache commits only): fix(cache): a change echo updates the cached row, not replaces it / leaves the channel's sync state alone** ([PR](https://github.com/gammons/slk/pull/348))
-  - What: `8acf8c52` caches a `message_changed` echo through a new `cache.DB.ApplyMessageChange`: a single UPDATE of text plus a `json_patch` of text/files/blocks/attachments into raw_json, with every other column left alone. `698a9bfe` stops a change echo from setting `synced_at` and advancing `latest_synced_ts`.
-  - Why: the fork's `OnMessage` sends every echo through `UpsertLiveMessage` with `subtype=""` (`internal/slack/events.go` passes `""` for message_changed). The fork's version keeps reply_count and thread_ts but overwrites subtype, so an edited `thread_broadcast` drops out of the cached channel feed. The echo also refreshes `synced_at`, so a channel that a reconnect marked stale skips its refetch after any edit in it. The rest of the PR (`c7a51e15`, changed/edited split, `ApplyChange` in the panes) is already in the fork in its own form (`OnMessage(..., changed bool, edited *slack.Edited, ...)`, `showBody`, `pendingOps.EditEcho`). Do not take that part.
-  - Conflict: high, textually. `cmd/slk/rtm_handler.go`'s cache block and `internal/cache/messages.go` were rewritten in the fork. Port it by hand: in `OnMessage`, when `changed`, call an `ApplyMessageChange`-style update instead of `UpsertLiveMessage`, and skip `SetChannelSyncedAt` and `AdvanceChannelLatestSyncedTS`. Add the new cache method to AGENTS.md's table next to `UpsertLiveMessage`.
-  - Cherry-pick: `8acf8c52` conflicts (`rtm_handler.go`, `cache/messages.go`); `698a9bfe` conflicts (`rtm_handler.go`, its test). Its `change_echo_cache_test.go` and the mention test `43862285` are worth bringing along. `43862285`'s and `a328b0d2`'s notify tests use `time.Sleep` ("let a wrongly started notification land", a quiet-period check). Per the no-wall-clock rule, rewrite them to run the handler to completion and then assert.
-  - Not recommended from the same PR: `ad50132e` (`entrylist.HoldBottom`, keep the pane at the bottom when a message grows in place). The fork's entrylist already anchors a bottom window across every `SetEntries`, so it probably duplicates that. Check first whether an unfurl landing on a just-sent message pushes rows under the fold in the fork. It conflicts in five files.
+- **#316: fix: copy, export and open links from a forwarded message's shared text** ([PR](https://github.com/gammons/slk/pull/316))
+  - What: new `messages.MessageCopyText`. It returns the body, or for a forwarded message, falls back to the shared attachment's text (comment, then shared text). It is used by `y`, the markdown export, export index snippets, the export mention scan and `MessageLinks`.
+  - Why: `y` on a forwarded message says "Message has no text", and the export loses forwarded content.
+  - Conflict: low: AGENTS.md and `internal/ui/messages/links.go`. The fork's `MessageLinks` is simpler, so take only `out := ExtractLinks(MessageCopyText(msg))`. If #336 from the last report is taken, reconcile with it.
+  - Cherry-pick: `a9860f03 54772403 b5cc3d78 4b3cdb4b 522b03bd 2bb660a7 bc1dc26b`, one at a time. AGENTS.md conflicts in four of them and `links.go` in two, all resolved as above. Build passes, and `messages`, `export`, `ui` and `cmd/slk` pass.
+  - Fit: `MessageCopyText` is pure with example tests only. Add a property, for example: the result contains `MessageTextSource(msg)` whenever that is non-empty. Add its row in the fork's table.
 
-- **#364: fix: pin the Activity badge to the workspace's unread-activity total** ([PR](https://github.com/gammons/slk/pull/364))
-  - What: the sidebar's Activity badge shows the server's total unread activity: the sum of `activity_v2` from `client.counts` at boot, and from `badge_counts_updated` events, which the fork currently logs as unknown. It is stored per workspace and adjusted by one when you read an item. Before, it counted unread items in the loaded 50-item page.
-  - Why: the current badge undercounts and jumps between two wrong numbers when `u` re-fetches a page (upstream saw 3 and 17 where the desktop showed 55). It handles a Slack event that slk drops today.
-  - Conflict: low. `cmd/slk/connect.go`, `reconnect_sync.go`, `presence.go`, `internal/slack/client.go` and `events.go`, `internal/ui/reducer_activity.go` and `reducer_workspace.go`. All applied cleanly over the fork's reconnect/session work.
-  - Cherry-pick: `297f97a2` clean; builds and tests pass. For the fit pass: `cmd/slk/badge_clock.go` orders a badge event against an in-flight `client.counts` by `time.Now()` stamps. The fork already solves this with the `mark()` pattern in `selfStatus.applyFetched` (`cmd/slk/self_status.go`), so rework it to that rather than adding a second ordering scheme. Also decide whether DMs counted here and in the Unreads pill is acceptable; `activity_v2` includes DMs.
+- **#417: fix(ui): keep avatars intact when author headers wrap** ([PR](https://github.com/gammons/slk/pull/417))
+  - What: `RenderMessage` wraps the author header to `HeaderBudget` before the avatar gutter is added. The timestamp and edited mark are kept whole, and the real header height feeds the image and hit-rect rows.
+  - Why: in a narrow pane a long display name splits the avatar image and moves image and reaction hit rects by a row. The fork's narrow-terminal layout makes this more likely.
+  - Conflict: low, AGENTS.md only.
+  - Cherry-pick: `8a4d9706` conflicts only in AGENTS.md. Build passes, and `internal/ui` passes with goldens unchanged. One `internal/ui/messages` test (`TestWrapRows_WrappedHeaderKeepsActionRowsAligned`) does not compile because it uses `WrappedRows.LinkHits` and `entrylist.HitFile` from upstream #358. Drop it or adapt it.
+  - Fit: the header wrap is close to pure. Add a property such as "every header line fits `HeaderBudget`, and the timestamp stays whole when it fits".
 
-- **#336: fix(ui): o finds links in Block Kit blocks and legacy attachment bodies** ([PR](https://github.com/gammons/slk/pull/336))
-  - What: `messages.MessageLinks` also scans top-level section/context blocks and each legacy attachment's pretext, title_link, text, fields and nested blocks. Body text comes from `MessageTextSource` and is used only when the blocks don't carry the body. Results are deduplicated by URL.
-  - Why: on Jira-style unfurl notifications (all content in attachment blocks), `o` says "No links in message".
-  - Conflict: low (`internal/ui/messages/links.go`; AGENTS.md row for `MessageLinks`).
-  - Cherry-pick: `bea6472c` conflicts in `AGENTS.md` and `links_test.go` only. Its tests are examples of a pure function. AGENTS.md wants a property, for example "every URL returned appears in some drawn text source, and no URL repeats", over `proptest.SlackText`.
+- **#409: fix(messages): keep the theme's text colour on Block Kit lines, attachments and after inline emoji** ([PR](https://github.com/gammons/slk/pull/409))
+  - What: re-emits the theme foreground at the start of each Block Kit line, after the legacy-attachment stripe, and after an inline kitty emoji (which ends in `\e[39m`).
+  - Why: on themes whose text colour is not the terminal default, bullets, attachment titles and text after a custom emoji are drawn in the terminal colour. On some themes that is unreadable.
+  - Conflict: low, goldens only.
+  - Cherry-pick: `d34dcd32 42ed9a0a`. The code merges cleanly; `narrow.ansi`, `thread_open.ansi` and `thread_parent_selected.ansi` conflict. Keep the fork's goldens and run `go test ./internal/ui -run TestGolden -update`: 12 goldens change, 29 lines. Then `ui`, `messages` and `blockkit` pass.
+  - Fit: re-bless rather than take upstream's goldens. This does not duplicate `ReapplyAfterResets`, which handles resets, not a trailing `39m`.
 
-- **#337: fix(export): convert inline markup inside quotes to CommonMark** ([PR](https://github.com/gammons/slk/pull/337))
-  - What: the Markdown export runs quoted lines through `slackMrkdwnToCommonMarkInline` before decoding entities.
-  - Why: the fork fixed this on screen (`69e12859`, `9515c481`) but not in the export (`render.go:967`, which still only decodes entities). Quoted links export as raw `<https://…|label>`. The code change is one line.
-  - Conflict: low. `internal/ui/messages/render.go` (the Width doc comment hunk; the fork already rewrote that comment) and `render_test.go`.
-  - Cherry-pick: `3441863b` conflicts in `render.go` and `render_test.go`. Take only the added line in `SlackMrkdwnToCommonMarkWithUserGroups` and the export test.
+- **#416: fix(sidebar): load starred conversations from the boot snapshot** ([PR](https://github.com/gammons/slk/pull/416))
+  - What: Starred membership comes from `client.userBoot`'s `starred` list instead of `stars.list`, skipping unknown entry shapes. Startup reuses the boot result it already has; a reconnect fetches a fresh userBoot.
+  - Why: `stars.list` is restricted or empty on Enterprise Grid, so the Starred section is blank there. It also saves one RPC at startup. Cost: on reconnect a full userBoot runs on the event owner, bounded by the existing 30s ctx and the SectionStore debounce. The payoff depends on whether any of Kira's workspaces are on Grid.
+  - Conflict: low. `cmd/slk/connect.go` conflicts on the OnConnect comment and on upstream's `sectionRefreshAt` gate (from #278); keep the fork's side or bring #278's gate.
+  - Cherry-pick: `df44f64c` conflicts only in `cmd/slk/connect.go`. After resolving, build passes but vet fails: `starred_boot_test.go` appends to `wctx.Channels` as a field and sets `sectionRefreshAt`.
+  - Fit: seed the test through the owner slice plus `publishChannels()` and hand the UI `wctx.Channels()`. Its `time.Sleep(31s)` runs inside a `synctest` bubble, which the fork allows.
 
-- **#339: fix(emoji): keep an emoji that follows a skin-toned one** ([PR](https://github.com/gammons/slk/pull/339))
-  - What: in `StripSkinToneFromText`, the regex is replaced with one that matches only toned shortcodes (`::skin-tone-N`, `::skin-tone-N-M`, `_toneN`).
-  - Why: in glyph mode and in the export, `:+1::skin-tone-5::tada:` lost the 🎉, and `12:30:+1::skin-tone-5:` left a bare swatch. It is a pure function of its input; a property test would fit, for example "no shortcode without a tone changes, and output never contains `skin-tone`".
-  - Conflict: none (`internal/emoji/fuse.go`). It does not touch the fork's VS16/width gate.
-  - Cherry-pick: `41ce7ed3 b66152f6 e494ca5e e35b4c22` clean.
+- **#278: fix(starred): debounce reconnect recovery, include recovered peers in presence, keep newer finder visits** ([PR](https://github.com/gammons/slk/pull/278))
+  - What: three follow-ups to starred people, which the fork already has:
+    - `OnConnect` runs the presence bootstrap after starred-row recovery, so recovered starred DMs get presence.
+    - The section refresh and starred reconciliation are debounced to once per 30s across connection flaps.
+    - `channelfinder.Upsert` keeps the newer `LastVisited`.
+  - Why: the fork's `OnConnect` has the same ordering bug, because presence runs through `wctx.selfFetch` before the section refresh. The other two are small correctness fixes.
+  - Conflict: high in `cmd/slk/connect.go` (the fork's `selfFetch`/`latestRunner`) and in `cmd/slk/starred_deferred_resolution_test.go` (the fork's unexported owner slices).
+  - Cherry-pick: `754bf2c5 35d56891 81192e02 e90c2355 9419b06d f7234aee ec5e7976 2e0f8cbf` conflict in `connect.go`. Taken as a whole diff, only those two files conflict; `rtm_handler.go`, `channelfinder` and the other tests apply.
+  - Fit:
+    - The new tests use `time.After(5s)` three times; make them blocking receives.
+    - The debounce reads `time.Now`/`time.Since` on `sectionRefreshAt`; inject `now`.
+    - Tests go through `FinderItems()`/`Channels()`.
+    - The moved presence fetch stays inside `selfFetch.Run`.
+    - Take it with or before #416, which assumes its gate.
 
-- **#340: fix(emoji): draw skin-toned emoji as one image in the right shade** ([PR](https://github.com/gammons/slk/pull/340))
-  - What: in image mode, `:+1::skin-tone-2:` is merged into one toned image. The off-by-one between Slack's tone numbers (2-6) and kyokomi's (1-5) is fixed, and so is a VS16 left in composed CDN URLs that made them 404. The generator emits the set of emoji that take a tone.
-  - Why: today every toned emoji in image mode is either one shade off or a yellow base plus swatch, and some never load.
-  - Conflict: none (`internal/emoji/*`, generated `slacknames_gen.go`).
-  - Cherry-pick: `4e89681a fe613cc2` clean on top of #339.
+- **#398: feat(thread): p goes to the open thread's message in its channel** ([PR](https://github.com/gammons/slk/pull/398))
+  - What: with a thread open, `p` closes the thread and jumps to its parent message in the channel through `applyLocation`. It records the thread as the back-jump target, so `''` returns. It also extracts `threadPanelLocation()` from `currentLocation`.
+  - Why: about 50 lines plus a test, built on the fork's own mark and back-jump machinery. `p` is unbound in the fork.
+  - Conflict: low. `internal/ui/keys.go` conflicts on the fork's grouped-help `help:"…"` tags, and so do the two help goldens.
+  - Cherry-pick: `1c61c14d 3955b5c4` conflict in `keys.go`, `dialog_help.ansi` and `dialog_help_narrow.ansi`. With keys.go resolved (`JumpToParent key.Binding \`help:"Threads"\``) and the fork's goldens kept, build passes. One test fails: `TestEveryBoundKeyReachesAHandler/JumpToParent/p` ("p did nothing", because no thread is open in that fixture).
+  - Fit: add `"JumpToParent/p": "only with a thread open; none is"` to `keyMapReachExempt` in `internal/ui/keymap_reach_test.go`, or open a thread in that case. Re-bless the help goldens if the overlay lists the new key.
 
-- **#342: fix(image): don't pick kitty for WezTerm under tmux** ([PR](https://github.com/gammons/slk/pull/342))
-  - What: drops `wezterm` from the tmux outer-terminal kitty match, so it falls back to halfblock.
-  - Why: WezTerm has no kitty unicode-placeholder support, so images under tmux draw at the cursor and show tofu.
-  - Conflict: none (`internal/image/capability.go`, wiki).
-  - Cherry-pick: `312ded5d` clean.
+- **#378: fix(ui): accept non-ASCII runes in the command line and finders** ([PR](https://github.com/gammons/slk/pull/378)), together with **#393: fix(ui): accept non-ASCII runes in the theme, presence, reaction and help searches** ([PR](https://github.com/gammons/slk/pull/393))
+  - What: the command line, channel finder, workspace finder, new-message picker, help search, presence menu, reaction picker and theme switcher accept any single printable rune. Backspace removes a whole rune.
+  - Why: accented and CJK channel or user names cannot be typed today, and backspace can cut a UTF-8 sequence in half.
+  - Conflict: low. `internal/ui/mode_command.go` for #378, because the fork writes `a.cmdline` directly instead of `setCmdline`. #393 has none.
+  - Cherry-pick: `94bb0bc8` (#378) conflicts only in `mode_command.go`. After a hand-port it builds, and the finder and picker packages pass. `c8025253` (#393) is clean, and its four packages pass. The fork's `TestCommandMode_NonASCIIRuneIsDropped` pins the old bug; re-pin it.
+  - Fit: the two PRs together leave eight inline copies of the same printable-rune check and rune backspace. Replace them with one shared helper, listed in AGENTS.md, with a property test (typing a rune then backspace restores the query).
+
+- **#375: fix(messages): show app link chips (attachment_mention) by their title** ([PR](https://github.com/gammons/slk/pull/375))
+  - What: rich_text `attachment_mention` elements (Linear and other Work Object chips) render as `<url|title>`. Link labels are entity-decoded in the renderer and in `ExtractLinks`.
+  - Why: a message sent from the web client with a chip currently loses the link entirely, and labels show `&amp;`.
+  - Conflict: low, `internal/ui/messages/blockkit/richtext_test.go` (both sides added tests).
+  - Cherry-pick: `7545bc57 68b4a0a7` conflict only in that test file. Resolved, build passes and `blockkit` passes. Two `messages` tests fail, `TestRenderMessage_AttachmentMentionShowsTitle` and `TestMessageLinks_AttachmentMentionTitleUnescaped`, because they depend on upstream's block-scanning `MessageLinks` (#336 in the last report). Take #336 first or adapt them.
+  - Fit: label escape and decode are pure; add a property that a label survives escape then decode.
+
+- **#402: fix(messages): keep links to other Slack messages (message_mention) in the body** ([PR](https://github.com/gammons/slk/pull/402))
+  - What: rich_text `message_mention` elements (a link to another Slack message) are rebuilt as `<url>` links instead of being dropped.
+  - Why: the fork draws the body from the rich_text block. slack-go delivers this element as `RichTextSectionUnknownElement`, which `inlineToMrkdwn` drops, so pasted message permalinks disappear from the rendered message.
+  - Conflict: high for a cherry-pick. It sits on #375 and on `richtext_markdown.go` (from #395), and the fork has neither.
+  - Cherry-pick: `1436479e` conflicts in `richtext.go`, and the two `richtext_markdown*` files are missing. Port the small `RichTextSectionUnknownElement` case by hand, after #375.
+  - Fit: reuse the fork's `linkToMrkdwn`. Bring `testdata/message_mention.json`.
+
+- **#400: fix(preview): open images without a thumbnail (SVG) in the system viewer** ([PR](https://github.com/gammons/slk/pull/400))
+  - What: `O`/`v` on an image with no thumbnail (an SVG) downloads it and opens it in the OS viewer through the existing `DownloadFileMsg` path.
+  - Why: the keys do nothing on SVG uploads today. It is about 30 lines and adds no new I/O in `internal/ui`.
+  - Conflict: low. A comment-adjacent hunk in `internal/ui/app.go` (beside `submitEdit`'s doc) and `wiki/Keybindings.md`.
+  - Cherry-pick: `4e050f4d`; resolve `app.go`. Build passes. Fork-only tests fail because their image fixtures have no `Thumbs`: `TestEveryBoundKeyReachesAHandler/OpenPreview/{O,v}` and `TestMessageKeysSkipTheHiddenChannelPane/{O,v}`.
+  - Fit: give those fixtures' image attachment a thumbnail.
+
+- **#390: fix(messages): collect warm emoji uploads from Block Kit text** ([PR](https://github.com/gammons/slk/pull/390))
+  - What: `BlockkitContext` passes the message's `BlockFlushes` collector to RenderText.
+  - Why: kitty custom emoji in Block Kit text draw placeholders whose image uploads are never flushed. The fork still has `EmojiFlushes: nil`.
+  - Conflict: low, `blockkit_integration_test.go` imports.
+  - Cherry-pick: `abeb9395` conflicts on that test's imports only (drop the unused `encoding/json`). Then `internal/ui/messages` passes.
+  - Fit: update the `messages.BlockkitContext` row in AGENTS.md for the new parameter.
+
+- **#377: fix(config): make appearance.show_avatars work** ([PR](https://github.com/gammons/slk/pull/377))
+  - What: `ShowAvatars` defaults to true, and `main.go` wires the avatar service only when it is set.
+  - Why: the setting is read but ignored. With the default true, behaviour does not change unless you set it.
+  - Conflict: low, an end-of-file clash in `internal/config/config_test.go`.
+  - Cherry-pick: `d1845c43` conflicts only there. Resolved, `internal/config` and `cmd/slk` pass.
+  - Fit: rewrite the test with `loadConfigString(t, body)` instead of TempDir and WriteFile.
+
+- **#385: fix(membership): record a failed member write so the backoff holds** ([PR](https://github.com/gammons/slk/pull/385))
+  - What: when `ReplaceChannelMembers` fails, `lastFailed` is set so `EnsureFresh` does not refetch at once.
+  - Why: today a SQLite write that keeps failing causes a fetch storm against Slack.
+  - Conflict: none.
+  - Cherry-pick: `504a1640` clean; the membership tests pass.
+
+- **#386: fix(compose): bump the render version in RefreshStyles** ([PR](https://github.com/gammons/slk/pull/386))
+  - What: `RefreshStyles` calls `m.dirty()`.
+  - Why: after a theme change the composer serves a stale cached frame in the old theme. One line.
+  - Conflict: none.
+  - Cherry-pick: `42d60b76` clean; compose tests pass.
+
+- **#383: fix(ui): let shift+enter and shift+esc submit and cancel search** ([PR](https://github.com/gammons/slk/pull/383))
+  - What: the `/` search prompt matches on the key code, so shift+enter submits and shift+esc cancels.
+  - Why: real input bug; the fork has the same `key.Matches` code in `internal/ui/mode_search.go`.
+  - Conflict: none.
+  - Cherry-pick: `986223a1` clean; search tests pass.
+
+- **#381: fix(ui): clear the link picker's kind when a link is committed** ([PR](https://github.com/gammons/slk/pull/381))
+  - What: `pickerKind` and `pickerFiles` are cleared on every commit, not only when the committed link is a file.
+  - Why: a stale "files" kind can send the next picker down the wrong path.
+  - Conflict: none.
+  - Cherry-pick: `91101a20` clean. #383, #385, #386 and #381 pick together cleanly, and `go build ./...` passes with all four.
+
+- **#394: test(ui): pin every Mode to a handler with a modeCount sentinel** ([PR](https://github.com/gammons/slk/pull/394))
+  - What: adds a `modeCount` sentinel to the Mode iota and loops over it in `TestEveryModeHasAHandler`.
+  - Why: test only and low priority. It replaces a hand-maintained list, which the fork's `ModeCanvas` already shows can drift. This is the AGENTS.md "replace a comment or list with a check" rule.
+  - Conflict: low, `internal/ui/mode.go` and `modekeys_test.go` (the `ModeCanvas` line).
+  - Cherry-pick: `3d91692e` conflicts in both files; put `modeCount` after `ModeCanvas`.
 
 ## Maybe
 
-- **#351: fix(emoji): draw two-person emoji with a tone per person** ([PR](https://github.com/gammons/slk/pull/351))
-  - What: `RichTextToMrkdwn` writes `:handshake::skin-tone-2-5:` from a rich_text element's unicode. The generator emits iamcal's per-person image names, which the tokenizer, `URLForShortcode` and reaction pills look up. An unmatched pair draws as the base. Adds `emoji.SlackSkinToneNumber`.
-  - Judgement: correct, but niche (two-tone handshakes and couples), and it adds about 300 generated lines. Take it only if you are taking #340 anyway; it builds on it.
-  - Conflict: low (`internal/emoji/*`, `internal/ui/messages/blockkit/richtext.go`).
-  - Cherry-pick: on top of #339 and #340, `6ab92b79 f88765db 76eac285 9595fd2d` conflict in `AGENTS.md` only. On origin/main alone it conflicts in six emoji files.
+- **#319: render system messages as centred notices and show who started a huddle** ([PR](https://github.com/gammons/slk/pull/319)), 23 direct commits `681db9e9..4428adf0`
+  - What:
+    - Join and leave events (`channel_join/leave`, `group_join/leave`) are forwarded live and drawn as one muted notice line in both panes. They are kept out of notifications, the unread mark and mention counting.
+    - Later commits do the same for `huddle_thread` and `tabbed_canvas_updated`, centre the notices like date separators, refuse to open threads on reply-less notices, and add spacing, search highlighting and reactions on notices.
+    - The bulk is huddle work: room capture through a slack-go response tap (`internal/slack/huddle_room.go`), core and cache plumbing (a `json_set` on `raw_json` in `UpsertMessage`), and "X started a huddle, lasted N min". About 3300 added lines in all.
+  - Judgement: the join/leave subset (`681db9e9`, `6a009136`, and optionally `7ddfeb0a` minus the huddle wording, since canvas-update notices suit the fork's canvas viewer) fixes a real fork bug. The fork's `internal/slack/events.go` subtype switch drops these events live, and from history they draw as Slackbot chat bubbles. An invitation join names the inviter, so it can also get the mention gutter. Skip the huddle commits (`f6b8dbbe 779fc3ce 5b240344 46682d69 60d9e32a 38d72f34 c9990638 3f98ae82 01628e9c`): huddles are not used, and they touch `internal/slack/client.go` and the cache. Decide whether the centred, bold divider style (`507a51e2`) and the "Can't reply to a system message" thread gate (`27435bd3`, `app.go` and `reducer_links.go`) are wanted beyond a plain muted line.
+  - Conflict: high for the series: AGENTS.md, `cmd/slk/rtm_handler.go`, `internal/ui/messages/render_message.go`, `internal/slack/events.go`. Each later commit in the subset conflicts once the earlier ones are hand-applied.
+  - Cherry-pick (subset): `681db9e9` conflicts in AGENTS.md, `rtm_handler.go` and `render_message.go`, all mechanical:
+    - `rtm_handler.go`: add `&& !messages.IsSystemNoticeSubtype(subtype)` to the fork's notify and `shouldMarkChannel` gates.
+    - `render_message.go`: put the notice branch ahead of `mention.Classify`.
+    - `6a009136` conflicts in `cmd/slk/event_handler_test.go`. Keep the fork's file, append the join test, and add one extra `nil` for the `*slack.Edited` parameter.
+    - After that, `cmd/slk`, `messages`, `thread` and `internal/slack` pass.
+  - Fit: add an AGENTS.md row for `messages.IsSystemNoticeSubtype`. The subset has no wall-clock waits.
 
-- **#341: fix(slackdesktop): read Secret Service via spec-only D-Bus calls** ([PR](https://github.com/gammons/slk/pull/341))
-  - What: replaces `r00t2.io/gosecret` with direct godbus calls (OpenSession, SearchItems, GetSecret), so `--add-workspace` works on Secret Service providers other than gnome-keyring (oo7-daemon). It also drops a dependency.
-  - Judgement: a real fix, but Linux-only, and about 590 lines (mostly tests). Worth it if the fork's tap or releases have Linux users on non-gnome keyrings. Irrelevant on macOS.
-  - Conflict: low. `internal/slackdesktop/password_linux.go`; `go.mod`/`go.sum` conflict with the fork's `x/net` bump, and the Nix `vendorHash` (`5f5b373b`) must be regenerated rather than taken.
-  - Cherry-pick: `4b6b0409 5f5b373b` conflicts in `go.mod`, `go.sum`.
+- **#358: feat: click links and file lines with the mouse** ([PR](https://github.com/gammons/slk/pull/358))
+  - What: finds OSC 8 spans in the wrapped rows (`messages/linkhits.go`, `ScanOsc8Spans`) and makes them click targets. Clicking a `[File]` line downloads the file. Clicks under the image preview are blocked. About 640 lines.
+  - Judgement: is mouse link-clicking worth 640 lines when `o` and the terminal's own Shift+Click work? It depends on upstream's `downloadFileAt` file-click hit test, which the fork lacks (#347, MAYBE last week), and links that wrap are not clickable.
+  - Conflict: high: AGENTS.md, `bubbles/entrylist/entrylist.go`, `content_pane.go`, `messages/model.go`, `reducer_mouse.go`.
+  - Fit if taken:
+    - It truncates with `truncate.StringWithTail`, which AGENTS.md says to replace with `ansi.Truncate`.
+    - `ScanOsc8Spans` is a byte parser with example tests only and needs a Fuzz target.
 
-- **#347: fix(ui): clicking a [File] line downloads and opens it** ([PR](https://github.com/gammons/slk/pull/347))
-  - What: records a `HitFile` rect for `[File]` lines in `RenderMessage`, adds `HitTestFile` to both panes and `contentPane`, and routes a left click to `DownloadFileMsg` (same path as `d`).
-  - Judgement: one click downloads and launches an app. That is convenient, but a stray click opens a file where today it selects the message. Decide whether you want that.
-  - Conflict: low (`render_message.go`, `reducer_mouse.go`, `content_pane.go`, `entrylist.go`).
-  - Cherry-pick: `74c1a41c 623b4b63` conflicts in `internal/ui/messages/render_message.go`.
+- **#389: feat(emoji): rank frecent emoji first in the reaction picker and autocomplete** ([PR](https://github.com/gammons/slk/pull/389))
+  - What: ranks frecent emoji first in the `:` autocomplete as well as the picker. It records emoji used in sent messages, replies and captions, and counts toned uses toward the base emoji. About 830 lines.
+  - Judgement: is a modest ranking improvement worth this much code?
+  - Fit if taken:
+    - It hooks the old `reduceSendMessage`/`SendThreadReplyMsg` paths, which in the fork would move to `beginSend`/`beginReply`.
+    - It calls `RecordFrecent` (a SQLite write behind a port) on the Update goroutine.
+    - `emoji.Match`, `UsedInText` and `Rank` are pure with example tests only.
+  - Conflict: high: AGENTS.md, `app.go`, `reducer_send.go`, `reducer_threads.go`, `reactionpicker/click_test.go`.
 
-- **#359: feat: click the compose box to start typing** ([PR](https://github.com/gammons/slk/pull/359))
-  - What: panes record their compose region each frame, and a click there enters insert mode through an extracted `beginInsertMode` (same path as `i`).
-  - Judgement: small and intuitive. The cost is giving up drag-to-copy that starts in the compose area. It touches the fork's normal-mode key path.
-  - Conflict: medium (`internal/ui/mode_normal.go`, `reducer_mouse.go`, AGENTS.md).
-  - Cherry-pick: `90d29574` conflicts in those three files.
-
-- **#361: feat: click the thread breadcrumb's channel to go up** ([PR](https://github.com/gammons/slk/pull/361))
-  - What: the breadcrumb reports the channel label's cell span, and a click on it closes the thread, like esc.
-  - Judgement: small mouse affordance, about 150 lines. Fine if you use the mouse; otherwise nothing gained. Check it against the stacked thread layout.
-  - Conflict: low (`internal/ui/thread/breadcrumb.go`).
-  - Cherry-pick: `214ec9aa` conflicts in `.gitignore` and `internal/ui/thread/breadcrumb_test.go`.
-
-- **#353: feat(compose): stay_in_insert_after_send option (default off)** ([PR](https://github.com/gammons/slk/pull/353))
-  - What: `[compose] stay_in_insert_after_send` keeps the composer focused after Enter. While it is on, app Ctrl shortcuts (Ctrl+P, Ctrl+N, Ctrl+A...) work from an empty composer, and Ctrl+W, Ctrl+H and Ctrl+K keep deleting. Includes two fixes for handing focus to the channel composer when a dialog outlives its thread.
-  - Judgement: whether you want this mode at all. The Ctrl-shortcut handoff from an empty composer overlaps directly with the fork's composer keys (ctrl+e, ctrl+x, ctrl+u), and those need a decision about which wins.
-  - Conflict: high (`internal/ui/mode_insert.go`, `app.go`, `reducer_channels.go`, `cmd/slk/main.go`, `ui_settings.go`, `internal/config/config.go`, wiki).
-  - Cherry-pick: `84bfd01e c5c24c3a 18e927c5 d05df2fa` conflicts in 8 files.
-
-- **#352: feat(ui): `:` command Tab completion, candidates in the status bar, `:help`, `:version`** ([PR](https://github.com/gammons/slk/pull/352))
-  - What: Tab completes `:` command names, with candidates shown as pills in the status bar (and marked when clipped). `:help` opens the keybindings overlay; `:version` shows the build identity through `version.Line` / `version.Short`.
-  - Judgement: discoverability for `:` commands, about 1100 lines. `:help` overlaps the fork's grouped help overlay, and `:version` may overlap the fork's update hint and `--version`. Taking Tab completion alone is probably the useful part.
-  - Conflict: medium (`internal/ui/command.go`, status bar, help-mode handler; wiki `Commands.md` and `Keybindings.md`, and `Commands.md` comes from #350).
-  - Cherry-pick: `43b6b306..322f2ec8` (7 commits) conflicts in `wiki/Commands.md` and `wiki/Keybindings.md` only. The `time.After`/timeout matches in its tests (4 lines) need checking against the no-wall-clock rule.
+- **#376: feat(slack): send links to Work Objects as chips, like the web client** ([PR](https://github.com/gammons/slk/pull/376))
+  - What: about 1500 lines, 470 of them production code. Each send calls `chat.unfurlLink` for every bare link and waits up to 3s for an `unfurl_preview_updated` frame. Links whose app publishes a Work Object (Linear and similar) are then posted as `attachment_mention` chips through a hand-built `chat.postMessage`.
+  - Judgement: worth a large protocol surface and up to 3s extra latency on every send with a link? Only if Kira's workspaces use Linear-style apps. Receiving chips is handled by #375 either way.
+  - Conflict: high: `internal/slack/client.go` (the fork's wsSession dispatch), and `internal/ui/selfsend.go`, which the fork deleted for `pendingOps`, so the second commit does not apply.
 
 ## Skip
 
-- **#349: x removes a link preview from your own message** ([PR](https://github.com/gammons/slk/pull/349)): `chat.deleteAttachment` plus a new `MessageService.RemoveAttachment` port, a chooser, and pending/stale-copy state, about 2000 lines across 34 files for a rare action. Same "large surface for small gain" call as #317. Only `AGENTS.md` conflicts if you ever want it.
-- **#360: custom status presets (WFH, vacation) in Ctrl+S** ([PR](https://github.com/gammons/slk/pull/360)): two hardcoded presets plus a self-status segment in the status bar, about 1100 lines. It also truncates with `reflow/truncate`, which AGENTS.md says not to use for styled lines. The segment showing your own custom status is the only part worth lifting by hand.
-- **#354: sort conversations alphabetically within sections** ([PR](https://github.com/gammons/slk/pull/354)): replaces Slack's own order inside sections with name order, with no option, and re-blesses 36 goldens. Conflicts with the fork's sidebar (`sortFilteredIdx`, Unreads section) and its goldens.
-- **#350: docs: add a Commands wiki page** ([PR](https://github.com/gammons/slk/pull/350)): upstream wiki for its command set; the fork's commands differ (`slk open` and others).
-- **#366: add stale workflow and README update** ([PR](https://github.com/gammons/slk/pull/366)): upstream's issue-triage automation.
+- **#401: show a hidden DM once it turns unread** ([PR](https://github.com/gammons/slk/pull/401)): the fork already does this through its Unreads section's `rebuildFilter`. Upstream's main test passes on the fork unchanged.
+- **#379: keep the scroll position inside the parent on resize** ([PR](https://github.com/gammons/slk/pull/379)): the fork's entrylist already anchors by entry ID, and the thread parent has one. High conflict.
+- **#380: draw the thread header separator with ─** ([PR](https://github.com/gammons/slk/pull/380)): the fork already draws `─`.
+- **#405: "Unread mentions" pills for mentions scrolled out of view** ([PR](https://github.com/gammons/slk/pull/405)): the fork's Unreads section and status-bar pill already do this job.
+- **#407: optional Slack-like sidebar (indent, look, Active-only filter, private glyph, mouse resize)** ([PR](https://github.com/gammons/slk/pull/407)): five cosmetic options in about 540 lines, including a punctuation-ignoring re-sort. It is stacked on upstream sidebar options the fork lacks and conflicts heavily with the Unreads section.
+- **#404: optional Slack-like names, selected-row pill and mention badges** ([PR](https://github.com/gammons/slk/pull/404)): cosmetic theme roles stacked on upstream sidebar options the fork lacks.
+- **#406: optional Slack-style reply row with replier avatars** ([PR](https://github.com/gammons/slk/pull/406)): opt-in cosmetic, kitty-only, that changes `core` types and ports. High conflict in `cmd/slk/history.go` and `messages/*`.
+- **#391: optional author avatars in the thread pane** ([PR](https://github.com/gammons/slk/pull/391)): tiny opt-in cosmetic of low value.
+- **#321: call chrome.Window directly in the dialogs** ([PR](https://github.com/gammons/slk/pull/321)): refactor churn. It conflicts with the grouped help overlay (`internal/ui/help/model.go`).
+- **#387: correct the normal- and insert-mode header comments** ([PR](https://github.com/gammons/slk/pull/387)): the comments describe upstream-only features (`stay_in_insert_after_send`, `x` remove preview).
+- **#326: whole-App benchmarks with a dialog open** ([PR](https://github.com/gammons/slk/pull/326)): benchmarks only, like the declined #325.
+- **#324: chrome List and Box benchmarks** ([PR](https://github.com/gammons/slk/pull/324)): benchmarks only.
+- **#323: ansi.ReapplyAfterResets benchmarks** ([PR](https://github.com/gammons/slk/pull/323)): benchmarks only.
+- **#367: pin dependencies** ([PR](https://github.com/gammons/slk/pull/367)): upstream Renovate SHA-pinning of upstream workflows, including a `stale.yml` the fork does not have. Pin the fork's actions by hand if you want that hardening.
+- **#368: update github actions** ([PR](https://github.com/gammons/slk/pull/368)): upstream Renovate bump (install-nix-action, renovate action).
+- **#369: actions/checkout v7** ([PR](https://github.com/gammons/slk/pull/369)): upstream Renovate bump.
+- **#370: actions/setup-go v7** ([PR](https://github.com/gammons/slk/pull/370)): upstream Renovate bump.
+- **#371: actions/upload-artifact v7** ([PR](https://github.com/gammons/slk/pull/371)): upstream Renovate bump.
+- **#372: goreleaser-action v7** ([PR](https://github.com/gammons/slk/pull/372)): upstream Renovate bump; the fork has its own release config.
