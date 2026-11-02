@@ -36,7 +36,9 @@ func listMessage(ts string) messages.MessageItem {
 	}
 }
 
-const listMessageEdit = "a list\n- one\n- two in #general\n\n[a link](https://x.com/)"
+// listMessageEdit is listMessage as composer text: the "\n" ending its
+// first section is the blank line mrkdwn.Convert reads before a list.
+const listMessageEdit = "a list\n\n- one\n- two in #general\n[a link](https://x.com/)"
 
 // SLK-330: the box shows the message as it was typed (lines, list,
 // link, channel name), not Slack's flattened text field.

@@ -69,7 +69,9 @@ func TestRichTextToMarkdown_RoundTrip(t *testing.T) {
 }
 
 // A message written in Slack's own client (SLK-330): its text field has
-// no line breaks and an escaped link, but the block has them all.
+// no line breaks and an escaped link, but the block has them all. The
+// "\n" ending the first section is the blank line mrkdwn.Convert reads
+// before a list, so it comes back as one and saving resends the block.
 func TestRichTextToMarkdown_SlackClientList(t *testing.T) {
 	const raw = `{"type":"rich_text","elements":[
 		{"type":"rich_text_section","elements":[{"type":"text","text":"here's a test with another list\n"}]},
@@ -83,7 +85,7 @@ func TestRichTextToMarkdown_SlackClientList(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := RichTextToMarkdown(RichTextBlock{Elements: b.Elements})
-	want := "here's a test with another list\n- list 1\n- list 2\n- list 3\n\n[and a link](https://example.com/genie/)"
+	want := "here's a test with another list\n\n- list 1\n- list 2\n- list 3\n[and a link](https://example.com/genie/)"
 	if got != want {
 		t.Errorf("got %q\nwant %q", got, want)
 	}

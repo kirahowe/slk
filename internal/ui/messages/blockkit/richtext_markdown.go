@@ -12,7 +12,11 @@ import (
 // the composer from a parsed rich_text block: the inverse of
 // internal/slack/mrkdwn.Convert, for seeding the composer when a sent
 // message is edited (`E`). Sending the result through Convert again
-// gives back the same lists, links and styles.
+// gives back the same block: lists, links, styles and line breaks.
+//
+// A section's text is written as it stands, line breaks and all,
+// because Convert keeps the blank lines typed between blocks as "\n"
+// in the section beside them; between blocks goes one line break.
 //
 // Bulleted items become "- ", ordered items "N. ", and each indent
 // level is four spaces so the item nests under the one above it.
@@ -24,17 +28,20 @@ import (
 func RichTextToMarkdown(rt RichTextBlock) string {
 	var b strings.Builder
 	prevList := -1 // indent of the list element just written; -1 after anything else
+	prevPara, prevQuote := false, false
 	for _, e := range rt.Elements {
 		var part string
-		list, interrupts := -1, false
+		list, interrupts := -1, true
 		switch v := e.(type) {
 		case *slack.RichTextSection:
-			part = strings.Trim(sectionToMarkdown(v.Elements), "\n")
+			// Verbatim, line breaks and all: Convert keeps the blank
+			// lines typed between blocks in the section beside them.
+			part = sectionToMarkdown(v.Elements)
 		case *slack.RichTextList:
 			// A nested level sits directly under its parent list; one
 			// with nothing above it to nest under starts at the margin.
 			list = min(v.Indent, prevList+1)
-			interrupts = list == 0 && interruptsParagraph(v)
+			interrupts = interruptsParagraph(v)
 			part = listToMarkdown(v, list)
 		case *slack.RichTextPreformatted:
 			part = preformattedToMarkdown(v.Elements)
@@ -45,20 +52,24 @@ func RichTextToMarkdown(rt RichTextBlock) string {
 			continue
 		}
 		if b.Len() > 0 {
-			// A list continues the list above it, or interrupts the
-			// paragraph above it, on the next line. Anything else
-			// needs a blank line, or it would be read as a lazy
-			// continuation of the list item or quote above.
-			if list >= 0 && (prevList >= 0 || interrupts) {
+			// Every block starts on a new line; Convert ends a list
+			// item or quote at the first line without its marker, so
+			// one line break is all a block needs. Two exceptions need
+			// a blank line: an ordered list past 1 right under a
+			// paragraph line would be read as more of the paragraph,
+			// and a quote right under a quote as more of it.
+			_, quote := e.(*slack.RichTextQuote)
+			b.WriteString("\n")
+			if (prevPara && !interrupts && !strings.HasSuffix(b.String(), "\n\n")) || (prevQuote && quote) {
 				b.WriteString("\n")
-			} else {
-				b.WriteString("\n\n")
 			}
 		}
 		b.WriteString(part)
 		prevList = list
+		_, prevPara = e.(*slack.RichTextSection)
+		_, prevQuote = e.(*slack.RichTextQuote)
 	}
-	return b.String()
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // interruptsParagraph reports whether l's first item can start right
