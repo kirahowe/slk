@@ -64,6 +64,7 @@ var keyMapReachExempt = map[string]string{
 	"NavForward/ctrl+l":      "walks visit history; there is none",
 	"NavForward/ctrl+k":      "walks visit history; there is none",
 	"CloseThreadView/q":      "closes the thread pane; none is open",
+	"JumpToParent/p":         "goes to the open thread's message; no thread is open",
 	"ActivityUnread/u":       "only in the Activity view",
 	"ToggleSection/space":    "toggles a sidebar section; the sidebar is not focused",
 	"SaveThread/S":           "saves the thread pane's thread; it is not focused",
