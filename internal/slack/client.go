@@ -744,7 +744,14 @@ func presenceSub(ids []string) map[string]any {
 // presenceSubFit is the length of the longest prefix of ids whose
 // presence_sub frame fits in maxClientFrame.
 func presenceSubFit(ids []string) int {
-	empty, _ := json.Marshal(presenceSub([]string{}))
+	return frameFit(presenceSub, ids)
+}
+
+// frameFit is the length of the longest prefix of ids whose frame, as
+// built by frame (an "ids" array beside fixed fields), fits in
+// maxClientFrame.
+func frameFit(frame func([]string) map[string]any, ids []string) int {
+	empty, _ := json.Marshal(frame([]string{}))
 	size := len(empty)
 	for i, id := range ids {
 		enc, _ := json.Marshal(id)
@@ -757,6 +764,47 @@ func presenceSubFit(ids []string) int {
 		}
 	}
 	return len(ids)
+}
+
+// QueryPresence asks Slack for the current presence of the given user
+// IDs; the answers arrive as ordinary presence_change events. The socket
+// is opened with no_query_on_subscribe=1, so presence_sub alone reports
+// only later transitions and a peer who stays online is never reported.
+// A query, unlike presence_sub, adds to nothing, so the IDs go out in as
+// many frames as maxClientFrame needs (presenceQueryBatches).
+func (c *Client) QueryPresence(userIDs []string) error {
+	s := c.ws.Load()
+	if s == nil {
+		return errNotConnected
+	}
+	for _, batch := range presenceQueryBatches(userIDs) {
+		if err := s.writeJSON(presenceQuery(batch)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// presenceQuery is the presence_query frame for ids.
+func presenceQuery(ids []string) map[string]any {
+	return map[string]any{"type": "presence_query", "ids": ids}
+}
+
+// presenceQueryBatches splits ids, in order, into the fewest consecutive
+// batches whose presence_query frames each fit in maxClientFrame. An ID
+// too long for a frame of its own is dropped.
+func presenceQueryBatches(ids []string) [][]string {
+	var out [][]string
+	for len(ids) > 0 {
+		n := frameFit(presenceQuery, ids)
+		if n == 0 {
+			ids = ids[1:]
+			continue
+		}
+		out = append(out, ids[:n])
+		ids = ids[n:]
+	}
+	return out
 }
 
 // GetChannels retrieves conversations the user is a member of (channels, DMs,

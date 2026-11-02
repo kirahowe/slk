@@ -87,10 +87,11 @@ func statusChangeMsg(teamID string, st selfState) ui.StatusChangeMsg {
 // subscription set and is connection-scoped, so this sends self + all DM
 // peers in a single call and must be re-run on each (re)connect.
 //
-// Note: the WS is opened with no_query_on_subscribe=1, so Slack does not
-// reply with each peer's current presence at subscribe time — DM rows are
-// seeded from the local cache at build time and then updated live by
-// presence_change events. Safe to call repeatedly.
+// The WS is opened with no_query_on_subscribe=1, so Slack does not reply
+// to presence_sub with each peer's current presence. A presence_query for
+// the same IDs follows it; without one, a peer who stayed online since
+// before slk connected showed whatever the cache last held. Safe to call
+// repeatedly.
 func subscribeWorkspacePresence(wctx *WorkspaceContext, ids []string) {
 	if wctx == nil || wctx.Client == nil {
 		return
@@ -105,6 +106,11 @@ func subscribeWorkspacePresence(wctx *WorkspaceContext, ids []string) {
 		return
 	}
 	debuglog.General("subscribeWorkspacePresence: sent presence_sub for %d of %d ids (self+%d dm peers)", n, len(ids), len(ids)-1)
+	// Query only the IDs presence_sub took: Slack reports presence only
+	// for subscribed users.
+	if err := wctx.Client.QueryPresence(ids[:n]); err != nil {
+		debuglog.General("subscribeWorkspacePresence: presence_query (%d ids) FAILED: %v", n, err)
+	}
 }
 
 // workspacePresenceIDs returns the deduped list of user IDs to subscribe
