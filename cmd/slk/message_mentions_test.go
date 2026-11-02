@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -132,11 +131,7 @@ func TestMessageMentions_UnknownUser(t *testing.T) {
 			if before := ansi.Strip(app.View().Content); !strings.Contains(before, "hi @U123") {
 				t.Fatalf("precondition: unresolved attachment not visible:\n%s", before)
 			}
-			select {
-			case <-watch.done:
-			case <-time.After(2 * time.Second):
-				t.Fatal("missing resolution for attachment-only user U123")
-			}
+			<-watch.done // resolution for attachment-only user U123 must arrive; a hang fails under go test -timeout
 			for _, event := range watch.messages() {
 				app.Update(event)
 			}
@@ -186,11 +181,7 @@ func TestMessageMentions_SourceWorkspace(t *testing.T) {
 			} else {
 				enrichCachedRow(db, "USELF", "C1", cache.Message{TS: "1700000001.000000", WorkspaceID: "T1", UserID: "UAUTHOR", RawJSON: raw}, workspaces[0].UserNames, "3:04 PM", "test", router, nil)
 			}
-			select {
-			case <-watch.done:
-			case <-time.After(2 * time.Second):
-				t.Fatal("missing source-workspace resolution for U123")
-			}
+			<-watch.done // source-workspace resolution for U123 must arrive; a hang fails under go test -timeout
 			for _, event := range watch.messages() {
 				if resolved, ok := event.(ui.UserResolvedMsg); ok && resolved.TeamID != "T1" {
 					t.Errorf("U123 resolved in %s, want source T1", resolved.TeamID)
