@@ -180,9 +180,27 @@ func TestActivityBadge_FailedReadAfterServerTotalKeepsIt(t *testing.T) {
 func TestActivityBadge_ReadBelowZeroStaysAtZero(t *testing.T) {
 	a, _ := activityReadApp(t, nil, unreadMention("k1"))
 	a.Update(ActivityBadgeUpdatedMsg{TeamID: "T1", Total: 0})
-	a.adjustActivityBadge("T1", true)
-	a.adjustActivityBadge("T1", false)
+	if moved := a.moveActivityBadge("T1", readDelta(true)); moved != 0 {
+		t.Fatalf("a read at 0 moved the badge by %d", moved)
+	}
+	if moved := a.moveActivityBadge("T1", readDelta(false)); moved != 1 {
+		t.Fatalf("an un-read moved the badge by %d, want 1", moved)
+	}
 	if got := a.activityBadges["T1"].total; got != 1 {
 		t.Fatalf("stored total after read then un-read from 0 = %d, want 1", got)
+	}
+}
+
+// A failed read undoes only what the read moved: at a total of 0 the read
+// left the badge where it was, so the failure must not raise it to 1.
+func TestActivityBadge_FailedReadAtZeroStaysAtZero(t *testing.T) {
+	a, _ := activityReadApp(t, errors.New("invalid_arguments"), unreadMention("k1"))
+	a.Update(ActivityBadgeUpdatedMsg{TeamID: "T1", Total: 0})
+
+	_, cmd := a.Update(keyPress('U'))
+	a.Update(deliveredMsgs[ActivityReadSetMsg](t, cmd)[0])
+
+	if got := a.sidebar.ActivityUnreadCount(); got != 0 {
+		t.Fatalf("badge after a failed read at 0 = %d, want 0", got)
 	}
 }

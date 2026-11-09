@@ -81,6 +81,11 @@ type activityRead struct {
 	// arrived counts the item as Slack holds it, so rolling back would
 	// count it twice.
 	badgeUpdates uint64
+	// badgeMoved is how far the user's changes since Slack's last
+	// confirmation have moved the badge: what a failed request undoes.
+	// It counts the moves actually made, so a read that found the badge
+	// already at 0 (and left it there) is not undone by a +1.
+	badgeMoved int
 }
 
 // activityBadge is one workspace's Activity badge: the server's total
@@ -106,7 +111,6 @@ func (a *App) setActivityItemRead(it core.ActivityItem, read bool) tea.Cmd {
 		return nil
 	}
 	a.activityView.SetItemRead(it.Key, read)
-	a.adjustActivityBadge(a.activeTeamID, read)
 
 	k := activityReadKey(a.activeTeamID, it.Key)
 	r := a.activityReads[k]
@@ -118,34 +122,47 @@ func (a *App) setActivityItemRead(it core.ActivityItem, read bool) tea.Cmd {
 		a.activityReads[k] = r
 	}
 	r.want = read
-	r.badgeUpdates = a.activityBadges[a.activeTeamID].updates
+	// A server total that arrived since the last change already counts
+	// the item as Slack held it then, so earlier moves are no longer
+	// ours to undo.
+	if updates := a.activityBadges[a.activeTeamID].updates; updates != r.badgeUpdates {
+		r.badgeMoved = 0
+		r.badgeUpdates = updates
+	}
+	r.badgeMoved += a.moveActivityBadge(a.activeTeamID, readDelta(read))
 	if r.inFlight {
 		return nil
 	}
 	return a.sendActivityRead(r)
 }
 
-// adjustActivityBadge nudges teamID's Activity badge by one item in the
-// direction of read: the badge shows the workspace's total unread
+// readDelta is how one item's change to read moves an unread count.
+func readDelta(read bool) int {
+	if read {
+		return -1
+	}
+	return 1
+}
+
+// moveActivityBadge moves teamID's Activity badge by delta items, never
+// below zero, and returns how far it actually moved: the badge shows the workspace's total unread
 // activity, so reading an item must drop it by one (and un-reading
 // restore it) without waiting for the server's badge_counts_updated
 // recalculation to echo the new total. Workspaces with no stored total
 // (grid-restricted members, whose counts call fails) keep their zero
 // badge: there is no number to adjust.
-func (a *App) adjustActivityBadge(teamID string, read bool) {
+func (a *App) moveActivityBadge(teamID string, delta int) int {
 	b, ok := a.activityBadges[teamID]
 	if !ok {
-		return
+		return 0
 	}
-	if read {
-		b.total = max(b.total-1, 0)
-	} else {
-		b.total++
-	}
+	before := b.total
+	b.total = max(b.total+delta, 0)
 	a.activityBadges[teamID] = b
 	if teamID == a.activeTeamID {
 		a.sidebar.SetActivityUnreadCount(b.total)
 	}
+	return b.total - before
 }
 
 // sendActivityRead starts r's request for its wanted state, in r's own
@@ -254,8 +271,11 @@ var reduceActivity reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 			return nil, true
 		}
 		r.inFlight = false
-		if m.Err == nil {
+		if m.Err == nil && r.confirmed != m.Read {
+			// Slack holds this change now: its move is no longer one a
+			// later failure should undo.
 			r.confirmed = m.Read
+			r.badgeMoved -= readDelta(m.Read)
 		}
 		if r.want == r.confirmed {
 			delete(a.activityReads, k)
@@ -273,12 +293,12 @@ var reduceActivity reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		// badge_counts_updated will correct it. Leaving it to the
 		// active-workspace check below would strand a switched-away
 		// workspace's total one off until some other event recomputed
-		// it. adjustActivityBadge only touches the sidebar for the
+		// it. moveActivityBadge only touches the sidebar for the
 		// workspace on screen, so this is safe either way. A total that
 		// arrived since the change already counts the item as Slack
 		// holds it, and then there is nothing to undo.
 		if a.activityBadges[m.TeamID].updates == r.badgeUpdates {
-			a.adjustActivityBadge(m.TeamID, r.confirmed)
+			a.moveActivityBadge(m.TeamID, -r.badgeMoved)
 		}
 		// Another workspace's view is not on screen, so there is no dot
 		// to undo; its feed reloads from Slack when the user returns.
