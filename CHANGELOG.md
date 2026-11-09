@@ -8,6 +8,52 @@ Earlier history, up to v0.26.2, is in [upstream's releases](https://github.com/g
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-11-09
+
+### Added
+
+- Clicking works in more places. A click on a `[File]` line downloads the
+  file and opens it. A click on the channel name in a thread's breadcrumb
+  closes the thread. A click on a compose box starts typing in it, the way
+  `i` does (from normal mode only, so a half-written edit or `:` command
+  is never lost).
+- Tab and Shift+Tab complete `:` command names, and the status bar lists
+  the commands that match what you have typed.
+- `:version` shows the build you are running, and the update hint when a
+  newer release is out. `:help` now lists every `:` command.
+
+### Fixed
+
+- Text after an inline image emoji keeps its colour. On a light theme it
+  used to turn grey until the end of the line.
+- Skin-toned emoji draw as one image in the right shade, not as the yellow
+  emoji followed by a swatch, and the tones were one shade off. Two-person
+  emoji with a different tone for each person (a two-tone handshake) draw
+  with both tones. An emoji right after a skin-toned one is no longer
+  dropped.
+- The sidebar's Activity badge shows the workspace's real unread Activity
+  count. It used to count only the unread items in the loaded page of the
+  feed, so it was often too low, and it changed when you toggled the
+  unread filter.
+- An edit or link preview arriving for a message no longer resets a
+  thread's reply count, drops a broadcast reply from the channel, or keeps
+  the channel from refetching messages missed during a reconnect. Editing
+  a message that mentions you no longer sends another desktop
+  notification. An edited thread root keeps its `(edited)` label.
+- `o` finds links inside Block Kit blocks and legacy attachments, such as
+  Jira's link previews, instead of saying the message has none.
+- Images in Block Kit messages and legacy attachments draw in the right
+  place with sixel, and show in the thread pane. A partly scrolled-off
+  image keeps the message border and gutter. Switching workspaces no
+  longer re-encodes every visible image.
+- A long file name in an attachment no longer shifts the click targets
+  of the images, files and reactions below it.
+- Markdown export converts links, mentions and formatting inside quotes.
+- `--add-workspace` reads the Slack desktop session from Secret Service
+  providers other than gnome-keyring.
+- WezTerm under tmux falls back to halfblock images instead of choosing
+  kitty images, which it cannot draw there.
+
 ## [0.30.0] - 2026-10-22
 
 ### Added
