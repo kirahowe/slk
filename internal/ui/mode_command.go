@@ -65,8 +65,7 @@ func (a *App) setCmdline(line string) {
 func (a *App) clearCmdline() {
 	a.cmdline = ""
 	a.cmdComplete = cmdCompletion{}
-	a.statusbar.SetCommandLine("")
-	a.statusbar.SetCommandCandidates(nil, 0)
+	a.statusbar.SetCommandLine("") // drops the candidate list with it
 }
 
 // prefixMatches returns the names that start with prefix, sorted, or nil

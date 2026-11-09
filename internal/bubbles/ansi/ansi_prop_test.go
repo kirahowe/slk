@@ -46,8 +46,6 @@ func TestReapplyInsertsOncePerReset(t *testing.T) {
 	})
 }
 
-// FuzzReapplyAfterResets: no panic on arbitrary bytes, and the result
-// has one style per reset when the style cannot itself form a reset.
 // Every foreground reset is followed by fg, and nothing else changes.
 func TestReapplyFgFollowsEveryFgReset(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
@@ -67,6 +65,8 @@ func TestReapplyFgFollowsEveryFgReset(t *testing.T) {
 	})
 }
 
+// FuzzReapplyAfterResets: no panic on arbitrary bytes, and the result
+// has one style per reset when the style cannot itself form a reset.
 func FuzzReapplyAfterResets(f *testing.F) {
 	f.Add("a\x1b[mb\x1b[0mc", "\x1b[48;5;1m")
 	f.Add("\x1b[", "x")

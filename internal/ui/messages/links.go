@@ -100,16 +100,6 @@ func MessageLinks(msg MessageItem) []Link {
 		if _, ok := slackurl.Parse(att.FromURL); !ok {
 			continue
 		}
-		dup := false
-		for _, l := range out {
-			if l.URL == att.FromURL {
-				dup = true
-				break
-			}
-		}
-		if dup {
-			continue
-		}
 		label := "Shared message"
 		if att.AuthorName != "" {
 			label = "Message from " + att.AuthorName

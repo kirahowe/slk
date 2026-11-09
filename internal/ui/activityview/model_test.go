@@ -126,18 +126,6 @@ func TestToggleUnreadOnly(t *testing.T) {
 	}
 }
 
-func TestUnreadCount(t *testing.T) {
-	m := New(nil, "")
-	m.SetItems([]core.ActivityItem{
-		{Key: "a", IsUnread: true},
-		{Key: "b"},
-		{Key: "c", IsUnread: true},
-	})
-	if n := m.UnreadCount(); n != 2 {
-		t.Errorf("UnreadCount = %d, want 2", n)
-	}
-}
-
 // A card is always exactly cardStride (2) lines and neither line contains a
 // newline — the flat-list windowing / snap / click math depends on it. A
 // body with embedded newlines must be collapsed, not split.
@@ -624,7 +612,7 @@ func TestSetItemRead(t *testing.T) {
 	if !m.SetItemRead("a", true) {
 		t.Fatal(`SetItemRead("a", true) = false, want true`)
 	}
-	if m.Items()[0].IsUnread || m.UnreadCount() != 0 {
+	if m.Items()[0].IsUnread {
 		t.Errorf("item a still unread after SetItemRead(a, true): %+v", m.Items()[0])
 	}
 	if m.Version() == v {

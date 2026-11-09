@@ -549,7 +549,7 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 				URL:    att.URL,
 				Thumbs: imgThumbs,
 			}, rc.ImageChannel, msg.TS, contentWidth, rowCursor, attIdx, contentColBase)
-			if !opt.SixelRows {
+			if !opt.SixelRows && len(res.SixelRows) > 0 {
 				// Same treatment as the block branches above: a pane
 				// without the sixel pipeline keeps the image visible
 				// as halfblock text. Attachment SixelRows keys are

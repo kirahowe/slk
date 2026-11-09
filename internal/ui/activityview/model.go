@@ -378,17 +378,6 @@ func (m *Model) ClickAt(rowY int) bool {
 	return true
 }
 
-// UnreadCount returns the number of items currently flagged unread.
-func (m *Model) UnreadCount() int {
-	n := 0
-	for _, it := range m.items {
-		if it.IsUnread {
-			n++
-		}
-	}
-	return n
-}
-
 // SetItemRead sets the read state of the item with the given key and
 // reports whether there was one: the list may have been refetched since
 // the caller took the item. The item stays in the list either way; with
