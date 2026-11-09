@@ -427,6 +427,12 @@ func (a *App) downloadFileAt(p contentPane, channelID string, px, py int) (tea.C
 	if !ok || attIdx < 0 || attIdx >= len(msg.Attachments) {
 		return nil, false
 	}
+	// The hit is the last frame's, and the message may have changed
+	// since (an edit, an unfurl). Ask what `d` asks of the attachment
+	// as it is now.
 	att := msg.Attachments[attIdx]
+	if !att.Downloadable() {
+		return nil, false
+	}
 	return func() tea.Msg { return DownloadFileMsg{Attachment: att} }, true
 }

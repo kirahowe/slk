@@ -136,3 +136,41 @@ func TestMouseClick_OnFileLineWithoutDownloadURLFallsThrough(t *testing.T) {
 		}
 	}
 }
+
+// TestMouseClick_FileLineChangedSinceFrame: the hit rects are the last
+// frame's, and messages can change before the next one is drawn. A
+// click on where a "[File]" line was drawn, after its attachment became
+// an image, must not ask to download the image.
+func TestMouseClick_FileLineChangedSinceFrame(t *testing.T) {
+	item := messages.MessageItem{
+		TS: "1700000000.000100", UserID: "U1", UserName: "alice", Text: "here", Timestamp: "10:00 AM",
+		Attachments: []messages.Attachment{{
+			Kind: "file", Name: "doc.pdf", URL: "https://acme.slack.com/files/U1/F1/doc.pdf",
+			DownloadURL: "https://files.slack.com/files-pri/T1-F1/doc.pdf",
+		}},
+	}
+	a := newTestApp(t, withSize(200, 60), withActiveChannel("C1"), withMessages(item))
+	a.focusedPanel = PanelMessages
+
+	x, y := -1, -1
+	for row, line := range strings.Split(ansi.Strip(a.View().Content), "\n") {
+		if i := strings.Index(line, "[File] doc.pdf"); i >= 0 {
+			x, y = ansi.StringWidth(line[:i]), row
+			break
+		}
+	}
+	if x < 0 {
+		t.Fatal("[File] doc.pdf not on screen")
+	}
+
+	changed := item
+	changed.Attachments = []messages.Attachment{{Kind: "image", Name: "doc.png", DownloadURL: "https://files.slack.com/files-pri/T1-F1/doc.png"}}
+	a.messagepane.SetMessages([]messages.MessageItem{changed})
+
+	_, cmd := a.Update(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
+	if cmd != nil {
+		if dl, ok := cmd().(DownloadFileMsg); ok {
+			t.Fatalf("click downloaded %q, which is no longer a file", dl.Attachment.Name)
+		}
+	}
+}
