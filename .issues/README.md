@@ -11,6 +11,7 @@
 | [3](3-mark-conversations-that-have-a-canvas.md) | Mark conversations that have a canvas | feature | P3 |
 | [4](4-check-canvas-numbered-lists-split-across-sections.md) | Check canvas numbered lists split across sections | bug | P3 |
 | [5](5-render-checklists-and-tables-in-canvases.md) | Render checklists and tables in canvases | feature | P3 |
+| [6](6-keep-graft-s-trailing-escapes-and-row-style-at-the-edges.md) | Keep Graft's trailing escapes and row style at the edges | bug | P3 |
 
 ## Done
 
