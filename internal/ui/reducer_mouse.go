@@ -338,7 +338,10 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		// returns to the channel, the mouse equivalent of the hint's esc and
 		// the up-level navigation the breadcrumb names. Checked before the
 		// content hit tests: the breadcrumb row is chrome above every reply.
-		if a.threadPanel.HitTestBreadcrumbChannel(py, px) {
+		// Only from normal and insert mode, the modes esc closes a thread
+		// from: in command or search mode the status bar holds a
+		// half-typed line, which leaving the mode would throw away.
+		if (a.mode == ModeNormal || a.mode == ModeInsert) && a.threadPanel.HitTestBreadcrumbChannel(py, px) {
 			// An upload in flight refuses the close (CloseThread drops
 			// it), so refuse the whole sequence: switching mode first
 			// would drop the user out of insert mode with the thread
@@ -350,8 +353,7 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 			// Same tail as esc out of insert mode: CloseThread handles
 			// cancelEdit, and a queued action prompt opens on the way
 			// back to normal.
-			a.SetMode(ModeNormal)
-			a.compose.Blur()
+			a.exitInsertMode()
 			a.CloseThread()
 			return a.tryOpenActionPrompt()
 		}

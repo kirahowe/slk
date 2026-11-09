@@ -46,6 +46,27 @@ func TestMouseClick_BreadcrumbLeavesNormalMode(t *testing.T) {
 	}
 }
 
+// TestMouseClick_BreadcrumbKeepsHalfTypedLine: in command or search mode
+// the status bar holds a half-typed line, so a click on the breadcrumb's
+// channel label leaves the mode, the line and the thread alone.
+func TestMouseClick_BreadcrumbKeepsHalfTypedLine(t *testing.T) {
+	for _, mode := range []Mode{ModeCommand, ModeSearch} {
+		a := newTestApp(t, append(normalOpts(), withWindowSize(200, 30))...)
+		focusMessages(t, a)
+		updateAndRender(t, a, keyCode(tea.KeyEnter))
+		a.SetMode(mode)
+		a.setCmdline("delmarks ab")
+		_ = a.View()
+		a.Update(tea.MouseClickMsg{X: a.layout.msgEnd + 3, Y: 1, Button: tea.MouseLeft})
+		if !a.threadVisible {
+			t.Errorf("mode %v: the click closed the thread", mode)
+		}
+		if a.mode != mode || a.cmdline != "delmarks ab" {
+			t.Errorf("mode %v: after the click mode = %v, line = %q; want both kept", mode, a.mode, a.cmdline)
+		}
+	}
+}
+
 // TestMouseClick_BreadcrumbBorderDoesNotClose pins the coordinate
 // frame: a click on the pane border left of the label (pane-local col
 // -1) must not close the thread.
