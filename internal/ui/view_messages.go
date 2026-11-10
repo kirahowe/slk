@@ -213,6 +213,17 @@ func (a *App) renderChannelMessagesPanel(msgWidth, msgBorder, contentHeight int,
 	// cells).
 	composeSpacer := lipgloss.NewStyle().Background(styles.Background).Width(msgWidth - 2).Render("")
 	composeView = composeSpacer + "\n" + composeView
+	// The draft preview goes on top, under the typing row: preview,
+	// spacer, picker, box. It gets what is left above the message
+	// list's 3-row minimum (the inner height less the typing row, this
+	// region and those 3 rows), up to its cap. It is part of the
+	// compose region measured below.
+	inner := contentHeight - 2
+	room := inner - 1 - lipgloss.Height(composeView) - 3
+	box := draftPreviewBox{compose: &a.compose, pane: a.messagepane, panel: PanelMessages, cache: &a.renderCache.draftMsg, window: int64(a.focusedWin)}
+	if preview := a.draftPreview(box, msgWidth-2, draftPreviewRows(inner, room)); preview != "" {
+		composeView = preview + "\n" + composeView
+	}
 	composeHeight := lipgloss.Height(composeView)
 	// Always reserve one row above the compose box for the
 	// typing indicator. When nobody is typing we render a blank

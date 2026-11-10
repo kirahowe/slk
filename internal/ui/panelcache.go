@@ -95,6 +95,11 @@ type panelRenderCache struct {
 	// through msgTop/msgPanel as before. Evicted when windows close
 	// (syncWinModels) and on workspace reset (resetWindowTree).
 	winPanes map[wintree.LeafID]*panelCache
+
+	// draftMsg and draftThread hold the draft preview's rendered draft
+	// for the channel and the thread compose box (draft_preview.go);
+	// emptied while the box's preview is off.
+	draftMsg, draftThread draftPreviewCache
 }
 
 func newPanelRenderCache() *panelRenderCache { return &panelRenderCache{} }

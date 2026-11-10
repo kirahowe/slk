@@ -58,10 +58,21 @@ func (a *App) renderThreadRegion(frame panelLayoutFrame, themeVer int64) string 
 	threadComposeView = threadComposeSpacer + "\n" + threadComposeView
 	// Unlike the channel pane's typing row, no row is reserved for
 	// this: it appears only while an app is working on this thread.
+	statusLine := a.renderThreadBotStatusLine(threadWidth - 2)
 	statusHeight := 0
-	if statusLine := a.renderThreadBotStatusLine(threadWidth - 2); statusLine != "" {
-		threadComposeView = statusLine + "\n" + threadComposeView
+	if statusLine != "" {
 		statusHeight = 1
+	}
+	// The draft preview goes between the status row and the spacer,
+	// sized as in the channel pane (no typing row here).
+	inner := contentHeight - 2
+	room := inner - statusHeight - lipgloss.Height(threadComposeView) - 3
+	box := draftPreviewBox{compose: &a.threadCompose, pane: a.threadPanel, panel: PanelThread, threadTS: a.threadPanel.ThreadTS(), cache: &a.renderCache.draftThread}
+	if preview := a.draftPreview(box, threadWidth-2, draftPreviewRows(inner, room)); preview != "" {
+		threadComposeView = preview + "\n" + threadComposeView
+	}
+	if statusLine != "" {
+		threadComposeView = statusLine + "\n" + threadComposeView
 	}
 	threadComposeHeight := lipgloss.Height(threadComposeView)
 	threadContentHeight := contentHeight - 2 - threadComposeHeight

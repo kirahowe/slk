@@ -18,6 +18,7 @@ import (
 	"github.com/gammons/slk/internal/emoji"
 	imgpkg "github.com/gammons/slk/internal/image"
 	"github.com/gammons/slk/internal/tztest"
+	"github.com/gammons/slk/internal/ui/compose"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/messages/blockkit"
 	"github.com/gammons/slk/internal/ui/sidebar"
@@ -1441,8 +1442,38 @@ func goldenThreadScenario(t *testing.T, w, h int) *App {
 	return a
 }
 
+// goldenDraftPreview puts a in insert mode in panel's box c, holding
+// richDraft (draft_preview_test.go) with the draft preview on.
+func goldenDraftPreview(a *App, c *compose.Model, panel Panel) {
+	_ = a.beginInsertMode(panel == PanelThread)
+	c.SetValue(richDraft)
+	c.MoveCursorToEnd()
+	c.SetPreview(true)
+}
+
 func goldenScenarios() []goldenScenario {
 	return []goldenScenario{
+		{
+			// The draft preview (ctrl+r) over the channel box: base,
+			// typing a formatted draft with the preview on.
+			name: "draft_preview", w: goldenBaseW, h: goldenBaseH,
+			build: func(t *testing.T) *App {
+				a := newGoldenApp(t, goldenFixtureOpts()...)
+				goldenDraftPreview(a, &a.compose, PanelMessages)
+				_ = a.View()
+				return a
+			},
+		},
+		{
+			// The same draft previewed over the thread's reply box.
+			name: "draft_preview_thread", w: 120, h: 30, layout: goldenSideBySide,
+			build: func(t *testing.T) *App {
+				a := goldenThreadApp(t, 120, 30)
+				goldenDraftPreview(a, &a.threadCompose, PanelThread)
+				_ = a.View()
+				return a
+			},
+		},
 		{
 			// 36 rows, not the 30 this started at: see goldenBaseH.
 			// goldenFixtureOpts already carries the size, so base is
