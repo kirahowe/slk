@@ -36,7 +36,10 @@ func Convert(input string) (string, *slack.RichTextBlock) {
 		goldmark.WithParser(newParser()),
 		goldmark.WithExtensions(
 			extension.Strikethrough,
-			extension.Linkify,
+			extension.NewLinkify(
+				extension.WithLinkifyURLRegexp(typedURLRegexp),
+				extension.WithLinkifyAllowedProtocols(typedURLProtocols),
+			),
 		),
 	)
 	doc := md.Parser().Parse(text.NewReader([]byte(tokenized)))

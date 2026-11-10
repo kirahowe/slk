@@ -3,6 +3,7 @@ package mrkdwn
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -119,12 +120,80 @@ func TestTokenizeSanitizesSentinels(t *testing.T) {
 	})
 }
 
+// typedURL draws a URL as someone types it: http, https or ftp; a host
+// that is localhost, an IPv4 address or a dotted name; an optional port;
+// path segments, one of which may be a balanced "(…)" group; an optional
+// query and fragment. It never ends in punctuation a sentence would put
+// after it, so all of it is the URL.
+func typedURL() *rapid.Generator[string] {
+	return rapid.Custom(func(t *rapid.T) string {
+		var b strings.Builder
+		b.WriteString(rapid.SampledFrom([]string{"http://", "https://", "ftp://"}).Draw(t, "scheme"))
+		switch rapid.IntRange(0, 2).Draw(t, "host") {
+		case 0:
+			b.WriteString("localhost")
+		case 1:
+			for i := range 4 {
+				if i > 0 {
+					b.WriteByte('.')
+				}
+				b.WriteString(strconv.Itoa(rapid.IntRange(0, 255).Draw(t, "octet")))
+			}
+		default:
+			b.WriteString(rapid.StringMatching(`[a-z][a-z0-9-]{0,8}[a-z0-9](\.[a-z]{2,6}){1,2}`).Draw(t, "name"))
+		}
+		if rapid.Bool().Draw(t, "hasPort") {
+			b.WriteString(":" + strconv.Itoa(rapid.IntRange(1, 65535).Draw(t, "port")))
+		}
+		for _, seg := range rapid.SliceOfN(rapid.StringMatching(`[A-Za-z0-9._%-]{0,6}[A-Za-z0-9]|[A-Za-z0-9_]{0,6}\([A-Za-z0-9]{1,6}\)`), 0, 3).Draw(t, "path") {
+			b.WriteString("/" + seg)
+		}
+		if rapid.Bool().Draw(t, "hasQuery") {
+			b.WriteString("?" + rapid.StringMatching(`[a-z]{1,4}=[a-z0-9]{1,4}(&[a-z]{1,4}=[a-z0-9]{1,4}){0,2}`).Draw(t, "query"))
+		}
+		if rapid.Bool().Draw(t, "hasFragment") {
+			b.WriteString("#" + rapid.StringMatching(`[a-z0-9]{1,6}`).Draw(t, "fragment"))
+		}
+		return b.String()
+	})
+}
+
+// typedURLContext is text a typed URL may sit in: what comes before it
+// and after it.
+type typedURLContext struct{ before, after string }
+
+// typedURLContexts are the places a typed URL is linked from.
+var typedURLContexts = []typedURLContext{
+	{"", ""}, {"see ", " now"}, {"see ", "."}, {"see ", ", then"}, {"is it ", "?"},
+	{"(", ")"}, {"(see ", ")."}, {"*", "*"}, {"_", "_"},
+}
+
+// A typed URL comes out as exactly one link element whose URL is all of
+// the typed URL and nothing more, in Slack's <url> form in the mrkdwn
+// fallback, whatever host it names and whatever text is around it.
+func TestConvertLinksTypedURL(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		url := typedURL().Draw(t, "url")
+		c := rapid.SampledFrom(typedURLContexts).Draw(t, "context")
+		in := c.before + url + c.after
+		mr, blk := Convert(in)
+		if got := linkURLs(blk); len(got) != 1 || got[0] != url {
+			t.Fatalf("Convert(%q) links = %q, want [%q]; block=%s", in, got, url, blockJSON(blk))
+		}
+		if !strings.Contains(mr, "<"+url+">") {
+			t.Fatalf("Convert(%q) mrkdwn = %q, want it to hold <%s>", in, mr, url)
+		}
+	})
+}
+
 // FuzzConvert feeds arbitrary bytes through Convert.
 func FuzzConvert(f *testing.F) {
 	for _, s := range []string{
 		"", "  \n", "hello", "*bold* _it_ ~s~ `c`", "<@U123> <#C1|general> <!here> <https://a.com|a>",
 		"```\ncode\n```", "> quote\nreply", "- a\n  - b", "0", ":tada: :+1:",
 		"1. one\n2. two", "<https://x|y", "[a](http://b)", "\t\tx",
+		"http://localhost:8080/x, ok", "https://192.0.2.3:8443/a", "https://e.org/w_(p)). x",
+		"http://h/a<@U1>", "http://h/aを", "http://", "ftp://10.0.0.1/f.",
 	} {
 		f.Add(s)
 	}
