@@ -71,7 +71,16 @@ type RenderedMessage struct {
 func BlockkitContext(msg MessageItem, rc *RenderContext, emojiFlushes *[]func(io.Writer) error) blockkit.Context {
 	imgCtx := rc.Images.Context()
 	send := imgCtx.SendMsg
-	channelNames := rc.ChannelNames
+	textOpts := RenderSlackMarkdownOpts{
+		UserNames:    rc.UserNames,
+		ChannelNames: rc.ChannelNames,
+		UserGroups:   rc.UserGroups,
+		SelfUserID:   rc.SelfUserID,
+		PlaceCtx:     rc.Emoji.PlaceCtx,
+		EmojiCells:   rc.Emoji.Cells,
+		Customs:      rc.Emoji.Customs,
+		EmojiFlushes: emojiFlushes,
+	}
 	return blockkit.Context{
 		Protocol:    imgCtx.Protocol,
 		Fetcher:     imgCtx.Fetcher,
@@ -82,20 +91,16 @@ func BlockkitContext(msg MessageItem, rc *RenderContext, emojiFlushes *[]func(io
 		UserNames:   rc.UserNames,
 		MessageTS:   msg.TS,
 		Channel:     rc.ImageChannel,
-		// Capture channelNames in a closure so blockkit's two-arg
-		// RenderText signature stays stable; channel-name resolution
-		// is a host concern.
+		// Mention and channel-name resolution are the host's; blockkit's
+		// two-argument RenderText stays stable by closing over the rest.
 		RenderText: func(s string, un map[string]string) string {
-			return RenderSlackMarkdownWith(s, RenderSlackMarkdownOpts{
-				UserNames:    un,
-				ChannelNames: channelNames,
-				UserGroups:   rc.UserGroups,
-				SelfUserID:   rc.SelfUserID,
-				PlaceCtx:     rc.Emoji.PlaceCtx,
-				EmojiCells:   rc.Emoji.Cells,
-				Customs:      rc.Emoji.Customs,
-				EmojiFlushes: emojiFlushes,
-			})
+			opts := textOpts
+			opts.UserNames = un
+			return RenderSlackMarkdownWith(s, opts)
+		},
+		// Headers and control labels are plain text: emoji only.
+		RenderPlainText: func(s string) string {
+			return renderEmojiWith(s, textOpts)
 		},
 		WrapText: WordWrap,
 		SendMsg: func(v any) {

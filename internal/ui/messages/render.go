@@ -883,14 +883,20 @@ func renderInlineFormattingWith(text string, opts RenderSlackMarkdownOpts) strin
 	// routes them to the correct per-tone Slack CDN asset. The
 	// old StripSkinToneFromText call was a glyph-rendering width
 	// workaround that doesn't apply to kitty-image placements.
+	return renderEmojiWith(text, opts)
+}
+
+// renderEmojiWith draws text's emoji shortcodes: as image placements
+// when image mode is on and a fetcher is installed (uploads appended to
+// opts.EmojiFlushes), else as VS16-gated glyphs or the literal
+// shortcode (emoji.ResolveShortcodesInText). The mrkdwn path ends in it,
+// and plain-text Block Kit fields (headers, button labels) use it alone.
+func renderEmojiWith(text string, opts RenderSlackMarkdownOpts) string {
 	if emojiutil.ImageModeActive() && opts.PlaceCtx.Fetcher != nil {
 		tokens := emojiutil.ResolveEmojiToTokens(text, opts.Customs)
-		text = renderEmojiTokensInline(tokens, opts.PlaceCtx, opts.EmojiCells, opts.EmojiFlushes)
-	} else {
-		text = emojiutil.ResolveShortcodesInText(emojiutil.StripSkinToneFromText(text))
+		return renderEmojiTokensInline(tokens, opts.PlaceCtx, opts.EmojiCells, opts.EmojiFlushes)
 	}
-
-	return text
+	return emojiutil.ResolveShortcodesInText(emojiutil.StripSkinToneFromText(text))
 }
 
 // renderEmojiTokensInline walks a Token stream and returns the

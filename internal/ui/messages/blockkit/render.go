@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/gammons/slk/internal/bubbles/buttonrow"
 	imgpkg "github.com/gammons/slk/internal/image"
@@ -77,13 +78,13 @@ func appendBlock(out *RenderResult, b Block, ctx Context, width int) {
 	case DividerBlock:
 		out.Lines = append(out.Lines, renderDivider(width))
 	case HeaderBlock:
-		out.Lines = append(out.Lines, renderHeader(v.Text, width))
+		out.Lines = append(out.Lines, renderHeader(plainText(v.Text, ctx), width))
 	case SectionBlock:
 		appendSection(out, v, ctx, width)
 	case ContextBlock:
 		appendContext(out, v, ctx, width)
 	case ActionsBlock:
-		appendActions(out, v, width)
+		appendActions(out, v, ctx, width)
 	case ImageBlock:
 		appendImageBlock(out, v, ctx, width)
 	case RichTextBlock:
@@ -112,7 +113,7 @@ func appendSection(out *RenderResult, s SectionBlock, ctx Context, width int) {
 
 	switch acc := s.Accessory.(type) {
 	case LabelAccessory:
-		label := renderControlLabel(acc.Kind, acc.Label)
+		label := renderControlLabel(acc.Kind, plainText(acc.Label, ctx))
 		accessoryW = lipgloss.Width(label)
 		accessoryLines = []string{label}
 		out.Interactive = true
@@ -250,7 +251,7 @@ func appendContext(out *RenderResult, c ContextBlock, ctx Context, width int) {
 	}
 }
 
-func appendActions(out *RenderResult, a ActionsBlock, width int) {
+func appendActions(out *RenderResult, a ActionsBlock, ctx Context, width int) {
 	if len(a.Elements) == 0 {
 		return
 	}
@@ -259,7 +260,7 @@ func appendActions(out *RenderResult, a ActionsBlock, width int) {
 	const gapW = 2
 	labels := make([]string, len(a.Elements))
 	for i, el := range a.Elements {
-		labels[i] = renderControlLabel(el.Kind, el.Label)
+		labels[i] = renderControlLabel(el.Kind, plainText(el.Label, ctx))
 	}
 	out.Lines = append(out.Lines, buttonrow.Rows(buttonrow.Layout(labels, width, gapW), gapW)...)
 }
@@ -356,6 +357,15 @@ func renderControlLabel(kind, label string) string {
 	default:
 		return controlStyle().Render("[ control ]")
 	}
+}
+
+// plainText draws the emoji in a plain-text field through
+// Context.RenderPlainText, when the host gave one.
+func plainText(s string, ctx Context) string {
+	if s == "" || ctx.RenderPlainText == nil {
+		return s
+	}
+	return ctx.RenderPlainText(s)
 }
 
 // renderTextLines runs text through Context.RenderText then wraps it
@@ -458,32 +468,12 @@ func renderUnsupported(typeName string, width int) string {
 	return mutedStyle().Render(label)
 }
 
-// truncateToWidth returns s truncated by display columns to at most
-// width. If truncation occurs and width >= 1, the last visible col
-// is replaced with '…'.
+// truncateToWidth clips s to width display columns, the last visible
+// column becoming '…' when it cuts. It keeps escape sequences whole, so
+// an emoji image placement or a link in s survives the cut.
 func truncateToWidth(s string, width int) string {
 	if width <= 0 {
 		return ""
 	}
-	if lipgloss.Width(s) <= width {
-		return s
-	}
-	target := width - 1
-	if target < 0 {
-		target = 0
-	}
-	var b strings.Builder
-	used := 0
-	for _, r := range s {
-		w := lipgloss.Width(string(r))
-		if used+w > target {
-			break
-		}
-		b.WriteRune(r)
-		used += w
-	}
-	if width >= 1 {
-		b.WriteRune('…')
-	}
-	return b.String()
+	return ansi.Truncate(s, width, "…")
 }

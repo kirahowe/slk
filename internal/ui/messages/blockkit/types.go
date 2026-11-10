@@ -153,6 +153,13 @@ type Context struct {
 	// raw text passes through unchanged.
 	RenderText func(s string, userNames map[string]string) string
 
+	// RenderPlainText draws the emoji shortcodes in a plain-text field
+	// (a header, a button or accessory label) without reading it as
+	// mrkdwn. These rows are width-sensitive, so the host's glyph path is
+	// the VS16-gated one (emoji.ResolveShortcodesInText). May be nil;
+	// when nil, the text passes through unchanged.
+	RenderPlainText func(s string) string
+
 	// WrapText word-wraps an ANSI-styled string to the given display
 	// width. The host wires this to internal/ui/messages.WordWrap.
 	// When nil, text passes through unchanged.
