@@ -1168,6 +1168,139 @@ func translateMentions(text string, names, channels, groups map[string]string) s
 	return applyMentions(text, mentionEntries(names, channels, groups))
 }
 
+// MentionsForEdit rewrites a sent message's mention tokens (<@U…>,
+// <#C…>, <!here>, <!subteam^S…>) as the @name / #name a person types,
+// for seeding the composer when the message is edited (E). It is the
+// inverse of TranslateMentionsForSend, and delegates to mentionsForEdit.
+func (m Model) MentionsForEdit(text string) string {
+	return mentionsForEdit(text, m.reverseNames, m.reverseChannels, m.userGroups)
+}
+
+// editMentionRe matches the mention tokens translateMentions writes,
+// plus the forms other clients send: <@U…> and <@U…|label>,
+// <#C…|name> and <#C…>, <!here> and the other broadcasts with or
+// without a label, and <!subteam^S…|@handle> or <!subteam^S…>.
+var editMentionRe = regexp.MustCompile(`<@([A-Z0-9]+)(?:\|[^<>]*)?>|<#([A-Z0-9]+)(?:\|([^<>]*))?>|<!(here|channel|everyone)(?:\|[^<>]*)?>|<!subteam\^([A-Z0-9]+)(?:\|[^<>]*)?>`)
+
+// mentionsForEdit is MentionsForEdit's pure core, over the same maps as
+// translateMentions. A token is rewritten only when translating the
+// whole text gives the same result with the typed name in its place as
+// with the token in the form translateMentions writes, so saving the
+// edit unchanged sends the same mentions. A token for an ID the maps do
+// not know, or whose name another mention would win, or that is glued
+// to the text after it, stays in wire form, which translateMentions
+// leaves alone and Slack accepts.
+func mentionsForEdit(text string, names, channels, groups map[string]string) string {
+	locs := editMentionRe.FindAllStringSubmatchIndex(text, -1)
+	if len(locs) == 0 {
+		return text
+	}
+	userNames, channelNames := nameOfID(names), nameOfID(channels)
+
+	// typed[i] is what a person would type for token i, want[i] the
+	// token translateMentions writes for that; typed[i] is "" when the
+	// maps cannot name it.
+	typed, want := make([]string, len(locs)), make([]string, len(locs))
+	var full strings.Builder // text with every token it can name typed
+	last := 0
+	for i, loc := range locs {
+		typed[i], want[i] = editMention(text, loc, userNames, channelNames, channels, groups)
+		full.WriteString(text[last:loc[0]])
+		if typed[i] != "" {
+			full.WriteString(typed[i])
+		} else {
+			full.WriteString(text[loc[0]:loc[1]])
+		}
+		last = loc[1]
+	}
+	full.WriteString(text[last:])
+	entries := relevantMentions(mentionEntries(names, channels, groups), text, full.String())
+
+	var b strings.Builder
+	last = 0
+	for i, loc := range locs {
+		if typed[i] == "" {
+			continue
+		}
+		before := b.String() + text[last:loc[0]]
+		after := text[loc[1]:]
+		if applyMentions(before+typed[i]+after, entries) != applyMentions(before+want[i]+after, entries) {
+			continue
+		}
+		b.WriteString(text[last:loc[0]])
+		b.WriteString(typed[i])
+		last = loc[1]
+	}
+	b.WriteString(text[last:])
+	return b.String()
+}
+
+// editMention is what a person types for the editMentionRe match loc of
+// text, and the token translateMentions writes for that; both are ""
+// when the maps cannot name it. A channel token's label is used when it
+// is still the channel's name.
+func editMention(text string, loc []int, userNames, channelNames, channels, groups map[string]string) (typed, want string) {
+	group := func(i int) string {
+		if loc[2*i] < 0 {
+			return ""
+		}
+		return text[loc[2*i]:loc[2*i+1]]
+	}
+	switch {
+	case group(1) != "":
+		if name := userNames[group(1)]; name != "" {
+			return "@" + name, "<@" + group(1) + ">"
+		}
+	case group(2) != "":
+		id, name := group(2), group(3)
+		if channels[name] != id {
+			name = channelNames[id]
+		}
+		if name != "" {
+			return "#" + name, "<#" + id + "|" + name + ">"
+		}
+	case group(4) != "":
+		return "@" + group(4), "<!" + group(4) + ">"
+	case group(5) != "":
+		if handle := groups[group(5)]; handle != "" {
+			return "@" + handle, "<!subteam^" + group(5) + "|@" + handle + ">"
+		}
+	}
+	return "", ""
+}
+
+// relevantMentions keeps the entries that can match in any text
+// mentionsForEdit tries: one whose needle is in the original text, in
+// the text with every nameable token typed, or that contains '<'. A
+// match in a mix of typed names and tokens lies within one of the two
+// texts unless it crosses a token, and then the needle holds the
+// token's '<'. Dropping the rest changes no result and makes each try
+// cost the few names the message can reach, not the whole workspace.
+func relevantMentions(entries []mentionEntry, text, full string) []mentionEntry {
+	var out []mentionEntry
+	for _, e := range entries {
+		needle := string(e.trigger) + e.name
+		if strings.Contains(text, needle) || strings.Contains(full, needle) || strings.Contains(e.name, "<") {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// nameOfID inverts a name -> ID map. When two names share an ID the
+// shorter, then the alphabetically first, is kept, so the result does
+// not depend on map order.
+func nameOfID(byName map[string]string) map[string]string {
+	out := make(map[string]string, len(byName))
+	for name, id := range byName {
+		if prev, ok := out[id]; ok && (len(prev) < len(name) || len(prev) == len(name) && prev < name) {
+			continue
+		}
+		out[id] = name
+	}
+	return out
+}
+
 // mentionEntry is one name translateMentions rewrites: trigger is the
 // leading character ('@' for users/specials, '#' for channels); name is
 // what follows; replacement is the wire form. rank breaks ties when two

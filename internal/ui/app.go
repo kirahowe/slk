@@ -4186,12 +4186,17 @@ func (a *App) beginEditOfSelected() tea.Cmd {
 	if channelID == "" || ts == "" {
 		return nil
 	}
-	return a.enterEdit(channelID, ts, panel, text)
+	c := &a.compose
+	if panel == PanelThread {
+		c = &a.threadCompose
+	}
+	return a.enterEdit(channelID, ts, panel, c.MentionsForEdit(text))
 }
 
 // enterEdit opens the editor on message ts of channelID in panel's
-// composer, seeded with text. The composer's own text is stashed and
-// comes back when the edit ends.
+// composer, seeded with text as the user would type it (names, not
+// wire tokens). The composer's own text is stashed and comes back when
+// the edit ends.
 func (a *App) enterEdit(channelID, ts string, panel Panel, text string) tea.Cmd {
 	var stashed string
 	switch panel {
