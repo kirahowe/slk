@@ -168,11 +168,12 @@ type MessageService interface {
 	// MessageSendFailedMsg).
 	Send(channelID ids.ChannelID, text string) Msg
 
-	// Forward posts the source message's permalink to destinationChannelID
-	// with Slack's native preview. teamID is captured when forwarding begins,
+	// Forward shares the source message into destinationChannelID
+	// (chat.shareMessage). teamID is captured when forwarding begins,
 	// not read from the active workspace when this synchronous call executes.
 	// Callers run it off the Update loop; it does not produce send/compose events.
-	// On success, returns the actual posted timestamp and permalink text.
+	// On success, returns the posted timestamp and, best effort, the
+	// source permalink.
 	Forward(ctx context.Context, teamID string, sourceChannelID ids.ChannelID, ts ids.MessageTS, destinationChannelID ids.ChannelID) (ForwardResult, error)
 
 	// Edit dispatches chat.update for the message identified by

@@ -6,75 +6,85 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/slack-go/slack"
 )
 
-var uuidRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+// The capture's own values, so the built form can be compared with it.
+const (
+	shareSource      = "CFAKE0001"
+	shareTS          = "1700000000.000100"
+	shareDestination = "CFAKE0002"
+)
 
 func TestShareMessageForm_MatchesCapture(t *testing.T) {
-	got := shareMessageForm("CFAKE0001", "1700000000.000100", "CFAKE0002", "00000000-0000-4000-8000-000000000000")
-	want := capturedForm(t, "chat_share_message.json")
-	for k := range want {
-		if got.Get(k) != want.Get(k) {
-			t.Errorf("%s = %q, want %q", k, got.Get(k), want.Get(k))
+	got := shareMessageForm(shareSource, shareTS, shareDestination, newClientMsgID())
+	assertFormMatchesCapture(t, got, "chat_share_message.json")
+}
+
+// businessFields is a request's form as capturedForm reads a capture: no
+// token, no _x_* envelope.
+func businessFields(form url.Values) url.Values {
+	out := url.Values{}
+	for k, v := range form {
+		if k == "token" || strings.HasPrefix(k, "_x_") {
+			continue
 		}
+		out[k] = v
 	}
-	for k := range got {
-		if _, ok := want[k]; !ok {
-			t.Errorf("unexpected field %s=%q", k, got.Get(k))
-		}
-	}
+	return out
 }
 
 func TestForwardMessage(t *testing.T) {
 	const permalink = "https://example.invalid/archives/CFAKE0001/p1700000000000100"
 	for _, tc := range []struct {
 		name      string
+		status    int
 		body      string
 		wantTS    string
 		wantError string
 	}{
-		{"success", `{"ok":true,"channel":"CFAKE0002","ts":"1700000001.000200"}`, "1700000001.000200", ""},
-		{"rejected", `{"ok":false,"error":"not_in_channel"}`, "", "not_in_channel"},
-		{"empty ts", `{"ok":true,"channel":"CFAKE0002","ts":""}`, "", "empty message timestamp"},
-		{"missing ts", `{"ok":true,"channel":"CFAKE0002"}`, "", "empty message timestamp"},
-		{"bad json", `<html>`, "", "parsing chat.shareMessage"},
+		{"success", http.StatusOK, `{"ok":true,"channel":"CFAKE0002","ts":"1700000001.000200"}`, "1700000001.000200", ""},
+		{"rejected", http.StatusOK, `{"ok":false,"error":"not_in_channel"}`, "", "not_in_channel"},
+		{"empty ts", http.StatusOK, `{"ok":true,"channel":"CFAKE0002","ts":""}`, "", "empty message timestamp"},
+		{"missing ts", http.StatusOK, `{"ok":true,"channel":"CFAKE0002"}`, "", "empty message timestamp"},
+		{"bad json", http.StatusOK, `<html>`, "", "parsing chat.shareMessage"},
+		// Not retried: Slack may have posted the share before refusing.
+		{"rate limited", http.StatusTooManyRequests, ``, "", "rate limited"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var gotPath string
-			var gotForm url.Values
+			var requests []*http.Request
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				gotPath = r.URL.Path
 				_ = r.ParseForm()
-				gotForm = r.PostForm
+				requests = append(requests, r)
 				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
 				_, _ = w.Write([]byte(tc.body))
 			}))
 			defer srv.Close()
 			c := NewClient("xoxc-test", "d-cookie")
 			pointClientAtTestServer(t, c, srv)
+			permalinks := 0
 			c.api = &mockSlackAPI{getPermalinkContextFn: func(context.Context, *slack.PermalinkParameters) (string, error) {
+				permalinks++
 				return permalink, nil
 			}}
 
-			ts, link, err := c.ForwardMessage(context.Background(), "CFAKE0001", "1700000000.000100", "CFAKE0002")
-			if gotPath != "/api/chat.shareMessage" {
-				t.Errorf("path = %q, want /api/chat.shareMessage", gotPath)
+			ts, link, err := c.ForwardMessage(context.Background(), shareSource, shareTS, shareDestination)
+			if len(requests) != 1 {
+				t.Fatalf("requests = %d, want one chat.shareMessage", len(requests))
 			}
-			if id := gotForm.Get("client_msg_id"); !uuidRe.MatchString(id) {
-				t.Errorf("client_msg_id = %q, want a UUID", id)
+			r := requests[0]
+			if r.URL.Path != "/api/chat.shareMessage" {
+				t.Errorf("path = %q, want /api/chat.shareMessage", r.URL.Path)
 			}
-			gotForm.Set("client_msg_id", "00000000-0000-4000-8000-000000000000")
-			for k, v := range capturedForm(t, "chat_share_message.json") {
-				if gotForm.Get(k) != v[0] {
-					t.Errorf("%s = %q, want %q", k, gotForm.Get(k), v[0])
-				}
+			assertFormMatchesCapture(t, businessFields(r.PostForm), "chat_share_message.json")
+			if got := r.PostForm.Get("_x_reason"); got != "sendShareMessage" {
+				t.Errorf("_x_reason = %q, want the capture's sendShareMessage", got)
 			}
-			if gotForm.Get("token") != "xoxc-test" {
+			if r.PostForm.Get("token") != "xoxc-test" {
 				t.Errorf("token not sent")
 			}
 			if tc.wantError != "" {
@@ -83,6 +93,9 @@ func TestForwardMessage(t *testing.T) {
 				}
 				if ts != "" || link != "" {
 					t.Errorf("failed result = (%q, %q), want empty", ts, link)
+				}
+				if permalinks != 0 {
+					t.Errorf("permalink fetched after a failed share")
 				}
 				return
 			}
@@ -96,8 +109,9 @@ func TestForwardMessage(t *testing.T) {
 	}
 }
 
-// The share already happened, so a permalink failure only empties the echo
-// text; it must not report the forward as failed (a retry would duplicate it).
+// The share already happened, so a permalink failure only empties the
+// stand-in's text; it must not report the forward as failed (a retry would
+// duplicate it).
 func TestForwardMessage_PermalinkFailureIsNotAnError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"ok":true,"channel":"CFAKE0002","ts":"1700000001.000200"}`))
@@ -108,8 +122,20 @@ func TestForwardMessage_PermalinkFailureIsNotAnError(t *testing.T) {
 	c.api = &mockSlackAPI{getPermalinkContextFn: func(context.Context, *slack.PermalinkParameters) (string, error) {
 		return "", errors.New("boom")
 	}}
-	ts, link, err := c.ForwardMessage(context.Background(), "CFAKE0001", "1700000000.000100", "CFAKE0002")
+	ts, link, err := c.ForwardMessage(context.Background(), shareSource, shareTS, shareDestination)
 	if err != nil || ts != "1700000001.000200" || link != "" {
 		t.Errorf("result = (%q, %q, %v), want ts and empty permalink", ts, link, err)
+	}
+}
+
+// Two client_msg_ids are never the same: each is fresh randomness, not
+// derived from the time or a counter the next call could repeat.
+func TestNewClientMsgIDIsFresh(t *testing.T) {
+	a, b := newClientMsgID(), newClientMsgID()
+	if !clientMsgIDRe.MatchString(a) {
+		t.Errorf("client_msg_id = %q, want a version 4 UUID", a)
+	}
+	if a == b {
+		t.Errorf("two client_msg_ids are both %q", a)
 	}
 }

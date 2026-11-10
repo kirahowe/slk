@@ -39,19 +39,26 @@ func capturedForm(t *testing.T, name string) url.Values {
 	return out
 }
 
-var clientTokenRe = regexp.MustCompile(`^web-[0-9]{13}$`)
+var (
+	clientTokenRe = regexp.MustCompile(`^web-[0-9]{13}$`)
+	clientMsgIDRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+)
 
 // assertFormMatchesCapture compares field sets: same names, same values
-// (JSON byte for byte), nothing extra. client_token is checked for shape
-// only: it is a timestamp.
+// (JSON byte for byte), nothing extra. The fields that are fresh on every
+// request are checked for shape only, when the capture has them:
+// client_token (a timestamp) and client_msg_id (a random UUID).
 func assertFormMatchesCapture(t *testing.T, got url.Values, captureFile string) {
 	t.Helper()
 	want := capturedForm(t, captureFile)
-	if tok := got.Get("client_token"); !clientTokenRe.MatchString(tok) {
-		t.Errorf("client_token = %q, want web-<13 digits>", tok)
+	shapes := map[string]*regexp.Regexp{"client_token": clientTokenRe, "client_msg_id": clientMsgIDRe}
+	for k, re := range shapes {
+		if _, ok := want[k]; ok && !re.MatchString(got.Get(k)) {
+			t.Errorf("%s = %q, want the shape %s", k, got.Get(k), re)
+		}
 	}
 	for k := range want {
-		if k == "client_token" {
+		if shapes[k] != nil {
 			continue
 		}
 		if got.Get(k) != want.Get(k) {

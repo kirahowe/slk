@@ -14,7 +14,8 @@ import (
 // aliases.
 
 // ForwardResult identifies the message Slack posted in the destination.
-// Text is the source permalink; preview attachments arrive via WebSocket.
+// Text is the source permalink, empty when it could not be fetched after
+// the share; the shared message itself arrives via WebSocket.
 type ForwardResult struct {
 	TS   ids.MessageTS
 	Text string

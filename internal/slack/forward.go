@@ -2,11 +2,10 @@ package slackclient
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"net/url"
-
-	"github.com/google/uuid"
 
 	"github.com/gammons/slk/internal/debuglog"
 	"github.com/gammons/slk/internal/slackhttp"
@@ -16,12 +15,14 @@ import (
 // client's Forward does: chat.shareMessage (undocumented), so the recipient
 // gets a real shared message rather than a pasted link. It returns the
 // destination message's timestamp and, best effort, the source permalink the
-// UI uses for its local echo (empty when it could not be fetched; the share
-// has already happened by then, so that is not an error).
+// UI shows in its stand-in row until the share's echo arrives (empty when it
+// could not be fetched; the share has already happened by then, so that is
+// not an error). The share is never retried, a 429 included: a retry after
+// Slack accepted it would post the message twice.
 func (c *Client) ForwardMessage(ctx context.Context, sourceChannelID, ts, destinationChannelID string) (postedTS string, permalink string, err error) {
 	// The _x_reason the web client sends on chat.shareMessage.
 	shareCtx := slackhttp.WithReason(ctx, "sendShareMessage")
-	raw, err := c.postForm(shareCtx, "chat.shareMessage", shareMessageForm(sourceChannelID, ts, destinationChannelID, uuid.NewString()))
+	raw, err := c.postForm(shareCtx, "chat.shareMessage", shareMessageForm(sourceChannelID, ts, destinationChannelID, newClientMsgID()))
 	if err != nil {
 		return "", "", fmt.Errorf("forwarding message: %w", err)
 	}
@@ -60,4 +61,14 @@ func shareMessageForm(sourceChannelID, ts, destinationChannelID, clientMsgID str
 		"pending_slug_urls":     {"[]"},
 		"skip_dlp_user_warning": {"false"},
 	}
+}
+
+// newClientMsgID is the web client's client_msg_id: a random version 4
+// UUID. The only generator of it in slk.
+func newClientMsgID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:]) // crypto/rand.Read never returns an error
+	b[6] = b[6]&0x0f | 0x40
+	b[8] = b[8]&0x3f | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
