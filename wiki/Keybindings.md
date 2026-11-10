@@ -19,6 +19,7 @@
 | `Ctrl+E` / `Ctrl+A` | Insert | Move to the end / start of the current line |
 | `Ctrl+X` | Insert | Edit the draft in `$VISUAL` / `$EDITOR` (or `compose.editor`) |
 | `Ctrl+O` | Insert (thread) | Toggle "also send to channel" for the next thread reply |
+| `Ctrl+R` | Insert | Show or hide the draft preview above the compose box: the draft as it will look once sent. Sending or leaving the box closes it |
 | `Alt+Enter` | Insert (thread) | Send thread reply and broadcast to channel (one-shot) |
 | `Ctrl+U` / `Ctrl+D` | Normal | Half-page up / down |
 | `Up` | Insert | Previous line; on the first line, jump to start of message |

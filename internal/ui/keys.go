@@ -83,6 +83,7 @@ type KeyMap struct {
 	ToggleBroadcast     key.Binding `help:"Threads"`
 	OpenInEditor        key.Binding `help:"Composer"`
 	ClearCompose        key.Binding `help:"Composer"`
+	DraftPreview        key.Binding `help:"Composer"`
 }
 
 func DefaultKeyMap() KeyMap {
@@ -192,5 +193,9 @@ func DefaultKeyMap() KeyMap {
 		// Insert mode: clears every line of the focused composer plus its
 		// pending attachments (handled in mode_insert.go).
 		ClearCompose: key.NewBinding(key.WithKeys("ctrl+u"), key.WithHelp("ctrl+u", "clear message input")),
+		// Insert mode, either compose box: shows or hides the draft
+		// preview above the box being typed in. Sending or leaving
+		// insert mode closes it.
+		DraftPreview: key.NewBinding(key.WithKeys("ctrl+r"), key.WithHelp("ctrl+r", "show / hide the draft preview")),
 	}
 }

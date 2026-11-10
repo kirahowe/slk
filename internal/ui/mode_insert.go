@@ -15,7 +15,9 @@
 //   - Ctrl+V                     -> smartPaste (clipboard image /
 //     file path / verbatim text).
 //   - Ctrl+U                     -> clear compose (text +
-//     attachments + uploading flag).
+//     attachments + uploading flag); the draft preview stays.
+//   - Ctrl+R                     -> show / hide the draft preview
+//     above the active compose (with a picker open too).
 //   - Ctrl+O (thread compose)    -> toggle "also send to channel" for
 //     the next thread reply.
 //   - Ctrl+X                     -> edit the draft in $VISUAL/$EDITOR
@@ -165,8 +167,15 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	if a.focusedPanel == PanelThread && a.threadVisible {
 		target = &a.threadCompose
 	}
+	if key.Matches(msg, a.keys.DraftPreview) {
+		target.TogglePreview()
+		return nil
+	}
 	if code == 'u' && mod == tea.ModCtrl {
+		// Clearing the box is not a send: the draft preview stays.
+		preview := target.PreviewOn()
 		target.Reset()
+		target.SetPreview(preview)
 		return nil
 	}
 	// If a compose-overlay picker (emoji / @mention / #channel)

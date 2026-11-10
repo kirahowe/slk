@@ -2265,6 +2265,13 @@ func (a *App) SetMode(mode Mode) {
 	if mode == ModeInsert {
 		a.clearSelections()
 	}
+	// Leaving insert mode by any path (Esc, a send, the end of an edit,
+	// a global intercept) leaves the compose box, and the draft preview
+	// goes with it: the next time the box opens, it opens without one.
+	if a.mode == ModeInsert && mode != ModeInsert {
+		a.compose.SetPreview(false)
+		a.threadCompose.SetPreview(false)
+	}
 	// Leaving command mode by ANY path — including global intercepts
 	// (ctrl+c quit-confirm) and async reducers that force a mode —
 	// must drop the ':' prompt, or the statusbar keeps rendering a

@@ -72,6 +72,7 @@ var keyMapReachExempt = map[string]string{
 	"ToggleBroadcast/ctrl+o": "insert mode only",
 	"OpenInEditor/ctrl+x":    "insert mode only",
 	"ClearCompose/ctrl+u":    "insert mode only; in normal mode ctrl+u is HalfPageUp",
+	"DraftPreview/ctrl+r":    "insert mode only",
 	"HalfPageUp/ctrl+u":      "scrolls up; the view is at the top",
 	"PageUp/pgup":            "scrolls up; the view is at the top",
 	"Down/j":                 "moves down; the last message is selected",
