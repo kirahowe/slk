@@ -88,63 +88,101 @@ func tokenize(s string) (string, []token) {
 		b.WriteString(s[i : i+j])
 		i += j
 
-		matched := false
-		switch s[i] {
-		case '<':
-			// Try each wire-form pattern at position i.
-			for _, p := range []struct {
-				re   *regexp.Regexp
-				kind tokenKind
-			}{
-				{reUser, tokUser},
-				{reChannel, tokChannel},
-				{reBroadcast, tokBroadcast},
-				{reLink, tokLink},
-			} {
-				loc := p.re.FindStringSubmatchIndex(s[i:])
-				if loc == nil || loc[0] != 0 {
-					continue
-				}
-				// loc is relative to s[i:].
-				full := s[i : i+loc[1]]
-				tok := token{kind: p.kind}
-				tok.id = s[i+loc[2] : i+loc[3]]
-				// Optional label group only exists for patterns with 2 captures.
-				if len(loc) >= 6 && loc[4] >= 0 {
-					tok.label = s[i+loc[4] : i+loc[5]]
-				}
-				table = append(table, tok)
-				b.WriteRune(sentinelStart)
-				b.WriteString(strconv.Itoa(len(table) - 1))
-				b.WriteRune(sentinelEnd)
-				i += len(full)
-				matched = true
-				break
-			}
-		case ':':
-			loc := reEmoji.FindStringSubmatchIndex(s[i:])
-			// "see:https://x" is text and a URL, not the emoji :https:
-			// (the closing colon is the scheme's). An emoji after a URL
-			// is still one: "x/a:tada:" ends the URL.
-			if loc != nil && loc[0] == 0 && typedURLLen(s[i+1:]) == 0 {
-				full := s[i : i+loc[1]]
-				tok := token{kind: tokEmoji, id: s[i+loc[2] : i+loc[3]]}
-				table = append(table, tok)
-				b.WriteRune(sentinelStart)
-				b.WriteString(strconv.Itoa(len(table) - 1))
-				b.WriteRune(sentinelEnd)
-				i += len(full)
-				matched = true
-			}
-		}
-		if !matched {
+		tok, n, ok := tokenAt(s, i)
+		if !ok {
 			// Not a recognised token; copy the candidate byte literally.
 			b.WriteByte(s[i])
 			i++
+			continue
 		}
+		table = append(table, tok)
+		b.WriteRune(sentinelStart)
+		b.WriteString(strconv.Itoa(len(table) - 1))
+		b.WriteRune(sentinelEnd)
+		i += n
 	}
 
 	return b.String(), table
+}
+
+// tokenAt reads the wire-form token or emoji shortcode starting at byte
+// i of s, and its length; ok is false when none starts there.
+func tokenAt(s string, i int) (tok token, n int, ok bool) {
+	switch s[i] {
+	case '<':
+		// Try each wire-form pattern at position i.
+		for _, p := range []struct {
+			re   *regexp.Regexp
+			kind tokenKind
+		}{
+			{reUser, tokUser},
+			{reChannel, tokChannel},
+			{reBroadcast, tokBroadcast},
+			{reLink, tokLink},
+		} {
+			loc := p.re.FindStringSubmatchIndex(s[i:])
+			if loc == nil || loc[0] != 0 {
+				continue
+			}
+			// loc is relative to s[i:].
+			tok := token{kind: p.kind}
+			tok.id = s[i+loc[2] : i+loc[3]]
+			// Optional label group only exists for patterns with 2 captures.
+			if len(loc) >= 6 && loc[4] >= 0 {
+				tok.label = s[i+loc[4] : i+loc[5]]
+			}
+			return tok, loc[1], true
+		}
+	case ':':
+		loc := reEmoji.FindStringSubmatchIndex(s[i:])
+		// "see:https://x" is text and a URL, not the emoji :https:
+		// (the closing colon is the scheme's). An emoji after a URL
+		// is still one: "x/a:tada:" ends the URL.
+		if loc != nil && loc[0] == 0 && typedURLLen(s[i+1:]) == 0 {
+			return token{kind: tokEmoji, id: s[i+loc[2] : i+loc[3]]}, loc[1], true
+		}
+	}
+	return token{}, 0, false
+}
+
+// Mention is a mention token in typed text as Convert reads it, from
+// byte Start to End: a user (<@U…>), channel (<#C…> or <#C…|name>),
+// broadcast (<!here>) or usergroup (<!subteam^S…|@handle>) mention.
+type Mention struct {
+	Start, End int
+	// Kind is '@' for a user, '#' for a channel and '!' for a
+	// broadcast or usergroup.
+	Kind byte
+	// ID is the user or channel ID, or what follows "<!": "here",
+	// "channel", "everyone" or "subteam^S…".
+	ID    string
+	Label string
+}
+
+// Mentions lists the mention tokens Convert reads in s, in order, by
+// the same rules as Convert: a mention-shaped run inside a link's label
+// is not one, nor is a labelled user token ("<@U1|x>"). It reads no
+// markdown, so a token inside a code block, which Convert sends as
+// text, is listed too.
+func Mentions(s string) []Mention {
+	var out []Mention
+	for i := 0; i < len(s); {
+		j := strings.IndexAny(s[i:], "<:")
+		if j < 0 {
+			break
+		}
+		i += j
+		tok, n, ok := tokenAt(s, i)
+		if !ok {
+			i++
+			continue
+		}
+		if kind, mention := map[tokenKind]byte{tokUser: '@', tokChannel: '#', tokBroadcast: '!'}[tok.kind]; mention {
+			out = append(out, Mention{Start: i, End: i + n, Kind: kind, ID: tok.id, Label: tok.label})
+		}
+		i += n
+	}
+	return out
 }
 
 // parseSentinel inspects s starting at byte offset start. If a
