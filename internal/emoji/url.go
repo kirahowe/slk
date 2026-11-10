@@ -107,10 +107,13 @@ func BuildCustomEmojiURL(name string, customs map[string]string) (string, bool) 
 		}
 		target := strings.TrimPrefix(entry, customEmojiAliasPrefix)
 
-		// If the alias target is a kyokomi builtin, resolve it now.
-		// If it's another custom name, loop and follow.
-		if cps, ok := CodepointsForShortcode(target); ok {
-			return BuildStandardEmojiURL(cps), true
+		// A workspace emoji shadows a built-in of the same name at every
+		// hop, as it does for a name looked up directly: follow it. A
+		// target only the built-ins have resolves to the built-in.
+		if _, custom := customs[target]; !custom {
+			if cps, ok := CodepointsForShortcode(target); ok {
+				return BuildStandardEmojiURL(cps), true
+			}
 		}
 		current = target
 	}
