@@ -2140,6 +2140,9 @@ func (a *App) openThreadForSelectedMessage() tea.Cmd {
 	if cmd, blocked := a.sendingGuard(msg.TS); blocked {
 		return cmd
 	}
+	if cmd, blocked := noticeGuard(msg, "reply to"); blocked {
+		return cmd
+	}
 	// Use the message's own TS as the thread parent. If it's a thread
 	// reply (a thread_broadcast row in the channel feed), the selected
 	// row is NOT the parent: resolve the real parent from the pane
@@ -4172,6 +4175,9 @@ func (a *App) beginEditOfSelected() tea.Cmd {
 	if !ok {
 		return nil
 	}
+	if cmd, blocked := a.noticeSelectionGuard("edit"); blocked {
+		return cmd
+	}
 	// Build a synthetic MessageItem just for the ownership check;
 	// avoids fetching the full struct twice.
 	if !a.isOwnMessage(messages.MessageItem{UserID: userID}) {
@@ -4424,6 +4430,9 @@ func (a *App) beginDeleteOfSelected() tea.Cmd {
 	channelID, ts, text, userID, _, ok := a.selectedMessageContext()
 	if !ok {
 		return nil
+	}
+	if cmd, blocked := a.noticeSelectionGuard("delete"); blocked {
+		return cmd
 	}
 	if !a.isOwnMessage(messages.MessageItem{UserID: userID}) {
 		return func() tea.Msg { return statusbar.DeleteNotOwnMsg{} }

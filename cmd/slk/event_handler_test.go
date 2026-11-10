@@ -1075,6 +1075,33 @@ func TestOnMessage_ChangeEcho_DoesNotNotify(t *testing.T) {
 	}
 }
 
+// A join or leave notice never notifies: an invitation join names the
+// inviter, which OnMention would take for a mention, and in a group DM
+// OnDM would fire for every leave. A real mention still notifies.
+func TestOnMessage_SystemNotice_DoesNotNotify(t *testing.T) {
+	var bodies []string
+	h := &rtmEventHandler{
+		workspaceID:     "T1",
+		currentUserID:   "USELF",
+		userNames:       newUserNameStore(nil),
+		channelTypes:    map[string]string{"C1": "channel", "G1": "group_dm"},
+		channelNames:    map[string]string{"C1": "general", "G1": "mpdm"},
+		isActive:        func() bool { return false },
+		activeChannelID: func() string { return "C2" },
+		wsCtx:           &WorkspaceContext{},
+		notifier:        notify.New(true, ""),
+		notifyCfg:       config.Notifications{Enabled: true, OnMention: true, OnDM: true},
+		deliver:         func(_, body string) { bodies = append(bodies, body) },
+	}
+	h.OnMessage("C1", "U1", "1.001", "<@U1> has joined the channel by invitation from <@USELF>", "", "channel_join", false, nil, nil, slack.Blocks{}, nil, "", "")
+	h.OnMessage("G1", "U1", "1.002", "<@U1> has left the group", "", "group_leave", false, nil, nil, slack.Blocks{}, nil, "", "")
+	h.OnMessage("C1", "U1", "1.003", "<@USELF> fresh", "", "", false, nil, nil, slack.Blocks{}, nil, "", "")
+
+	if len(bodies) != 1 || !strings.Contains(bodies[0], "fresh") {
+		t.Errorf("notified %q, want only the real mention", bodies)
+	}
+}
+
 // A channel_join/leave notice doesn't make the channel unread on Slack
 // either. Before this exclusion, every join or leave in any channel
 // you're in lit the sidebar dot.

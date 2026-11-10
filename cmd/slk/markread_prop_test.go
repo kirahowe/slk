@@ -20,14 +20,19 @@ func genCacheMessages(self string) *rapid.Generator[[]cache.Message] {
 		case 1:
 			user = ""
 		}
-		return cache.Message{UserID: user, Text: proptest.SlackText([]string{self}, nil).Draw(t, "text")}
+		return cache.Message{
+			UserID:  user,
+			Text:    proptest.SlackText([]string{self}, nil).Draw(t, "text"),
+			Subtype: rapid.SampledFrom([]string{"", "thread_broadcast", "channel_join", "group_leave"}).Draw(t, "subtype"),
+		}
 	})
 	return rapid.SliceOfN(msg, 0, 12)
 }
 
-// countMentions never counts self-authored messages, never exceeds the
-// message count, counts every non-self message in dm/group_dm/app, and
-// in channels counts exactly the non-self messages mention.InText flags.
+// countMentions never counts self-authored messages or system notices
+// (a join or leave), never exceeds the message count, counts every other
+// non-self message in dm/group_dm/app, and in channels counts exactly
+// the other non-self messages mention.InText flags.
 func TestCountMentionsProperties(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		self := proptest.ID("U").Draw(t, "self")
@@ -37,7 +42,7 @@ func TestCountMentionsProperties(t *testing.T) {
 		got := countMentions(msgs, chType, self)
 		var others, mentioning int
 		for _, m := range msgs {
-			if m.UserID == self {
+			if m.UserID == self || m.Subtype == "channel_join" || m.Subtype == "group_leave" {
 				continue
 			}
 			others++

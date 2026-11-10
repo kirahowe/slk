@@ -8,10 +8,11 @@ import (
 )
 
 // UnreadStart is where the "── new ──" line goes. Property: it is -1
-// or a row Slack knows, by someone else, later than the read cursor,
-// with none of the user's own rows (nor placeholders) at or after it;
-// and no earlier row would do. Sending counts as reading: nothing the
-// user posted, and nothing before it, is unread.
+// or a row Slack knows, by someone else, later than the read cursor and
+// not a system notice, with none of the user's own rows (nor
+// placeholders) at or after it; and no earlier row would do. Sending
+// counts as reading: nothing the user posted, and nothing before it, is
+// unread. A notice of the user's own join counts as theirs.
 func TestUnreadStartProperty(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		rows := drawRows(t)
@@ -20,12 +21,14 @@ func TestUnreadStartProperty(t *testing.T) {
 			if IsLocalTS(rows[i].TS) {
 				rows[i].UserID = "USELF"
 			}
+			rows[i].Subtype = rapid.SampledFrom([]string{"", "thread_broadcast", "channel_join", "group_leave"}).Draw(t, "subtype")
 		}
 		lastRead := proptest.TS().Draw(t, "lastRead")
 		own := func(r MessageItem) bool { return r.UserID == "USELF" || IsLocalTS(r.TS) }
 		lastOwn := LastIndexBefore(rows, len(rows), own)
+		notice := func(r MessageItem) bool { return r.Subtype == "channel_join" || r.Subtype == "group_leave" }
 		eligible := func(i int) bool {
-			return i > lastOwn && KnownToSlack(rows[i]) && CompareTS(rows[i].TS, lastRead) > 0
+			return i > lastOwn && KnownToSlack(rows[i]) && !notice(rows[i]) && CompareTS(rows[i].TS, lastRead) > 0
 		}
 		got := UnreadStart(rows, lastRead, "USELF")
 		want := -1

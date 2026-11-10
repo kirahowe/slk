@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gammons/slk/internal/core"
 )
 
 // Row operations on a pane's []MessageItem, located by TS. Both content
@@ -351,7 +353,9 @@ func Settle(rows []MessageItem, localTS string, item MessageItem) ([]MessageItem
 // lastRead (CompareTS). The user's own rows (author selfID) and
 // placeholders never start the section, and posting counts as reading
 // up to the message posted, as Slack's own cursor does: only rows after
-// the user's last one can be unread.
+// the user's last one can be unread. A system notice (a join or leave)
+// never starts the section either: it does not make the conversation
+// unread, so a line above one would mark nothing new.
 func UnreadStart(rows []MessageItem, lastRead, selfID string) int {
 	if lastRead == "" {
 		return -1
@@ -363,7 +367,7 @@ func UnreadStart(rows []MessageItem, lastRead, selfID string) int {
 		}
 	}
 	for i := from; i < len(rows); i++ {
-		if KnownToSlack(rows[i]) && CompareTS(rows[i].TS, lastRead) > 0 {
+		if KnownToSlack(rows[i]) && !core.IsSystemNoticeSubtype(rows[i].Subtype) && CompareTS(rows[i].TS, lastRead) > 0 {
 			return i
 		}
 	}

@@ -39,6 +39,9 @@ func (a *App) beginForwardOfSelected() tea.Cmd {
 	if cmd, blocked := a.sendingGuard(ts); blocked {
 		return cmd
 	}
+	if cmd, blocked := a.noticeSelectionGuard("forward"); blocked {
+		return cmd
+	}
 	a.pendingForward = &forwardSource{
 		teamID: a.activeTeamID, channelID: ids.ChannelID(channelID), ts: ids.MessageTS(ts),
 	}

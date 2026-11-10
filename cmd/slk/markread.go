@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/gammons/slk/internal/cache"
+	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/debuglog"
 	"github.com/gammons/slk/internal/mention"
 	slackclient "github.com/gammons/slk/internal/slack"
@@ -115,11 +116,13 @@ func countMentionsSince(db *cache.DB, chType, channelID, sinceTS, selfUserID str
 
 // countMentions is the pure core of countMentionsSince: how many of msgs
 // count toward the mention badge of a conversation of type chType,
-// self-authored messages excluded.
+// self-authored messages and system notices excluded. A notice is kept
+// out as the live path keeps it out: in a group DM every message from
+// someone else counts, and a leave would otherwise be one.
 func countMentions(msgs []cache.Message, chType, selfUserID string) int {
 	n := 0
 	for _, m := range msgs {
-		if m.UserID != "" && m.UserID == selfUserID {
+		if (m.UserID != "" && m.UserID == selfUserID) || core.IsSystemNoticeSubtype(m.Subtype) {
 			continue
 		}
 		if messageMentionsSelf(chType, m.Text, selfUserID) {
