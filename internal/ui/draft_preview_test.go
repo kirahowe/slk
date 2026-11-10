@@ -59,12 +59,13 @@ func previewRows(t *testing.T, a *App) []string {
 		}
 		col := strings.Index(row, "── draft preview ")
 		for _, r := range rows[i:] {
-			// The rows' invisible left border strips to "▌".
-			cell := strings.TrimSpace(strings.TrimPrefix(strings.TrimRight(r[col:], "│┃ "), "▌"))
-			if cell == "" {
+			// The body rows' invisible left border strips to "▌", so
+			// a blank body row is not the blank spacer row.
+			raw := strings.TrimRight(r[col:], "│┃ ")
+			if strings.TrimSpace(raw) == "" {
 				return out
 			}
-			out = append(out, cell)
+			out = append(out, strings.TrimSpace(strings.TrimPrefix(raw, "▌")))
 		}
 	}
 	return out
@@ -82,6 +83,24 @@ func TestDraftPreviewShowsTheDraftAsSent(t *testing.T) {
 		if strings.Contains(rows, bad) {
 			t.Errorf("preview has %q:\n%s", bad, rows)
 		}
+	}
+}
+
+// A line after a list stays on a row of its own, under the list.
+func TestDraftPreviewLineAfterAList(t *testing.T) {
+	draft := strings.Join([]string{"bug with rendering lists:", "", "- one", "- two", "- three", "", "and another line"}, "\n")
+	rows := previewRows(t, draftApp(t, 120, 40, draft))
+	three, after := -1, -1
+	for i, r := range rows {
+		switch r {
+		case "• three":
+			three = i
+		case "and another line":
+			after = i
+		}
+	}
+	if three < 0 || after <= three {
+		t.Fatalf("want \"• three\" and then \"and another line\" on rows of their own:\n%s", strings.Join(rows, "\n"))
 	}
 }
 
