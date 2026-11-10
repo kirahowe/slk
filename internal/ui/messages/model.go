@@ -1638,6 +1638,30 @@ func (m *Model) renderContext() *RenderContext {
 	}
 }
 
+// rowOptions are the channel pane's RenderOptions for msg's row, the
+// cursor aside: the reply line, "(edited)", the broadcast label, image
+// hits, sixel rows and the author's avatar.
+func (m *Model) rowOptions(msg MessageItem) RenderOptions {
+	opt := RenderOptions{
+		ReplyAffordance: true,
+		EditedMark:      true,
+		BroadcastLabel:  true,
+		ImageHits:       true,
+		SixelRows:       true,
+	}
+	if m.avatarFn != nil {
+		opt.Avatar = m.avatarFn(msg.UserID)
+	}
+	return opt
+}
+
+// RenderDraft draws msg, a message about to be sent, as this pane will
+// draw its row, without the author header (messages.RenderDraft), at
+// the pane's width.
+func (m *Model) RenderDraft(msg MessageItem, width int) Draft {
+	return RenderDraft(msg, width, m.renderContext(), m.rowOptions(msg))
+}
+
 // renderMessageEntry builds a single entry and its EntryPayload for m.messages[i] using
 // the shared cacheStyles. The returned entry is fully populated with
 // both the unselected and selected pre-bordered line slices, the
@@ -1658,18 +1682,9 @@ func (m *Model) renderContext() *RenderContext {
 // number of entries produced.
 func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entryPerfStats) (entrylist.Entry, EntryPayload) {
 	msg := m.messages[i]
-	opt := RenderOptions{
-		IsSelected:      i == m.selected,
-		ReplyAffordance: true,
-		EditedMark:      true,
-		BroadcastLabel:  true,
-		ImageHits:       true,
-		SixelRows:       true,
-		stats:           stats,
-	}
-	if m.avatarFn != nil {
-		opt.Avatar = m.avatarFn(msg.UserID)
-	}
+	opt := m.rowOptions(msg)
+	opt.IsSelected = i == m.selected
+	opt.stats = stats
 	r := RenderMessage(msg, width, m.renderContext(), opt)
 	// The channel pane's kitty upload order: blocks, attachments, then
 	// body and reaction emoji.
@@ -1869,7 +1884,7 @@ func placeAvatarBeside(avatar, content string) string {
 			left = avatarLines[i] + lipgloss.NewStyle().Background(styles.Background).Render(" ")
 		} else {
 			// Empty space where avatar was (maintain alignment)
-			left = lipgloss.NewStyle().Background(styles.Background).Width(avatarWidth).Render("")
+			left = blankAvatarGutter(avatarWidth)
 		}
 
 		if i < len(contentLines) {
@@ -1880,6 +1895,24 @@ func placeAvatarBeside(avatar, content string) string {
 	}
 
 	return strings.Join(result, "\n")
+}
+
+// blankAvatarGutter is the theme-background run placeAvatarBeside puts
+// in front of a line below the avatar.
+func blankAvatarGutter(width int) string {
+	return lipgloss.NewStyle().Background(styles.Background).Width(width).Render("")
+}
+
+// besideBlankAvatar is content with the avatar gutter in front of every
+// line and no avatar in it: each line is where it would be below the
+// avatar placeAvatarBeside draws (RenderOptions.BodyOnly).
+func besideBlankAvatar(content string) string {
+	gutter := blankAvatarGutter(5)
+	lines := strings.Split(content, "\n")
+	for i, l := range lines {
+		lines[i] = gutter + l
+	}
+	return strings.Join(lines, "\n")
 }
 
 // convertSixelMap translates imgrender.SixelEntry values into the

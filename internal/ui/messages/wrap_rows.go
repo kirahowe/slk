@@ -66,6 +66,13 @@ func (s WrapStyles) MentionVariant(content string, width int, kind mention.Kind)
 	return strings.Split(s.unselected(s.fill.Width(width-1).Render(content), content, width, kind), "\n")
 }
 
+// Unmarked renders content as an unselected row with no mention mark:
+// filled to the row width behind the invisible border. Split on "\n".
+// The rows WrapRows gives a message that does not mention the user.
+func (s WrapStyles) Unmarked(content string, width int) []string {
+	return strings.Split(s.unselected(s.fill.Width(width-1).Render(content), content, width, mention.None), "\n")
+}
+
 // unselected borders filled, the row as drawn without the cursor on it:
 // the invisible border, or the mention bar and tint for kind.
 func (s WrapStyles) unselected(filled, content string, width int, kind mention.Kind) string {

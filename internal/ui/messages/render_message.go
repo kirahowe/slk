@@ -46,7 +46,13 @@ type RenderOptions struct {
 	BroadcastLabel  bool   // "↳ replied to a thread" label (channel pane)
 	ImageHits       bool   // record image and file hit rects (both panes)
 	SixelRows       bool   // record sixel rows (channel pane)
-	stats           *entryPerfStats
+	// BodyOnly draws the message without its label rows (ephemeral,
+	// broadcast) and author header: the body, blocks, attachments,
+	// reply line and reactions only, for the draft preview
+	// (RenderDraft). With an Avatar the rows keep the avatar's gutter,
+	// blank, so the body wraps and lines up as it does beside one.
+	BodyOnly bool
+	stats    *entryPerfStats
 }
 
 // RenderedMessage is one message, rendered, before the pane's border and fill.
@@ -284,11 +290,11 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 	// Attachments begin immediately after the body text.
 	var labelRows string
 	preAttachmentRows := 0
-	if msg.Ephemeral {
+	if msg.Ephemeral && !opt.BodyOnly {
 		labelRows += EphemeralLabel() + "\n"
 		preAttachmentRows++ // the ephemeral label occupies its own row
 	}
-	if opt.BroadcastLabel && msg.Subtype == "thread_broadcast" {
+	if opt.BroadcastLabel && msg.Subtype == "thread_broadcast" && !opt.BodyOnly {
 		labelRows += styles.Timestamp.Render("\u21b3 replied to a thread") + "\n"
 		preAttachmentRows++ // the broadcast label occupies its own row
 	}
@@ -356,7 +362,9 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 		_ = writer.Close()
 		header = buf.String()
 	}
-	preAttachmentRows += lipgloss.Height(header)
+	if !opt.BodyOnly {
+		preAttachmentRows += lipgloss.Height(header)
+	}
 
 	var attachLineSlices [][]string
 	var imageHits []entrylist.Hit
@@ -591,6 +599,11 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 		bodyRow = "\n" + text
 	}
 	msgContent := labelRows + header + bodyRow + bkBlock + attachmentLines + threadLine + reactionLine
+	if opt.BodyOnly {
+		// Each part after the header starts with its own line break.
+		msgContent = strings.TrimPrefix(bodyRow+bkBlock+attachmentLines+threadLine+reactionLine, "\n")
+		header = ""
+	}
 
 	// Translate per-pill specs into entry-relative reaction hit rects.
 	// reactionRowBase is the row index (within linesNormal) where the
@@ -613,7 +626,13 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 	// Place avatar next to message content (avatar is side-by-side, no
 	// extra rows; row indices for sixelRows remain valid).
 	if avatarStr != "" {
-		msgContent = placeAvatarBeside(avatarStr, msgContent)
+		if opt.BodyOnly {
+			// The avatar sits beside the header, which is not drawn;
+			// the body keeps its gutter.
+			msgContent = besideBlankAvatar(msgContent)
+		} else {
+			msgContent = placeAvatarBeside(avatarStr, msgContent)
+		}
 	}
 
 	if len(allSixel) == 0 {

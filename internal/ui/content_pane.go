@@ -30,6 +30,13 @@ type contentPane interface {
 	ScrollHintForDrag(y int) int
 	ScrollUp(n int)
 	ScrollDown(n int)
+	// RenderDraft draws a message about to be sent as the pane will
+	// draw its row, without the author header: the draft preview above
+	// the pane's compose box (draft_preview.go).
+	RenderDraft(msg messages.MessageItem, width int) messages.Draft
+	// Version changes whenever what the pane draws could change,
+	// including the names, emoji and theme a draft is drawn with.
+	Version() int64
 }
 
 var (

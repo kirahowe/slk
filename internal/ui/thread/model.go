@@ -1534,5 +1534,20 @@ func (m *Model) renderContext() *messages.RenderContext {
 // affordance and no sixel rows (plan decision P3). Image hits are
 // recorded so a click opens the preview, as in the channel pane.
 func (m *Model) renderMessage(msg messages.MessageItem, width int, isSelected bool) messages.RenderedMessage {
-	return messages.RenderMessage(msg, width, m.renderContext(), messages.RenderOptions{IsSelected: isSelected, ImageHits: true})
+	opt := rowOptions()
+	opt.IsSelected = isSelected
+	return messages.RenderMessage(msg, width, m.renderContext(), opt)
+}
+
+// rowOptions are the thread pane's RenderOptions for a row, the cursor
+// aside (see renderMessage).
+func rowOptions() messages.RenderOptions {
+	return messages.RenderOptions{ImageHits: true}
+}
+
+// RenderDraft draws msg, a reply about to be sent, as this pane will
+// draw its row, without the author header (messages.RenderDraft), at
+// the pane's width.
+func (m *Model) RenderDraft(msg messages.MessageItem, width int) messages.Draft {
+	return messages.RenderDraft(msg, width, m.renderContext(), rowOptions())
 }
