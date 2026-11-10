@@ -5,17 +5,16 @@ package presencemenu
 import (
 	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
+	"github.com/muesli/reflow/truncate"
+
 	"github.com/gammons/slk/internal/bubbles/chrome"
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/text"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/overlay"
 	"github.com/gammons/slk/internal/ui/styles"
-	"github.com/muesli/reflow/truncate"
 )
 
 const (
@@ -197,14 +196,13 @@ func (m *Model) HandleKey(keyStr string) *Result {
 		return nil
 	case "backspace":
 		if len(m.query) > 0 {
-			_, n := utf8.DecodeLastRuneInString(m.query)
-			m.query = m.query[:len(m.query)-n]
+			m.query = text.DropLastRune(m.query)
 			m.selected = 0
 			m.filter()
 		}
 		return nil
 	}
-	if r := []rune(keyStr); len(r) == 1 && unicode.IsPrint(r[0]) {
+	if text.TypedRune(keyStr) {
 		m.query += keyStr
 		m.selected = 0
 		m.filter()

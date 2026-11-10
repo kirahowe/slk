@@ -173,6 +173,7 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Plain-text line segmentation (grapheme-correct) | `entrylist.PlainLines`, `entrylist.DisplayWidth`, `entrylist.SliceColumns` (`bubbles/entrylist`; `messages.PlainLines`/`DisplayWidthOfPlain`/`SliceColumns` delegate for existing callers) |
 | Display width of a string (emoji-aware) | `emoji.Width(s)` |
 | Case/accent-insensitive fold for matching | `text.Fold(s)` |
+| Does a key press type a character into a one-line input (a dialog's query, the `:` prompt, a search prompt), and what does backspace leave? | `text.TypedRune(key)` (one printable rune in any script; a named key or chord is not) and `text.DropLastRune(s)` (removes the whole rune, never a byte of it). Every query input uses them; do not test `keyStr[0]` or slice off one byte |
 | Slack mrkdwn → plain text | `messages.FlattenMrkdwn`, `messages.FlattenMrkdwnWithUserGroups` |
 | A message's text, including a forwarded message's shared content (alone, or after the comment it was forwarded with) | `messages.MessageCopyText` |
 | Search-term highlighting (ANSI/OSC-safe) | `messages.HighlightSearchTerms`, `messages.SearchHighlightSGR` |

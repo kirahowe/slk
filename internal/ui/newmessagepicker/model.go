@@ -9,10 +9,8 @@
 package newmessagepicker
 
 import (
-	"unicode"
-	"unicode/utf8"
-
 	"github.com/gammons/slk/internal/bubbles/chrome"
+	"github.com/gammons/slk/internal/text"
 	"github.com/gammons/slk/internal/ui/messages"
 )
 
@@ -193,7 +191,7 @@ func (m *Model) HandleKey(keyStr string) *Result {
 
 	// Single printable rune -> append to query. Space never gets here:
 	// the switch above takes it as toggle-selection.
-	if r := []rune(keyStr); len(r) == 1 && unicode.IsPrint(r[0]) {
+	if text.TypedRune(keyStr) {
 		m.query += keyStr
 		m.highlight = 0
 		m.filter()
@@ -234,8 +232,7 @@ func (m *Model) toggleHighlightedSelection() {
 // reaching for the mouse.
 func (m *Model) handleBackspace() {
 	if len(m.query) > 0 {
-		_, n := utf8.DecodeLastRuneInString(m.query)
-		m.query = m.query[:len(m.query)-n]
+		m.query = text.DropLastRune(m.query)
 		m.highlight = 0
 		m.filter()
 		return

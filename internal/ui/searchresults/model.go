@@ -11,11 +11,13 @@ import (
 	"unicode"
 
 	"charm.land/lipgloss/v2"
+	"github.com/muesli/reflow/truncate"
+
 	"github.com/gammons/slk/internal/bubbles/chrome"
+	"github.com/gammons/slk/internal/text"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/overlay"
 	"github.com/gammons/slk/internal/ui/styles"
-	"github.com/muesli/reflow/truncate"
 )
 
 var _ interface {
@@ -173,8 +175,7 @@ func (m *Model) HandleKey(keyStr string) Action {
 		}
 	case "backspace":
 		if m.query != "" {
-			r := []rune(m.query)
-			m.query = string(r[:len(r)-1])
+			m.query = text.DropLastRune(m.query)
 			m.st = stateInput
 		}
 	case "space":
@@ -183,7 +184,7 @@ func (m *Model) HandleKey(keyStr string) Action {
 		m.query += " "
 		m.st = stateInput
 	default:
-		if len([]rune(keyStr)) == 1 {
+		if text.TypedRune(keyStr) {
 			m.query += keyStr
 			m.st = stateInput
 		}

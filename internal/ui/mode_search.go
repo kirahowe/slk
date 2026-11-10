@@ -15,6 +15,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/gammons/slk/internal/ids"
+	"github.com/gammons/slk/internal/text"
 )
 
 func handleSearchMode(a *App, msg tea.KeyMsg) tea.Cmd {
@@ -65,8 +66,7 @@ func handleSearchMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	switch s := normalizeFinderKey(msg); s {
 	case "backspace":
 		if a.searchInput != "" {
-			r := []rune(a.searchInput)
-			a.searchInput = string(r[:len(r)-1])
+			a.searchInput = text.DropLastRune(a.searchInput)
 		}
 	case "space":
 		// Key.String() renders a literal space as "space"; queries
@@ -76,7 +76,7 @@ func handleSearchMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		// Single-rune filter: accepts ordinary printable input but
 		// drops multi-rune graphemes (emoji ZWJ sequences, some IME
 		// commits arrive as multi-rune strings). Known v1 limitation.
-		if len([]rune(s)) == 1 {
+		if text.TypedRune(s) {
 			a.searchInput += s
 		}
 	}

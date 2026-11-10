@@ -18,10 +18,10 @@ import (
 	"maps"
 	"slices"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/gammons/slk/internal/text"
 )
 
 // cmdCompletion is the state of an in-progress Tab completion at the
@@ -162,15 +162,14 @@ func handleCommandMode(a *App, msg tea.KeyMsg) tea.Cmd {
 			a.exitCommandMode()
 			return nil
 		}
-		_, n := utf8.DecodeLastRuneInString(a.cmdline)
-		a.setCmdline(a.cmdline[:len(a.cmdline)-n])
+		a.setCmdline(text.DropLastRune(a.cmdline))
 		return nil
 	}
 	s := msg.String()
 	if s == "space" {
 		s = " "
 	}
-	if r := []rune(s); len(r) == 1 && unicode.IsPrint(r[0]) {
+	if text.TypedRune(s) {
 		a.setCmdline(a.cmdline + s)
 	}
 	return nil

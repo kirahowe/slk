@@ -8,17 +8,16 @@ import (
 	"reflect"
 	"sort"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/lipgloss/v2"
+	"github.com/muesli/reflow/truncate"
+
 	"github.com/gammons/slk/internal/bubbles/chrome"
 	"github.com/gammons/slk/internal/text"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/overlay"
 	"github.com/gammons/slk/internal/ui/styles"
-	"github.com/muesli/reflow/truncate"
 )
 
 var _ interface {
@@ -214,14 +213,13 @@ func (m *Model) handleSearchKey(keyStr string) {
 		m.searching = false
 	case "backspace":
 		if len(m.query) > 0 {
-			_, n := utf8.DecodeLastRuneInString(m.query)
-			m.query = m.query[:len(m.query)-n]
+			m.query = text.DropLastRune(m.query)
 			m.selected = 0
 			m.filter()
 		}
 	default:
 		// Single printable rune — append to query.
-		if r := []rune(keyStr); len(r) == 1 && unicode.IsPrint(r[0]) {
+		if text.TypedRune(keyStr) {
 			m.query += keyStr
 			m.selected = 0
 			m.filter()
