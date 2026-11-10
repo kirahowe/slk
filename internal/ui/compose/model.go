@@ -129,6 +129,14 @@ type Model struct {
 	// opens, so a high-visibility broadcast never silently repeats.
 	broadcast bool
 
+	// preview is the draft preview's on/off state (ctrl+r), per box and
+	// off by default. clearVisibleDraft turns it off, so a send and a
+	// move to another conversation close it; the App also closes it
+	// when insert mode is left. previewText caches the draft's wire text
+	// (preview.go).
+	preview     bool
+	previewText previewText
+
 	// editingExternally is true while Ctrl+X's editor is open. Update()
 	// refuses all key input while set.
 	editingExternally bool
@@ -400,9 +408,9 @@ func (m *Model) MoveCursorToEnd() {
 }
 
 // Reset clears the visible composer: text, attachments, picker
-// sessions, height, upload and broadcast flags. It deliberately does
-// NOT touch the inactive draft map, so unrelated conversations keep
-// their stored drafts. Called after a successful send/clear.
+// sessions, height, upload and broadcast flags, and the draft preview.
+// It deliberately does NOT touch the inactive draft map, so unrelated
+// conversations keep their stored drafts. Called after a successful send/clear.
 func (m *Model) Reset() {
 	m.clearVisibleDraft()
 }
@@ -1024,8 +1032,8 @@ func (m *Model) saveVisibleDraft() {
 }
 
 // clearVisibleDraft resets the visible transient composer state:
-// text, attachments, picker sessions, upload/broadcast flags, and
-// height. Inactive map entries are untouched. Used when the composer
+// text, attachments, picker sessions, upload/broadcast flags, the
+// draft preview, and height. Inactive map entries are untouched. Used when the composer
 // is detached or its conversation is swapped out.
 func (m *Model) clearVisibleDraft() {
 	m.input.Reset()
@@ -1034,6 +1042,7 @@ func (m *Model) clearVisibleDraft() {
 	m.pending = nil
 	m.uploading = false
 	m.broadcast = false
+	m.SetPreview(false)
 	m.dirty()
 }
 
