@@ -1164,16 +1164,25 @@ func (m Model) TranslateMentionsForSend(text string) string {
 // display name -> user ID, channels maps channel name -> channel ID and
 // groups maps usergroup ID -> handle.
 func translateMentions(text string, names, channels, groups map[string]string) string {
-	// trigger is the leading character ('@' for users/specials, '#' for
-	// channels); name is what follows; replacement is the wire form.
-	// rank breaks ties when two kinds of mention share a name (a user
-	// and a usergroup can both be "@design") -- lower wins.
-	type entry struct {
-		trigger     byte
-		name        string
-		replacement string
-		rank        int
-	}
+	return applyMentions(text, mentionEntries(names, channels, groups))
+}
+
+// mentionEntry is one name translateMentions rewrites: trigger is the
+// leading character ('@' for users/specials, '#' for channels); name is
+// what follows; replacement is the wire form. rank breaks ties when two
+// kinds of mention share a name (a user and a usergroup can both be
+// "@design") -- lower wins.
+type mentionEntry struct {
+	trigger     byte
+	name        string
+	replacement string
+	rank        int
+}
+
+// mentionEntries is every mention the three maps define, in the order
+// applyMentions tries them. It depends only on the maps, so a caller
+// translating several texts against the same maps builds it once.
+func mentionEntries(names, channels, groups map[string]string) []mentionEntry {
 	const (
 		rankSpecial = iota
 		rankUser
@@ -1181,18 +1190,18 @@ func translateMentions(text string, names, channels, groups map[string]string) s
 		rankChannel
 	)
 
-	var entries []entry
+	var entries []mentionEntry
 
 	// Special @ mentions
 	entries = append(entries,
-		entry{'@', "here", "<!here>", rankSpecial},
-		entry{'@', "channel", "<!channel>", rankSpecial},
-		entry{'@', "everyone", "<!everyone>", rankSpecial},
+		mentionEntry{'@', "here", "<!here>", rankSpecial},
+		mentionEntry{'@', "channel", "<!channel>", rankSpecial},
+		mentionEntry{'@', "everyone", "<!everyone>", rankSpecial},
 	)
 
 	// User mentions
 	for name, userID := range names {
-		entries = append(entries, entry{'@', name, "<@" + userID + ">", rankUser})
+		entries = append(entries, mentionEntry{'@', name, "<@" + userID + ">", rankUser})
 	}
 
 	// Usergroup mentions. Like channels below, we emit the labeled
@@ -1200,7 +1209,7 @@ func translateMentions(text string, names, channels, groups map[string]string) s
 	// echo renders the handle even if the server echo arrives before
 	// usergroups.list refreshes this workspace's map.
 	for id, handle := range groups {
-		entries = append(entries, entry{'@', handle, "<!subteam^" + id + "|@" + handle + ">", rankUserGroup})
+		entries = append(entries, mentionEntry{'@', handle, "<!subteam^" + id + "|@" + handle + ">", rankUserGroup})
 	}
 
 	// Channel mentions. We emit <#CHANNELID|name> rather than the
@@ -1211,19 +1220,19 @@ func translateMentions(text string, names, channels, groups map[string]string) s
 	// Slack accepts both forms on the wire and normalizes echoes
 	// to the |name form anyway.
 	for name, channelID := range channels {
-		entries = append(entries, entry{'#', name, "<#" + channelID + "|" + name + ">", rankChannel})
+		entries = append(entries, mentionEntry{'#', name, "<#" + channelID + "|" + name + ">", rankChannel})
 	}
 
 	// Sort by name length descending. This lives across both trigger
 	// kinds because the substring-corruption concern is per-trigger:
-	// the loop below builds the search needle as trigger+name, so a
+	// applyMentions builds the search needle as trigger+name, so a
 	// longer @name still won't collide with a shorter #name even when
 	// they share the same suffix.
 	//
 	// sort.Slice is unstable and the entries above come out of map
 	// iteration, so equal-length names need an explicit tie-break or
 	// the same text translates to different wire forms run to run.
-	// Earlier entries win: the loop below rewrites every occurrence, so
+	// Earlier entries win: applyMentions rewrites every occurrence, so
 	// by the time a later entry with the same name is tried, the text
 	// no longer contains it. Precedence is rank (a name shared by a
 	// person and a usergroup resolves to the person), then name, then
@@ -1241,7 +1250,12 @@ func translateMentions(text string, names, channels, groups map[string]string) s
 		}
 		return a.replacement < b.replacement
 	})
+	return entries
+}
 
+// applyMentions rewrites every occurrence of each entry's trigger+name
+// in text as its wire form, entry by entry in the order given.
+func applyMentions(text string, entries []mentionEntry) string {
 	for _, e := range entries {
 		mention := string(e.trigger) + e.name
 		searchFrom := 0
