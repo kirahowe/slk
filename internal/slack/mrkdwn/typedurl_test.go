@@ -110,3 +110,89 @@ func TestConvert_TypedURLFallback(t *testing.T) {
 		t.Errorf("mrkdwn %q labels a link whose label is its URL", mr)
 	}
 }
+
+// Typed URLs in the places Linkify does not reach on its own: after a
+// quote mark or a colon, and in a quote inside a quote. "see:https://x"
+// also went out with the emoji :https: in it, the tokenizer having read
+// the scheme's colon as the emoji's closing one.
+func TestConvert_TypedURLGaps(t *testing.T) {
+	cases := []struct {
+		in    string
+		mr    string
+		links []string
+	}{
+		{`"https://example.com"`, `"<https://example.com>"`, []string{"https://example.com"}},
+		{`'https://example.com/x'`, `'<https://example.com/x>'`, []string{"https://example.com/x"}},
+		{"see:https://x.y", "see:<https://x.y>", []string{"https://x.y"}},
+		{"see:ftp://10.0.0.1/f", "see:<ftp://10.0.0.1/f>", []string{"ftp://10.0.0.1/f"}},
+		{`he said "see http://localhost:8080".`, `he said "see <http://localhost:8080>".`, []string{"http://localhost:8080"}},
+		// A quote inside a quote keeps its own "> " marker as text, and
+		// each of its lines is its own text, so URLs on adjacent lines
+		// stay two links.
+		{"> > nested https://example.com", "> > nested <https://example.com>", []string{"https://example.com"}},
+		{"> > https://one.example\n> > https://two.example", "> > <https://one.example>\n> > <https://two.example>", []string{"https://one.example", "https://two.example"}},
+		{"> > https://one.example\n> >\n> > https://two.example", "> > <https://one.example>\n> >\n> > <https://two.example>", []string{"https://one.example", "https://two.example"}},
+		{"> > > deep http://localhost:3000/x.", "> > > deep <http://localhost:3000/x>.", []string{"http://localhost:3000/x"}},
+		{"> - item https://example.com", "> - item <https://example.com>", []string{"https://example.com"}},
+		{"> > mail a@b.co", "> > mail <mailto:a@b.co|a@b.co>", []string{"mailto:a@b.co"}},
+		// Already linked: a heading is a paragraph here, and a quote's
+		// own paragraphs are walked inline.
+		{"# Title https://example.com", "# Title <https://example.com>", []string{"https://example.com"}},
+		{"# see (https://example.com/x)", "# see (<https://example.com/x>)", []string{"https://example.com/x"}},
+		{"> quote https://example.com", "> quote <https://example.com>", []string{"https://example.com"}},
+		{"> https://one.example\n> https://two.example", "> <https://one.example>\n> <https://two.example>", []string{"https://one.example", "https://two.example"}},
+		// Still not links.
+		{"foo:bar", "foo:bar", nil},
+		{`say "hi"`, `say "hi"`, nil},
+		{"#xhttps://example.com", "#xhttps://example.com", nil},
+		{"> > `https://example.com`", "> > `https://example.com`", nil},
+		{"> ```\n> https://example.com\n> ```", "> ```\n> https://example.com\n> ```", nil},
+		// An emoji next to a URL is still an emoji.
+		{":smile: https://example.com", ":smile: <https://example.com>", []string{"https://example.com"}},
+	}
+	for _, c := range cases {
+		mr, blk := Convert(c.in)
+		if mr != c.mr {
+			t.Errorf("Convert(%q) mrkdwn = %q, want %q", c.in, mr, c.mr)
+		}
+		if got := linkURLs(blk); !reflect.DeepEqual(got, c.links) {
+			t.Errorf("Convert(%q) links = %q, want %q; block=%s", c.in, got, c.links, blockJSON(blk))
+		}
+	}
+}
+
+// "see:https://x" holds no emoji: the colon after "https" is the
+// scheme's. An emoji whose name is not followed by a typed URL is one.
+func TestTokenize_SchemeColonIsNotAnEmoji(t *testing.T) {
+	for _, in := range []string{"see:https://x.y", "a:http://localhost", "b:ftp://h/f"} {
+		if _, table := tokenize(in); len(table) != 0 {
+			t.Errorf("tokenize(%q) table = %+v, want none", in, table)
+		}
+	}
+	for _, in := range []string{":https: x", "x:https:y", "a:tada:b"} {
+		if _, table := tokenize(in); len(table) != 1 || table[0].kind != tokEmoji {
+			t.Errorf("tokenize(%q) table = %+v, want one emoji", in, table)
+		}
+	}
+}
+
+// A blank line between a quote's paragraphs is kept on both sides.
+func TestConvert_QuoteBlankLine(t *testing.T) {
+	mr, blk := Convert("> one\n>\n> two")
+	if want := "> one\n>\n> two"; mr != want {
+		t.Errorf("mrkdwn = %q, want %q", mr, want)
+	}
+	q, ok := blk.Elements[0].(*slack.RichTextQuote)
+	if !ok {
+		t.Fatalf("element is %T, want *RichTextQuote; block=%s", blk.Elements[0], blockJSON(blk))
+	}
+	var text strings.Builder
+	for _, e := range q.Elements {
+		if te, ok := e.(*slack.RichTextSectionTextElement); ok {
+			text.WriteString(te.Text)
+		}
+	}
+	if want := "one\n\ntwo"; text.String() != want {
+		t.Errorf("quote text = %q, want %q; block=%s", text.String(), want, blockJSON(blk))
+	}
+}

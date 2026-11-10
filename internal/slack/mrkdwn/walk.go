@@ -319,8 +319,14 @@ func (w *walker) handleLink(n *ast.Link) {
 // emit `<url>`; otherwise we emit `<url|label>` so the mrkdwn
 // fallback preserves the original surface form.
 func (w *walker) handleAutoLink(n *ast.AutoLink) {
-	url := string(n.URL(w.source))
-	label := string(n.Label(w.source))
+	w.appendLink(autoLinkTarget(n, w.source))
+}
+
+// autoLinkTarget returns the URL an AutoLink goes to and the text it
+// was typed as.
+func autoLinkTarget(n *ast.AutoLink, source []byte) (url, label string) {
+	url = string(n.URL(source))
+	label = string(n.Label(source))
 
 	// goldmark's Linkify extension does not set Protocol for email
 	// matches, so AutoLink.URL() returns the bare address. Slack
@@ -329,7 +335,12 @@ func (w *walker) handleAutoLink(n *ast.AutoLink) {
 	if n.AutoLinkType == ast.AutoLinkEmail && !strings.HasPrefix(url, "mailto:") {
 		url = "mailto:" + url
 	}
+	return url, label
+}
 
+// appendLink emits a link as <url> (or <url|label> when the label is not
+// the URL itself) in the mrkdwn fallback and as a link element.
+func (w *walker) appendLink(url, label string) {
 	w.mrkdwn.WriteString("<")
 	w.mrkdwn.WriteString(url)
 	if label != "" && label != url {
@@ -541,7 +552,7 @@ func (w *walker) walkQuote(n *ast.Blockquote) {
 			w.appendText(w.indentAt(p, lineStart(w.source, p.Lines().At(0).Start)))
 			w.walkInlineChildren(p)
 		} else {
-			w.appendText(w.quotedSource(c))
+			w.appendQuotedSource(c)
 		}
 		prev = c
 	}
@@ -569,23 +580,88 @@ func (w *walker) walkQuote(n *ast.Blockquote) {
 	w.mrkdwn.WriteString(strings.Join(lines, "\n"))
 }
 
-// quotedSource returns the source lines of n, a block inside a quote,
-// with one level of "> " marker removed from each.
-func (w *walker) quotedSource(n ast.Node) string {
+// appendQuotedSource appends n, a block inside a quote, as its source
+// lines with one level of "> " marker removed from each. The typed URLs
+// and addresses goldmark linked in it (a quote inside the quote, a list)
+// are still links; code in it has none.
+func (w *walker) appendQuotedSource(n ast.Node) {
 	start, last := w.firstLineStart(n), w.lastLineStart(n)
 	if start < 0 || last < start {
 		var b strings.Builder
 		collectRawInline(&b, n, w.source)
-		return b.String()
+		w.appendText(b.String())
+		return
 	}
+	links := w.autoLinksIn(n)
 	end := lineEnd(w.source, last)
-	lines := strings.Split(string(w.source[start:end]), "\n")
-	for i, l := range lines {
-		l = strings.TrimLeft(l, " ")
-		l = strings.TrimPrefix(l, ">")
-		lines[i] = strings.TrimPrefix(l, " ")
+	for i := start; ; {
+		eol := lineEnd(w.source, i)
+		j := i
+		for j < eol && w.source[j] == ' ' {
+			j++
+		}
+		if j < eol && w.source[j] == '>' {
+			j++
+		}
+		if j < eol && w.source[j] == ' ' {
+			j++
+		}
+		links = w.appendSourceWithLinks(j, eol, links)
+		if eol >= end {
+			return
+		}
+		w.appendText("\n")
+		i = eol + 1
 	}
-	return strings.Join(lines, "\n")
+}
+
+// sourceLink is an AutoLink placed in the source: the offset of the
+// text it was typed as, and where it goes.
+type sourceLink struct {
+	start      int
+	url, label string
+}
+
+// autoLinksIn returns the AutoLinks under n in source order. One whose
+// place in the source is unknown is left out, and its text stays text.
+func (w *walker) autoLinksIn(n ast.Node) []sourceLink {
+	var out []sourceLink
+	_ = ast.Walk(n, func(c ast.Node, entering bool) (ast.WalkStatus, error) {
+		al, ok := c.(*ast.AutoLink)
+		if !entering || !ok {
+			return ast.WalkContinue, nil
+		}
+		// AutoLink keeps its text segment unexported, but Label
+		// returns that segment as a subslice of the source, which
+		// places it: it starts cap(source)-cap(label) bytes in.
+		label := al.Label(w.source)
+		start := cap(w.source) - cap(label)
+		if start < 0 || start+len(label) > len(w.source) || !bytes.Equal(w.source[start:start+len(label)], label) {
+			return ast.WalkContinue, nil
+		}
+		url, text := autoLinkTarget(al, w.source)
+		out = append(out, sourceLink{start: start, url: url, label: text})
+		return ast.WalkContinue, nil
+	})
+	return out
+}
+
+// appendSourceWithLinks appends the source bytes [a, b) as text, with
+// each of links that starts in that range as a link. It returns the
+// links that start after it.
+func (w *walker) appendSourceWithLinks(a, b int, links []sourceLink) []sourceLink {
+	for len(links) > 0 && links[0].start < b {
+		l := links[0]
+		links = links[1:]
+		if l.start < a {
+			continue
+		}
+		w.appendText(string(w.source[a:l.start]))
+		w.appendLink(l.url, l.label)
+		a = l.start + len(l.label)
+	}
+	w.appendText(string(w.source[a:b]))
+	return links
 }
 
 // collectRawInline appends the source bytes of all *ast.Text descendants

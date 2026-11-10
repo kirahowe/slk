@@ -75,6 +75,9 @@ func newParser() parser.Parser {
 			util.Prioritized(indentedParagraphParser{parser.NewParagraphParser()}, 1000),
 		),
 		parser.WithInlineParsers(parser.DefaultInlineParsers()...),
+		// After the default parsers, so code spans and links claim
+		// their punctuation first (typedurl.go).
+		parser.WithInlineParsers(util.Prioritized(afterPunctURL{}, 900)),
 	)
 }
 

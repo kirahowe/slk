@@ -86,7 +86,10 @@ func TestConvertPlainTextIsIdentity(t *testing.T) {
 		// KNOWN: a line that is only a list marker becomes an empty list
 		// item: Convert("2024.") == "2024. " and Convert("-") == "• ",
 		// so the text carries no digits.
-		in := rapid.StringMatching(`[A-Za-z,.!?]([A-Za-z,.!?\n]| [A-Za-z,.!?]){0,30}`).Draw(t, "plain")
+		//
+		// Quote marks are in: one before a typed URL hands the URL to
+		// Linkify (afterPunctURL), and anywhere else it is only text.
+		in := rapid.StringMatching(`[A-Za-z,.!?"']([A-Za-z,.!?"'\n]| [A-Za-z,.!?"']){0,30}`).Draw(t, "plain")
 		mr, _ := Convert(in)
 		if want := strings.TrimRight(in, "\n"); mr != want {
 			t.Fatalf("Convert(%q) = %q, want %q", in, mr, want)
@@ -166,6 +169,10 @@ type typedURLContext struct{ before, after string }
 var typedURLContexts = []typedURLContext{
 	{"", ""}, {"see ", " now"}, {"see ", "."}, {"see ", ", then"}, {"is it ", "?"},
 	{"(", ")"}, {"(see ", ")."}, {"*", "*"}, {"_", "_"},
+	{`"`, `"`}, {`'`, `'`}, {`said "`, `".`}, {"see:", ""}, {"see:", " ok"},
+	{"# ", ""}, {"- ", ""}, {"1. ", "."},
+	{"> ", ""}, {"> see ", "."}, {"> > ", ""}, {"> > see ", ")"}, {"> > > ", ","},
+	{"> - ", ""}, {"> > \"", "\""},
 }
 
 // A typed URL comes out as exactly one link element whose URL is all of
@@ -194,6 +201,9 @@ func FuzzConvert(f *testing.F) {
 		"1. one\n2. two", "<https://x|y", "[a](http://b)", "\t\tx",
 		"http://localhost:8080/x, ok", "https://192.0.2.3:8443/a", "https://e.org/w_(p)). x",
 		"http://h/a<@U1>", "http://h/aを", "http://", "ftp://10.0.0.1/f.",
+		`"https://x.y"`, "see:https://x.y", "call:tel:+1555", "a:tada:https://x.y",
+		"> > https://a.b\n> > https://c.d", "> > `https://a.b` https://a.b", "> - x https://a.b",
+		"> ```\n> https://a.b\n> ```", "> > a@b.co",
 	} {
 		f.Add(s)
 	}
