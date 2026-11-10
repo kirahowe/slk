@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/gammons/slk/internal/core"
+	"github.com/gammons/slk/internal/proptest"
 	"pgregory.net/rapid"
 )
 
@@ -156,12 +157,51 @@ func TestTranslateMentionsNoTriggerUnchanged(t *testing.T) {
 	})
 }
 
-// KNOWN: translateMentions rewrites entry by entry, so a replacement can be
-// re-matched by a later, shorter entry. With names {"bob": "U1", "U1": "U2"},
-// "@bob @U1" becomes "<<@U2>> <@U2>". It needs a display name equal to
-// another user's ID, so these generators keep names lowercase and IDs
-// uppercase. A display name containing '>' or '|' ("a>b") is replaced
-// correctly, since the wire token is built from the ID, not the name.
+// Wire tokens already in the text, typed, pasted or left by the edit
+// seed, go out as they are: a name inside one is not a mention. A
+// usergroup's own label ("|@eng>") and a display name equal to another
+// user's ID used to be rewritten inside the token.
+func TestTranslateMentionsKeepsWireTokens(t *testing.T) {
+	names := map[string]string{"bob": "U1", "U1": "U2", "eng": "U3"}
+	groups := map[string]string{"S1": "eng"}
+	for _, tc := range []struct{ in, want string }{
+		{"cc <!subteam^S1|@eng>", "cc <!subteam^S1|@eng>"},
+		{"@bob @U1", "<@U1> <@U2>"},
+		{"see <https://x.com|ask @bob>", "see <https://x.com|ask @bob>"},
+		{"@bob<!here>", "@bob<!here>"},
+		{"<@U1> @bob", "<@U1> <@U1>"},
+	} {
+		if got := translateMentions(tc.in, names, nil, groups); got != tc.want {
+			t.Errorf("translateMentions(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// Every wire token of Slack text survives translation unchanged and in
+// order, whatever names the maps hold.
+func TestTranslateMentionsWireTokensSurvive(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		names, channels, groups := genMaps(t)
+		// Names that collide with the generated IDs and labels.
+		names["eng"] = "UENG"
+		names[rapid.StringMatching(`U[A-Z0-9]{8}`).Draw(t, "idName")] = "UX"
+		text := proptest.SlackText(nil, nil).Draw(t, "text")
+		in := wireTokenRe.FindAllString(text, -1)
+		out := wireTokenRe.FindAllString(translateMentions(text, names, channels, groups), -1)
+		i := 0
+		for _, tok := range out {
+			if i < len(in) && tok == in[i] {
+				i++
+			}
+		}
+		if i != len(in) {
+			t.Fatalf("tokens %q of %q not all kept: %q", in, text, out)
+		}
+	})
+}
+
+// A display name containing '>' or '|' ("a>b") is replaced correctly,
+// since the wire token is built from the ID, not the name.
 func genMaps(t *rapid.T) (names, channels, groups map[string]string) {
 	word := rapid.StringMatching(`[a-z]{1,6}`)
 	names = rapid.MapOfN(word, rapid.StringMatching(`U[A-Z0-9]{4}`), 0, 6).Draw(t, "names")

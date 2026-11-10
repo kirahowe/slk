@@ -4,6 +4,7 @@ package compose
 import (
 	"fmt"
 	"image/color"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -1253,9 +1254,30 @@ func mentionEntries(names, channels, groups map[string]string) []mentionEntry {
 	return entries
 }
 
+// wireTokenRe matches a Slack wire token: a mention, broadcast,
+// usergroup, date or link (<@U…>, <#C…|name>, <!here>,
+// <!subteam^S…|@handle>, <https://…|label>).
+var wireTokenRe = regexp.MustCompile(`<(?:[@#!]|https?://|mailto:)[^<>]*>`)
+
+// insideToken reports whether byte i of text is inside one of spans,
+// past its opening '<'.
+func insideToken(spans [][]int, i int) bool {
+	for _, s := range spans {
+		if s[0] < i && i < s[1] {
+			return true
+		}
+	}
+	return false
+}
+
 // applyMentions rewrites every occurrence of each entry's trigger+name
-// in text as its wire form, entry by entry in the order given.
+// in text as its wire form, entry by entry in the order given. Text
+// inside a wire token is left alone, so neither a token already in the
+// text nor one an earlier entry wrote is rewritten again: a
+// usergroup's "|@handle>" label, or "<@U1>" when another user's
+// display name is "U1".
 func applyMentions(text string, entries []mentionEntry) string {
+	spans := wireTokenRe.FindAllStringIndex(text, -1)
 	for _, e := range entries {
 		mention := string(e.trigger) + e.name
 		searchFrom := 0
@@ -1266,6 +1288,10 @@ func applyMentions(text string, entries []mentionEntry) string {
 			}
 			idx := searchFrom + rel
 			end := idx + len(mention)
+			if insideToken(spans, idx) {
+				searchFrom = idx + 1
+				continue
+			}
 			// Require a word boundary after the mention so #general
 			// doesn't match inside #general-help, etc.
 			if end < len(text) {
@@ -1277,6 +1303,7 @@ func applyMentions(text string, entries []mentionEntry) string {
 			}
 			text = text[:idx] + e.replacement + text[end:]
 			searchFrom = idx + len(e.replacement)
+			spans = wireTokenRe.FindAllStringIndex(text, -1)
 		}
 	}
 
