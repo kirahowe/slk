@@ -193,6 +193,37 @@ func TestConvertLinksTypedURL(t *testing.T) {
 	})
 }
 
+// The line after a list starts on a line of its own in the mrkdwn
+// fallback, with as many line breaks before it as were typed: the list's
+// last item is never glued to it.
+func TestConvertBlockAfterListKeepsItsBreaks(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		items := rapid.SliceOfN(rapid.StringMatching(`[a-z]{1,8}`), 1, 4).Draw(t, "items")
+		breaks := rapid.IntRange(1, 4).Draw(t, "breaks")
+		after := rapid.StringMatching(`[a-z]{1,8}( [a-z]{1,8}){0,3}`).Draw(t, "after")
+		ordered := rapid.Bool().Draw(t, "ordered")
+		var in, want strings.Builder
+		for i, it := range items {
+			if i > 0 {
+				in.WriteString("\n")
+				want.WriteString("\n")
+			}
+			if ordered {
+				fmt.Fprintf(&in, "%d. %s", i+1, it)
+				fmt.Fprintf(&want, "%d. %s", i+1, it)
+			} else {
+				in.WriteString("- " + it)
+				want.WriteString("• " + it)
+			}
+		}
+		in.WriteString(strings.Repeat("\n", breaks) + after)
+		want.WriteString(strings.Repeat("\n", breaks) + after)
+		if mr, _ := Convert(in.String()); mr != want.String() {
+			t.Fatalf("Convert(%q) = %q, want %q", in.String(), mr, want.String())
+		}
+	})
+}
+
 // FuzzConvert feeds arbitrary bytes through Convert.
 func FuzzConvert(f *testing.F) {
 	for _, s := range []string{
