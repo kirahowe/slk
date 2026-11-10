@@ -510,6 +510,30 @@ func TestWithCachedPresence_SwitchShowsPresenceSinceConnect(t *testing.T) {
 	}
 }
 
+// The workspace switch hands the UI switchLists' rows, so the reseed has
+// to happen there: a peer who came online after connect shows online,
+// and the published snapshot keeps its connect-time value.
+func TestSwitchListsShowsCachedPresence(t *testing.T) {
+	db := newTestDB(t)
+	if err := db.UpsertUser(cache.User{ID: "U1", WorkspaceID: "T1", Name: "albert", Presence: "away"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpdatePresence("U1", "active"); err != nil { // presence_change
+		t.Fatal(err)
+	}
+	wctx := &WorkspaceContext{TeamID: "T1"}
+	setConversations(wctx, []sidebar.ChannelItem{{ID: "D1", Type: "dm", DMUserID: "U1", Presence: "away"}})
+
+	channels, _ := switchLists(db, wctx, map[string]peerstatus.Status{})
+
+	if len(channels) != 1 || channels[0].Presence != "active" {
+		t.Fatalf("switch rows = %+v; want D1 active from the cache", channels)
+	}
+	if got := wctx.Channels()[0].Presence; got != "away" {
+		t.Errorf("published snapshot presence = %q; switchLists must not write it", got)
+	}
+}
+
 // Slack does not reliably send user_invalidated when a huddle ends, so
 // users seen in a huddle are refetched until a result says they left.
 func TestPeerStatus_RechecksHuddlersUntilTheHuddleEnds(t *testing.T) {

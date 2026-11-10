@@ -732,7 +732,8 @@ func (c *Client) SubscribePresence(userIDs []string) (int, error) {
 	if s == nil {
 		return 0, errNotConnected
 	}
-	return c.sendPresenceFrame(presenceSubType, userIDs)
+	n := presenceFrameFit(presenceSubType, userIDs)
+	return n, s.writeJSON(presenceFrame(presenceSubType, userIDs[:n]))
 }
 
 // QueryPresence asks Slack for the current presence of the given user
@@ -740,12 +741,27 @@ func (c *Client) SubscribePresence(userIDs []string) (int, error) {
 // is opened with no_query_on_subscribe=1, so presence_sub alone reports
 // only later transitions and a peer who stays online is never reported.
 //
-// Like SubscribePresence it sends the longest prefix of userIDs that fits
-// in one frame and returns how many that was. Pass it the prefix
-// SubscribePresence reported: a peer outside the subscription gets no
-// later presence_change, so its current presence would go stale anyway.
-func (c *Client) QueryPresence(userIDs []string) (int, error) {
-	return c.sendPresenceFrame(presenceQueryType, userIDs)
+// Pass it the prefix SubscribePresence reported sending: a peer outside
+// the subscription gets no later presence_change, so the answer would go
+// stale. A query replaces nothing, so unlike a subscription it can be
+// split: the IDs go out in as many frames as maxClientFrame needs, all on
+// one connection. A presence_query frame is two bytes longer than a
+// presence_sub frame for the same IDs, so the last subscribed ID can
+// need a second frame.
+func (c *Client) QueryPresence(userIDs []string) error {
+	s := c.ws.Load()
+	if s == nil {
+		return errNotConnected
+	}
+	for len(userIDs) > 0 {
+		n := max(presenceFrameFit(presenceQueryType, userIDs), 1)
+		// An ID too long for any frame fails in writeJSON, ending the loop.
+		if err := s.writeJSON(presenceFrame(presenceQueryType, userIDs[:n])); err != nil {
+			return err
+		}
+		userIDs = userIDs[n:]
+	}
+	return nil
 }
 
 // The presence frames slk sends: both carry a list of user IDs.
@@ -753,17 +769,6 @@ const (
 	presenceSubType   = "presence_sub"
 	presenceQueryType = "presence_query"
 )
-
-// sendPresenceFrame sends the frame of type typ for the longest prefix of
-// ids that fits in maxClientFrame, and returns the prefix's length.
-func (c *Client) sendPresenceFrame(typ string, ids []string) (int, error) {
-	s := c.ws.Load()
-	if s == nil {
-		return 0, errNotConnected
-	}
-	n := presenceFrameFit(typ, ids)
-	return n, s.writeJSON(presenceFrame(typ, ids[:n]))
-}
 
 // presenceFrame is the presence frame of type typ for ids.
 func presenceFrame(typ string, ids []string) map[string]any {

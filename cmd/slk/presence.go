@@ -108,12 +108,9 @@ func subscribeWorkspacePresence(wctx *WorkspaceContext, ids []string) {
 	debuglog.General("subscribeWorkspacePresence: sent presence_sub for %d of %d ids (self+%d dm peers)", n, len(ids), len(ids)-1)
 	// Query only what was subscribed: a peer left out of the
 	// subscription gets no later presence_change either.
-	q, err := wctx.Client.QueryPresence(ids[:n])
-	if err != nil {
+	if err := wctx.Client.QueryPresence(ids[:n]); err != nil {
 		debuglog.General("subscribeWorkspacePresence: presence_query (%d ids) FAILED: %v", n, err)
-		return
 	}
-	debuglog.General("subscribeWorkspacePresence: sent presence_query for %d of %d subscribed ids", q, n)
 }
 
 // workspacePresenceIDs returns the deduped list of user IDs to subscribe
