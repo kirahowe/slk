@@ -1,11 +1,14 @@
 package messages
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/gammons/slk/internal/core/blocks"
 	"github.com/gammons/slk/internal/proptest"
+	"github.com/gammons/slk/internal/ui/messages/blockkit"
+	"github.com/slack-go/slack"
 	"pgregory.net/rapid"
 )
 
@@ -184,6 +187,43 @@ func TestMessageLinksComeFromTheMessage(t *testing.T) {
 			if !found {
 				t.Fatalf("%q is in no text source of the message", l.URL)
 			}
+		}
+	})
+}
+
+// An app's link chip (a rich_text attachment_mention) or a link to
+// another Slack message (message_mention) is offered to `o` as exactly
+// one link, to the element's URL. Its label is the element's title as
+// it was written, whatever markup characters the title holds: the title
+// is entity-escaped on its way into <url|title> and decoded on the way
+// out. A title equal to the URL, or empty, gives a link with no label.
+func TestMessageLinksKeepMentionTitle(t *testing.T) {
+	const url = "https://linear.app/acme/issue/ENG-42?a=1&cid=C0GENERAL1"
+	rapid.Check(t, func(t *rapid.T) {
+		kind := rapid.SampledFrom([]string{"attachment_mention", "message_mention"}).Draw(t, "kind")
+		title := rapid.OneOf(
+			rapid.Just(""),
+			rapid.Just(url),
+			// A line break ends a link token, so a title is one line.
+			rapid.Map(proptest.PlainText(), func(s string) string { return strings.ReplaceAll(s, "\n", " ") }),
+		).Draw(t, "title")
+		el, err := json.Marshal(map[string]string{"type": kind, "url": url, "text": title})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var parsed slack.Blocks
+		raw := `[{"type":"rich_text","block_id":"b1","elements":[{"type":"rich_text_section","elements":[` + string(el) + `]}]}]`
+		if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+			t.Fatalf("unmarshal blocks: %v", err)
+		}
+		msg := MessageItem{TS: "1700000000.000100", Text: "<" + url + ">", Blocks: blockkit.Parse(parsed)}
+
+		want := Link{URL: url, Label: title}
+		if title == url {
+			want.Label = ""
+		}
+		if got := MessageLinks(msg); len(got) != 1 || got[0] != want {
+			t.Fatalf("MessageLinks = %+v, want exactly %+v", got, want)
 		}
 	})
 }
