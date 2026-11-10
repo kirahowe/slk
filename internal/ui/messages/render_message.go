@@ -123,10 +123,11 @@ func BlockkitContext(msg MessageItem, rc *RenderContext, emojiFlushes *[]func(io
 // columns.
 func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOptions) RenderedMessage {
 	var out RenderedMessage
-	// A system notice (a join or leave) is drawn as one muted line, not
-	// as a chat bubble under Slack's system bot. It returns before the
-	// mention check: an invitation join names the inviter, and that is
-	// not a mention of them. Both panes go through here.
+	// A system notice (a join, a leave, a canvas update) is drawn as one
+	// muted line, not as a chat bubble under Slack's system bot. It
+	// returns before the mention check: an invitation join names the
+	// inviter, and that is not a mention of them. Both panes go through
+	// here.
 	if core.IsSystemNoticeSubtype(msg.Subtype) {
 		noticeWidth := width - 4
 		if noticeWidth < 20 {
@@ -144,6 +145,10 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 		// muted. The body's own wrap is undone so the line wraps once, with
 		// the timestamp.
 		plain := strings.Join(strings.Fields(ansi.Strip(body)), " ")
+		if plain == "" && msg.Subtype == core.SubtypeCanvasUpdated {
+			// Slack's canvas notice often has no text or blocks.
+			plain = "The canvas was updated"
+		}
 		// Channel search matches a notice's text too, so its matches are
 		// highlighted as a body's are; the close restores the muted style.
 		if len(rc.SearchTerms) > 0 {

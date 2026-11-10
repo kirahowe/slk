@@ -28,17 +28,16 @@ func ownJoinNotice() messages.MessageItem {
 }
 
 // Replying in a join notice's thread, editing, deleting or forwarding it
-// would each send Slack a request it refuses. The key toasts instead and
-// does nothing else.
+// makes no sense. The key toasts instead and sends nothing.
 func TestMessageActionsRefuseOnSystemNotice(t *testing.T) {
 	for _, tc := range []struct {
 		key  tea.KeyMsg
 		want string
 	}{
-		{keyCode(tea.KeyEnter), "Can't reply to a join or leave message"},
-		{keyPress('E'), "Can't edit a join or leave message"},
-		{keyPress('D'), "Can't delete a join or leave message"},
-		{keyPress('F'), "Can't forward a join or leave message"},
+		{keyCode(tea.KeyEnter), "Can't reply to a system message"},
+		{keyPress('E'), "Can't edit a system message"},
+		{keyPress('D'), "Can't delete a system message"},
+		{keyPress('F'), "Can't forward a system message"},
 	} {
 		t.Run(tc.key.String(), func(t *testing.T) {
 			a := selectedOwnApp(t, ownJoinNotice())

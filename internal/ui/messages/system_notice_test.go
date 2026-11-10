@@ -37,6 +37,20 @@ func TestNoticeRendersReactionPill(t *testing.T) {
 	}
 }
 
+// Slack's canvas-updated message often has no text of its own; it is
+// drawn as a muted notice with a fixed label, not as an empty bubble
+// under Slackbot.
+func TestCanvasUpdatedNoticeWithoutText(t *testing.T) {
+	msg := MessageItem{TS: "1.000000", UserID: "USLACKBOT", UserName: "Slackbot", Timestamp: "10:30 AM", Subtype: "tabbed_canvas_updated"}
+	content := RenderMessage(msg, 60, &RenderContext{}, RenderOptions{}).Content
+	if got, want := ansi.Strip(content), "10:30 AM  The canvas was updated"; got != want {
+		t.Errorf("notice = %q, want %q", got, want)
+	}
+	if content != styles.Timestamp.Render(ansi.Strip(content)) {
+		t.Errorf("notice is not drawn muted: %q", content)
+	}
+}
+
 // A search term in a notice is highlighted, and the text after the
 // match goes back to the notice's muted style, not the body's colours.
 func TestNoticeHighlightsSearchMatchAndStaysMuted(t *testing.T) {

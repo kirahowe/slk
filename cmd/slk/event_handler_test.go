@@ -1116,9 +1116,10 @@ func TestOnMessage_SystemNotice_DoesNotSetHasUnread(t *testing.T) {
 		currentUserID:   "USELF",
 	}
 	h.OnMessage("C1", "U1", "1.001", "<@U1> has joined the channel", "", "channel_join", false, nil, nil, slack.Blocks{}, nil, "", "")
+	h.OnMessage("C1", "USLACKBOT", "1.002", "", "", "tabbed_canvas_updated", false, nil, nil, slack.Blocks{}, nil, "", "")
 
 	s, _ := db.GetChannelReadState("C1")
 	if s.HasUnread {
-		t.Error("HasUnread = true, want false: a join/leave notice does not make a channel unread")
+		t.Error("HasUnread = true, want false: a system notice does not make a channel unread")
 	}
 }
