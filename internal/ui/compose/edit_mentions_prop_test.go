@@ -6,28 +6,22 @@ import (
 	"testing"
 
 	"github.com/gammons/slk/internal/proptest"
+	"github.com/gammons/slk/internal/slack/mrkdwn"
 	"pgregory.net/rapid"
 )
 
-// mentionShape splits s into the mentions its tokens name (kind and ID,
-// labels dropped) and the text around them, so two sends compare equal
-// when they mention the same people, channels and groups in the same
-// places.
+// mentionShape splits s into the mentions Convert reads in it (kind and
+// ID, labels dropped) and the text around them, so two sends compare
+// equal when they mention the same people, channels and groups in the
+// same places.
 func mentionShape(s string) (ids []string, rest string) {
-	locs := editMentionRe.FindAllStringSubmatchIndex(s, -1)
 	var b strings.Builder
 	last := 0
-	for _, loc := range locs {
-		b.WriteString(s[last:loc[0]])
+	for _, m := range mrkdwn.Mentions(s) {
+		b.WriteString(s[last:m.Start])
 		b.WriteString("\x00")
-		for g, kind := range []string{"@", "#", "", "!", "^"} {
-			if g == 2 || loc[2*(g+1)] < 0 {
-				continue
-			}
-			ids = append(ids, kind+s[loc[2*(g+1)]:loc[2*(g+1)+1]])
-			break
-		}
-		last = loc[1]
+		ids = append(ids, string(m.Kind)+m.ID)
+		last = m.End
 	}
 	b.WriteString(s[last:])
 	return ids, b.String()
@@ -97,8 +91,8 @@ func TestMentionsForEditNamesWhatItKnows(t *testing.T) {
 			taken[handle] = true
 		}
 		var tokens []string
-		for name, id := range names {
-			tokens = append(tokens, rapid.SampledFrom([]string{"<@" + id + ">", "<@" + id + "|" + name + ">"}).Draw(t, "user"))
+		for _, id := range names {
+			tokens = append(tokens, "<@"+id+">")
 		}
 		for name, id := range channels {
 			tokens = append(tokens, rapid.SampledFrom([]string{"<#" + id + ">", "<#" + id + "|" + name + ">"}).Draw(t, "channel"))

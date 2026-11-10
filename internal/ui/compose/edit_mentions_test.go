@@ -27,7 +27,9 @@ func TestMentionsForEdit(t *testing.T) {
 		{"stale label uses the known name", "see <#C111|old-name>", "see #general"},
 		{"longer name sharing a prefix", "ping <#C222> please", "ping #general-help please"},
 		{"user", "hey <@U1>, see <#C333>", "hey @Alice, see #engineering"},
-		{"labeled user", "hey <@U1|alice>", "hey @Alice"},
+		// Convert reads no label on a user token, so this one is text
+		// on save, and naming it would make it a mention.
+		{"labeled user is text", "hey <@U1|alice>", "hey <@U1|alice>"},
 		{"special", "<!here> lunch", "@here lunch"},
 		{"labeled special", "<!channel|@channel> lunch", "@channel lunch"},
 		{"usergroup", "cc <!subteam^S1|@platform-team>", "cc @platform-team"},

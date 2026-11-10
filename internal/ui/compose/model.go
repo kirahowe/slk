@@ -14,6 +14,7 @@ import (
 
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/emoji"
+	"github.com/gammons/slk/internal/slack/mrkdwn"
 	"github.com/gammons/slk/internal/ui/channelpicker"
 	"github.com/gammons/slk/internal/ui/emojipicker"
 	"github.com/gammons/slk/internal/ui/mentionpicker"
@@ -1176,23 +1177,19 @@ func (m Model) MentionsForEdit(text string) string {
 	return mentionsForEdit(text, m.reverseNames, m.reverseChannels, m.userGroups)
 }
 
-// editMentionRe matches the mention tokens translateMentions writes,
-// plus the forms other clients send: <@U…> and <@U…|label>,
-// <#C…|name> and <#C…>, <!here> and the other broadcasts with or
-// without a label, and <!subteam^S…|@handle> or <!subteam^S…>.
-var editMentionRe = regexp.MustCompile(`<@([A-Z0-9]+)(?:\|[^<>]*)?>|<#([A-Z0-9]+)(?:\|([^<>]*))?>|<!(here|channel|everyone)(?:\|[^<>]*)?>|<!subteam\^([A-Z0-9]+)(?:\|[^<>]*)?>`)
-
 // mentionsForEdit is MentionsForEdit's pure core, over the same maps as
-// translateMentions. A token is rewritten only when translating the
-// whole text gives the same result with the typed name in its place as
-// with the token in the form translateMentions writes, so saving the
-// edit unchanged sends the same mentions. A token for an ID the maps do
-// not know, or whose name another mention would win, or that is glued
-// to the text after it, stays in wire form, which translateMentions
-// leaves alone and Slack accepts.
+// translateMentions. It rewrites the mention tokens Convert would send
+// as mentions (mrkdwn.Mentions), so text that only looks like one stays
+// as it is. A token is rewritten only when translating the whole text
+// gives the same result with the typed name in its place as with the
+// token in the form translateMentions writes, so saving the edit
+// unchanged sends the same mentions. A token for an ID the maps do not
+// know, or whose name another mention would win, or that is glued to
+// the text after it, stays in wire form, which translateMentions leaves
+// alone and Slack accepts.
 func mentionsForEdit(text string, names, channels, groups map[string]string) string {
-	locs := editMentionRe.FindAllStringSubmatchIndex(text, -1)
-	if len(locs) == 0 {
+	tokens := mrkdwn.Mentions(text)
+	if len(tokens) == 0 {
 		return text
 	}
 	userNames, channelNames := nameOfID(names), nameOfID(channels)
@@ -1200,70 +1197,68 @@ func mentionsForEdit(text string, names, channels, groups map[string]string) str
 	// typed[i] is what a person would type for token i, want[i] the
 	// token translateMentions writes for that; typed[i] is "" when the
 	// maps cannot name it.
-	typed, want := make([]string, len(locs)), make([]string, len(locs))
+	typed, want := make([]string, len(tokens)), make([]string, len(tokens))
 	var full strings.Builder // text with every token it can name typed
 	last := 0
-	for i, loc := range locs {
-		typed[i], want[i] = editMention(text, loc, userNames, channelNames, channels, groups)
-		full.WriteString(text[last:loc[0]])
+	for i, tok := range tokens {
+		typed[i], want[i] = editMention(tok, userNames, channelNames, channels, groups)
+		full.WriteString(text[last:tok.Start])
 		if typed[i] != "" {
 			full.WriteString(typed[i])
 		} else {
-			full.WriteString(text[loc[0]:loc[1]])
+			full.WriteString(text[tok.Start:tok.End])
 		}
-		last = loc[1]
+		last = tok.End
 	}
 	full.WriteString(text[last:])
 	entries := relevantMentions(mentionEntries(names, channels, groups), text, full.String())
 
 	var b strings.Builder
 	last = 0
-	for i, loc := range locs {
+	for i, tok := range tokens {
 		if typed[i] == "" {
 			continue
 		}
-		before := b.String() + text[last:loc[0]]
-		after := text[loc[1]:]
+		before := b.String() + text[last:tok.Start]
+		after := text[tok.End:]
 		if applyMentions(before+typed[i]+after, entries) != applyMentions(before+want[i]+after, entries) {
 			continue
 		}
-		b.WriteString(text[last:loc[0]])
+		b.WriteString(text[last:tok.Start])
 		b.WriteString(typed[i])
-		last = loc[1]
+		last = tok.End
 	}
 	b.WriteString(text[last:])
 	return b.String()
 }
 
-// editMention is what a person types for the editMentionRe match loc of
-// text, and the token translateMentions writes for that; both are ""
-// when the maps cannot name it. A channel token's label is used when it
-// is still the channel's name.
-func editMention(text string, loc []int, userNames, channelNames, channels, groups map[string]string) (typed, want string) {
-	group := func(i int) string {
-		if loc[2*i] < 0 {
-			return ""
+// editMention is what a person types for the mention token tok, and the
+// token translateMentions writes for that; both are "" when the maps
+// cannot name it. A channel token's label is used when it is still the
+// channel's name.
+func editMention(tok mrkdwn.Mention, userNames, channelNames, channels, groups map[string]string) (typed, want string) {
+	switch tok.Kind {
+	case '@':
+		if name := userNames[tok.ID]; name != "" {
+			return "@" + name, "<@" + tok.ID + ">"
 		}
-		return text[loc[2*i]:loc[2*i+1]]
-	}
-	switch {
-	case group(1) != "":
-		if name := userNames[group(1)]; name != "" {
-			return "@" + name, "<@" + group(1) + ">"
-		}
-	case group(2) != "":
-		id, name := group(2), group(3)
-		if channels[name] != id {
-			name = channelNames[id]
+	case '#':
+		name := tok.Label
+		if channels[name] != tok.ID {
+			name = channelNames[tok.ID]
 		}
 		if name != "" {
-			return "#" + name, "<#" + id + "|" + name + ">"
+			return "#" + name, "<#" + tok.ID + "|" + name + ">"
 		}
-	case group(4) != "":
-		return "@" + group(4), "<!" + group(4) + ">"
-	case group(5) != "":
-		if handle := groups[group(5)]; handle != "" {
-			return "@" + handle, "<!subteam^" + group(5) + "|@" + handle + ">"
+	case '!':
+		switch id := tok.ID; {
+		case id == "here" || id == "channel" || id == "everyone":
+			return "@" + id, "<!" + id + ">"
+		case strings.HasPrefix(id, "subteam^"):
+			group := strings.TrimPrefix(id, "subteam^")
+			if handle := groups[group]; handle != "" {
+				return "@" + handle, "<!subteam^" + group + "|@" + handle + ">"
+			}
 		}
 	}
 	return "", ""
