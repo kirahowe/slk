@@ -4,8 +4,33 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gammons/slk/internal/core"
+	"github.com/gammons/slk/internal/proptest"
 	"pgregory.net/rapid"
 )
+
+// Upsert never moves a row's visit time backward: the row keeps the
+// newer of the visit the finder holds and the one the incoming item
+// carries, and takes every other field from the incoming item.
+func TestUpsertKeepsTheNewerVisit(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		id := proptest.ID("D").Draw(t, "id")
+		held := rapid.Int64Range(0, 1<<40).Draw(t, "held")
+		incoming := rapid.Int64Range(0, 1<<40).Draw(t, "incoming")
+		name := nameGen().Draw(t, "name")
+		m := New()
+		m.SetItems([]core.ChannelFinderItem{{ID: id, Name: "old", Type: "dm", Joined: true}})
+		m.UpdateLastVisited(id, held)
+		m.Upsert(core.ChannelFinderItem{ID: id, Name: name, Type: "dm", Joined: true, LastVisited: incoming})
+		items := m.Items()
+		if len(items) != 1 {
+			t.Fatalf("Upsert of an existing ID left %d rows", len(items))
+		}
+		if got := items[0]; got.LastVisited != max(held, incoming) || got.Name != name {
+			t.Fatalf("after Upsert(visit %d) over visit %d: %+v, want visit %d and name %q", incoming, held, got, max(held, incoming), name)
+		}
+	})
+}
 
 var nameRunes = []rune{'a', 'b', 'c', 'd', '-', '_', '.', ' ', 'é', '漢', '字', '😀'}
 

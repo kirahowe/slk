@@ -24,14 +24,13 @@ import (
 type rtmEventHandler struct {
 	// program is the running *tea.Program, narrowed to teaSender so
 	// tests can capture what the handler dispatches.
-	program          teaSender
-	userNames        *userNameStore
-	tsFormat         string
-	db               *cache.DB
-	workspaceID      string
-	connected        bool
-	sectionRefreshAt time.Time
-	isActive         func() bool
+	program     teaSender
+	userNames   *userNameStore
+	tsFormat    string
+	db          *cache.DB
+	workspaceID string
+	connected   bool
+	isActive    func() bool
 
 	// Notifications
 	notifier  *notify.Notifier
@@ -59,6 +58,17 @@ type rtmEventHandler struct {
 	// Initialized at construction with window = 30 * time.Second.
 	backfillGate dedupeGate
 
+	// sectionGate lets OnConnect's section refresh and starred
+	// reconciliation run at most once per sectionRefreshWindow, so a
+	// connection flap does not repeat the missing-row lookups even when
+	// MaybeRebootstrap skips its own fetch. A zero window never holds a
+	// connect back; main.go sets sectionRefreshWindow.
+	sectionGate dedupeGate
+
+	// now reads the clock for sectionGate. Nil means time.Now; a test
+	// sets it to step through the window.
+	now func() time.Time
+
 	// refreshChannel reloads one channel from the server through the
 	// same path a channel switch uses, and pushes the result into the
 	// UI. The reconnect handler calls it for the channel on screen and
@@ -85,6 +95,17 @@ type rtmEventHandler struct {
 }
 
 const discoveryRetryAfter = time.Minute
+
+// sectionRefreshWindow is the least time between two of OnConnect's
+// section refresh and starred reconciliation passes.
+const sectionRefreshWindow = 30 * time.Second
+
+func (h *rtmEventHandler) clock() time.Time {
+	if h.now != nil {
+		return h.now()
+	}
+	return time.Now()
+}
 
 // discoverConversation adds a conversation the first time a message
 // arrives on one slk does not know, and reports whether it did. The

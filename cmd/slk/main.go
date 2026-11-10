@@ -1651,6 +1651,7 @@ func run() error {
 				cfg:             cfgSnap,
 				wsCtx:           wctx,
 				backfillGate:    dedupeGate{window: 30 * time.Second},
+				sectionGate:     dedupeGate{window: sectionRefreshWindow},
 				// The reconnect refresh, deliberately NOT the
 				// ChannelService.Fetch closure: that one also marks the
 				// channel read, which is right when the user just

@@ -495,8 +495,7 @@ func (h *rtmEventHandler) OnConnect() {
 	// next event (which could be an OnConversationOpened that also
 	// touches wsCtx.channels).
 	if h.wsCtx != nil && h.wsCtx.SectionStore != nil && h.wsCtx.Client != nil &&
-		(h.sectionRefreshAt.IsZero() || time.Since(h.sectionRefreshAt) >= 30*time.Second) {
-		h.sectionRefreshAt = time.Now()
+		h.sectionGate.tryStart(h.clock()) {
 		// Bound section refresh and missing-row hydration together so a slow
 		// workspace cannot indefinitely stall serialized WebSocket delivery.
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

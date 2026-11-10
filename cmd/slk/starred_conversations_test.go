@@ -72,21 +72,14 @@ func TestOnConnectPresenceIncludesRecoveredStarredPeers(t *testing.T) {
 				},
 			}
 			h.OnConnect()
-			select {
-			case <-done:
-			case <-time.After(5 * time.Second):
-				t.Fatal("presence bootstrap did not finish")
-			}
+			<-done // no deadline, a hang is reported by go test -timeout: the presence bootstrap finishes
 			if got := wctx.Channels(); len(got) != 3 {
 				t.Fatalf("recovered channels = %+v, want existing DM, recovered human and bot", got)
 			}
-			select {
-			case got := <-dndIDs:
-				if want := []string{"U1", "U2"}; !slices.Equal(got, want) {
-					t.Fatalf("DND peer IDs = %v, want existing and recovered human peers %v", got, want)
-				}
-			default:
-				t.Fatal("peer DND refresh did not run")
+			// The DND refresh runs before the StatusChangeMsg, so its IDs
+			// are already on the buffered channel.
+			if got := <-dndIDs; !slices.Equal(got, []string{"U1", "U2"}) {
+				t.Fatalf("DND peer IDs = %v, want existing and recovered human peers [U1 U2]", got)
 			}
 		})
 	}
@@ -104,9 +97,12 @@ func TestOnConnectDebouncesStarredReconciliation(t *testing.T) {
 		"/api/users.getPresence": `{"ok":true,"presence":"active"}`,
 		"/api/dnd.info":          `{"ok":true,"dnd_enabled":false}`,
 	})
-	done := make(chan struct{}, 2)
+	done := make(chan struct{}, 1)
 	calls := 0
+	now := time.Unix(1_800_000_000, 0)
 	h := &rtmEventHandler{
+		sectionGate: dedupeGate{window: sectionRefreshWindow},
+		now:         func() time.Time { return now },
 		wsCtx: &WorkspaceContext{
 			Client: newTestClient(t, srv.Server), TeamID: "T1", UserID: "USELF",
 			SectionStore: store,
@@ -121,26 +117,25 @@ func TestOnConnectDebouncesStarredReconciliation(t *testing.T) {
 			return nil, errors.New("temporarily unavailable")
 		},
 	}
-	for range 2 {
+	// Each connect still runs the presence bootstrap, debounced or not;
+	// waiting for it keeps one run from superseding the next.
+	connect := func() {
 		h.OnConnect()
-		select {
-		case <-done:
-		case <-time.After(5 * time.Second):
-			t.Fatal("presence bootstrap did not finish")
-		}
+		<-done // no deadline, a hang is reported by go test -timeout
 	}
+	connect()
+	if calls != 1 {
+		t.Fatalf("starred metadata lookups on first connect = %d, want 1", calls)
+	}
+	now = now.Add(sectionRefreshWindow - time.Millisecond)
+	connect()
 	if calls != 1 {
 		t.Fatalf("starred metadata lookups during connection flap = %d, want 1", calls)
 	}
-	h.sectionRefreshAt = time.Now().Add(-30 * time.Second)
-	h.OnConnect()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("presence bootstrap did not finish after debounce expired")
-	}
+	now = now.Add(time.Millisecond)
+	connect()
 	if calls != 2 {
-		t.Fatalf("starred metadata lookups after debounce expired = %d, want 2", calls)
+		t.Fatalf("starred metadata lookups once the window passed = %d, want 2", calls)
 	}
 }
 
