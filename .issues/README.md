@@ -7,11 +7,19 @@
 
 | ID | Title | Type | Priority |
 | --- | --- | --- | --- |
+| [7](7-confirm-the-chat-sharemessage-request-for-a-thread-reply-a.md) | Confirm the chat.shareMessage request for a thread reply, a DM and a re-forward | chore | P2 |
 | [2](2-cache-canvases-so-the-viewer-opens-instantly.md) | Cache canvases so the viewer opens instantly | feature | P3 |
 | [3](3-mark-conversations-that-have-a-canvas.md) | Mark conversations that have a canvas | feature | P3 |
 | [4](4-check-canvas-numbered-lists-split-across-sections.md) | Check canvas numbered lists split across sections | bug | P3 |
 | [5](5-render-checklists-and-tables-in-canvases.md) | Render checklists and tables in canvases | feature | P3 |
 | [6](6-keep-graft-s-trailing-escapes-and-row-style-at-the-edges.md) | Keep Graft's trailing escapes and row style at the edges | bug | P3 |
+| [8](8-draw-system-notices-as-notices-in-the-markdown-export.md) | Draw system notices as notices in the markdown export | bug | P3 |
+| [9](9-check-what-slack-answers-to-a-reply-edit-delete-or-forward.md) | Check what Slack answers to a reply, edit, delete or forward on a join notice | chore | P3 |
+| [10](10-check-whether-a-literal-here-typed-in-the-web-client-draws.md) | Check whether a literal <!here> typed in the web client draws as a mention | bug | P3 |
+| [11](11-close-the-send-path-gaps-the-edit-round-trip-properties.md) | Close the send-path gaps the edit round-trip properties found in mrkdwn.Convert | bug | P3 |
+| [12](12-keep-the-emoji-history-per-workspace.md) | Keep the emoji history per workspace | idea | P3 |
+| [13](13-place-nested-quote-links-without-reading-slice-capacity.md) | Place nested-quote links without reading slice capacity | chore | P3 |
+| [14](14-small-cleanups-left-by-the-november-upstream-review.md) | Small cleanups left by the November upstream review | chore | P3 |
 
 ## Done
 

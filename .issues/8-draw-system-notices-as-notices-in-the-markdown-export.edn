@@ -1,0 +1,11 @@
+{:id 8
+ :title "Draw system notices as notices in the markdown export"
+ :status :inbox
+ :type :bug
+ :priority :p3
+ :created "2026-11-10"
+ :updated "2026-11-10"
+ :tags #{}
+ :blocked-by #{}
+ :related #{}
+ :details "8-draw-system-notices-as-notices-in-the-markdown-export.md"}

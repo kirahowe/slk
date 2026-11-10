@@ -1,0 +1,11 @@
+{:id 13
+ :title "Place nested-quote links without reading slice capacity"
+ :status :inbox
+ :type :chore
+ :priority :p3
+ :created "2026-11-10"
+ :updated "2026-11-10"
+ :tags #{}
+ :blocked-by #{}
+ :related #{}
+ :details "13-place-nested-quote-links-without-reading-slice-capacity.md"}

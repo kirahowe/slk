@@ -1,0 +1,11 @@
+{:id 9
+ :title "Check what Slack answers to a reply, edit, delete or forward on a join notice"
+ :status :inbox
+ :type :chore
+ :priority :p3
+ :created "2026-11-10"
+ :updated "2026-11-10"
+ :tags #{}
+ :blocked-by #{}
+ :related #{}
+ :details "9-check-what-slack-answers-to-a-reply-edit-delete-or-forward.md"}

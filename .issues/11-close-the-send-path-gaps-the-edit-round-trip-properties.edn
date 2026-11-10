@@ -1,0 +1,11 @@
+{:id 11
+ :title "Close the send-path gaps the edit round-trip properties found in mrkdwn.Convert"
+ :status :inbox
+ :type :bug
+ :priority :p3
+ :created "2026-11-10"
+ :updated "2026-11-10"
+ :tags #{}
+ :blocked-by #{}
+ :related #{}
+ :details "11-close-the-send-path-gaps-the-edit-round-trip-properties.md"}
