@@ -19,6 +19,10 @@
 //	                           threads-list dirty-bump for replies.
 //	MessageSentMsg           - send landed: swap placeholder for
 //	                           authoritative message.
+//	messageForwardedMsg      - forward result: settle its
+//	                           placeholder (with the share's echo
+//	                           if it came first) or remove it,
+//	                           and toast (reduceForwarded).
 //	MessageSendFailedMsg     - send failed: roll back placeholder,
 //	                           give the typed text back + fire
 //	                           SendFailed toast.
@@ -72,18 +76,7 @@ var reduceSend reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		return reduceNewMessage(a, m), true
 
 	case messageForwardedMsg:
-		if m.teamID != a.activeTeamID {
-			return nil, true
-		}
-		// The forward's self-authored WS echo may be held by a compose
-		// send pending in this channel, so show the HTTP result here
-		// without touching drafts or placeholders. AppendMessage
-		// deduplicates the echo whichever arrives first, including one
-		// released later.
-		for _, mm := range a.modelsForChannel(m.channelID) {
-			mm.AppendMessage(cloneMessageItem(m.message))
-		}
-		return func() tea.Msg { return ToastMsg{Text: "Message forwarded to " + m.destination} }, true
+		return reduceForwarded(a, m), true
 
 	case MessageSentMsg:
 		// The chat.postMessage HTTP response landed. Settle (see
@@ -244,6 +237,15 @@ func reduceNewMessage(a *App, m NewMessageMsg) tea.Cmd {
 			return nil
 		}
 		a.showBody(m.ChannelID, m.Message.TS, body)
+		return nil
+	}
+	// The share's own echo of a forward whose result already showed
+	// its stand-in: only Slack's copy carries the shared attachment, so
+	// it replaces the stand-in (by TS) in every window on the channel.
+	if a.pendingOps.ForwardEcho(m) {
+		debuglog.Cache("NewMessageMsg: channel=%s ts=%s decision=replaced_forward_stand_in",
+			m.ChannelID, m.Message.TS)
+		a.sinksFor(m.ChannelID).settle("", m.Message)
 		return nil
 	}
 	// Skip the WS echo of our own optimistic add. The corresponding

@@ -30,14 +30,33 @@ destination, a fresh `client_msg_id` UUID, empty `text`; capture in
 message. Do not flatten or re-author the source body, run rich-text
 conversion, or reuse compose's send-success/failure reducers. Slack controls
 source-access permissions; this is not a copy that grants access to a private
-source. The service returns the posted timestamp and, best effort, the source
-permalink (fetched after the share; a failure there is not a forward
-failure) for the local echo, which shows the permalink, or "Forwarded
-message" without one. A workspace-scoped completion appends this
-message idempotently to any destination panes without touching compose state.
-This covers an existing self-send suppression window that could otherwise
-drop a forwarded message's WebSocket echo. Normal WebSocket/cache updates
-remain authoritative; no optimistic placeholder is created for forwarding.
+source. The share is never retried, a 429 included, since a retry after Slack
+accepted it would post it twice. The service returns the posted timestamp
+and, best effort, the source permalink (fetched after the share; a failure
+there is not a forward failure).
+
+## Rows in the destination
+
+A forward is one more pending insert in `pendingOps`, in the destination's
+top level, started in the Update of the key that picked the destination. Its
+placeholder ("Forwarded message", under a `local:N` TS) shows at once in
+every window on the destination, and while it is pending the user's own
+messages there are held, as for a send. The result (`reduceForwarded`) ends
+it with `pendingOps.EndForward`:
+
+- On success the placeholder settles with the share's own echo if that
+  arrived first and was held (only Slack's copy carries the shared
+  attachment). Otherwise it settles with a stand-in that shows the permalink
+  as a link, or "Forwarded message" without one, and the TS is recorded as
+  awaiting its echo. When the echo comes, `ForwardEcho` picks it out by that
+  exact TS, ahead of the self-send checks, and it replaces the stand-in.
+- On failure the placeholder is removed and a toast says why.
+- Either way the held messages are released, so a share Slack posted despite
+  a failed call shows from its echo.
+
+The forwarded message therefore shows once in every window on the
+destination, in either arrival order, and another send pending there is
+matched only by its own TS. Compose state is never touched.
 
 ## Tests
 
@@ -48,5 +67,9 @@ remain authoritative; no optimistic placeholder is created for forwarding.
   mode/workspace transitions; normal Ctrl+T behavior after forwarding.
 - Core adapter forwarding and unsupported-operation error.
 - Slack request fields against the capture, rejected shares, empty timestamp,
-  and a permalink failure after a successful share.
+  no retry on a 429, and a permalink failure after a successful share.
+- The destination shows the forward once, as Slack's copy, in every order of
+  its result and echo, with and without an unrelated send pending there
+  (through `Update`); a failed forward leaves no row; the pendingOps model
+  property covers forwards beside sends.
 - Composition-root wiring resolves the source workspace by ID.

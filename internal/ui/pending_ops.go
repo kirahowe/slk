@@ -10,7 +10,7 @@
 // says which send it belongs to: the user may have two sends in flight
 // in one conversation (their results and echoes can arrive in any
 // order), or may post the same conversation from another client or
-// through a forward or upload. So an echo is never matched to a send:
+// through an upload. So an echo is never matched to a send:
 //
 //  1. Before: while any send is pending in a conversation, the user's
 //     own messages echoed in it are held (HoldEcho), not shown.
@@ -23,6 +23,16 @@
 //     still pending there, only the recorded ones are dropped.
 //
 //  3. After: IsSelfSent drops the echo carrying a recorded TS.
+//
+// A forward (chat.shareMessage) is one more pending insert, ended by
+// EndForward rather than EndInsert. Its placeholder and the stand-in
+// the HTTP result settles it with cannot show the shared message (only
+// Slack's copy carries the shared attachment), so the share's own echo
+// is not dropped as a send's is. Held before the result, EndForward
+// hands it back for the placeholder to settle with; after the result,
+// ForwardEcho picks it out by its exact TS and it replaces the
+// stand-in. Either way the message shows once, and a send pending in
+// the same conversation is matched only by its own TS.
 //
 // A failed send gives the text as typed back to the composer it came
 // from, or to the clipboard when that composer has a newer draft
@@ -214,18 +224,28 @@ type pendingOps struct {
 	deletes map[editKey]*pendingDelete
 
 	// sentTSes records authoritative TSes the App has observed via
-	// MessageSentMsg / ThreadReplySentMsg. WS echoes carrying any of
-	// these are dropped.
-	sentTSes map[string]time.Time
+	// MessageSentMsg / ThreadReplySentMsg and forward results. WS
+	// echoes carrying any of these are dropped, except a forward's
+	// first (ForwardEcho).
+	sentTSes map[string]sentRecord
 
 	// localTSCounter is incremented per optimistic placeholder so each
 	// one carries a unique TS-shaped ("local:<counter>") id.
 	localTSCounter uint64
 }
 
+// sentRecord is one entry of sentTSes: when the result recorded it,
+// and whether it is a forward whose echo has not arrived, with the
+// workspace that echo will come from.
+type sentRecord struct {
+	at          time.Time
+	awaitsEcho  bool
+	forwardTeam string
+}
+
 func newPendingOps() *pendingOps {
 	return &pendingOps{
-		sentTSes: make(map[string]time.Time),
+		sentTSes: make(map[string]sentRecord),
 		edits:    make(map[editKey]*messageEdits),
 		deletes:  make(map[editKey]*pendingDelete),
 		held:     make(map[conversationKey][]NewMessageMsg),
@@ -294,6 +314,43 @@ func (p *pendingOps) EndInsert(localTS, sentTS string) (ins pendingInsert, relea
 	delete(p.held, k)
 	slices.SortStableFunc(held, func(x, y NewMessageMsg) int { return messages.CompareTS(x.Message.TS, y.Message.TS) })
 	return ins, held, true
+}
+
+// EndForward ends the forward with placeholder localTS, as EndInsert
+// ends a send; sentTS is the shared message's TS, "" when the forward
+// failed. echo is the share's own echo when it was held (it arrived
+// before the result): it is no longer held, and the caller settles the
+// placeholder with it. Otherwise sentTS is recorded as awaiting its
+// echo, which ForwardEcho then picks out.
+func (p *pendingOps) EndForward(localTS, sentTS string) (ins pendingInsert, echo NewMessageMsg, echoed bool, release []NewMessageMsg, ok bool) {
+	if i := slices.IndexFunc(p.inserts, func(e pendingInsert) bool { return e.localTS == localTS }); i >= 0 && sentTS != "" {
+		k := p.inserts[i].conversation()
+		if j := slices.IndexFunc(p.held[k], func(m NewMessageMsg) bool { return m.Message.TS == sentTS }); j >= 0 {
+			echo, echoed = p.held[k][j], true
+			p.held[k] = slices.Delete(p.held[k], j, j+1)
+		}
+	}
+	ins, release, ok = p.EndInsert(localTS, sentTS)
+	if ok && sentTS != "" && !echoed {
+		r := p.sentTSes[sentTS]
+		r.awaitsEcho, r.forwardTeam = true, ins.postTeam
+		p.sentTSes[sentTS] = r
+	}
+	return ins, echo, echoed, release, ok
+}
+
+// ForwardEcho reports whether m is the echo of a forward whose result
+// has shown its stand-in, and forgets that it awaits one: the caller
+// replaces the stand-in with m. A second echo of it is then dropped as
+// any send's is (IsSelfSent).
+func (p *pendingOps) ForwardEcho(m NewMessageMsg) bool {
+	r, ok := p.sentTSes[m.Message.TS]
+	if !ok || !r.awaitsEcho || r.forwardTeam != m.TeamID {
+		return false
+	}
+	r.awaitsEcho = false
+	p.sentTSes[m.Message.TS] = r
+	return true
 }
 
 // PatchHeld applies f to the held message channelID/ts, if any: an
@@ -487,13 +544,14 @@ func (p *pendingOps) RecordSent(ts string) {
 	if ts == "" {
 		return
 	}
-	p.sentTSes[ts] = time.Now()
+	p.sentTSes[ts] = sentRecord{at: time.Now()}
 	// Opportunistic cleanup: drop entries older than 5 minutes. WS
-	// echoes arrive within seconds; anything older is stale.
+	// echoes arrive within seconds; anything older is stale, a forward
+	// whose echo never came included.
 	if len(p.sentTSes) > 64 {
 		cutoff := time.Now().Add(-5 * time.Minute)
 		for k, v := range p.sentTSes {
-			if v.Before(cutoff) {
+			if v.at.Before(cutoff) {
 				delete(p.sentTSes, k)
 			}
 		}
