@@ -58,6 +58,14 @@ type Model struct {
 	reverseNames    map[string]string // displayName -> userID
 	userGroups      map[string]string // usergroup ID -> handle for active workspace
 
+	// mentions is mentionEntries of reverseNames, reverseChannels and
+	// userGroups, built on first use; nil means build it again.
+	// mentionGen counts the changes to those three maps, so a cache of
+	// translated text can tell it is stale. Every write of the maps
+	// goes through mentionDataChanged.
+	mentions   []mentionEntry
+	mentionGen uint64
+
 	// activeChannelID is the channel currently shown in the messages
 	// pane. Drives the InChannel computation when rebuilding the
 	// derived mention-picker user list. Updated via SetActiveChannel.
@@ -857,6 +865,7 @@ func (m *Model) SetChannels(channels []channelpicker.Channel) {
 			m.reverseChannels[c.Name] = c.ID
 		}
 	}
+	m.mentionDataChanged()
 }
 
 // IsChannelActive returns whether the channel picker is currently showing.
@@ -891,6 +900,7 @@ func (m *Model) SetUsers(users []mentionpicker.User) {
 			m.reverseNames[u.DisplayName] = u.ID
 		}
 	}
+	m.mentionDataChanged()
 	m.rebuildMentionUsers()
 }
 
@@ -898,7 +908,25 @@ func (m *Model) SetUsers(users []mentionpicker.User) {
 // @handle autocomplete and send-time <!subteam^SID|@handle> translation.
 func (m *Model) SetUserGroups(groups map[string]string) {
 	m.userGroups = usergroups.Copy(groups)
+	m.mentionDataChanged()
 	m.rebuildMentionUsers()
+}
+
+// mentionDataChanged drops the mention list after a write of the maps
+// it is built from.
+func (m *Model) mentionDataChanged() {
+	m.mentions = nil
+	m.mentionGen++
+}
+
+// mentionList is mentionEntries over the box's three maps. It is built
+// once per change of them, since sorting a large workspace's users
+// takes milliseconds, and shared: callers must not modify it.
+func (m *Model) mentionList() []mentionEntry {
+	if m.mentions == nil {
+		m.mentions = mentionEntries(m.reverseNames, m.reverseChannels, m.userGroups)
+	}
+	return m.mentions
 }
 
 // SetActiveChannel tells the compose model which channel context to
@@ -1158,8 +1186,11 @@ func (m *Model) CloseMention() {
 // and longest-first sorting concerns -- e.g., a longer channel name
 // must be tried before a shorter one with the same prefix, and a user
 // named "here" (if such a thing existed) must not match inside @heretic.
-func (m Model) TranslateMentionsForSend(text string) string {
-	return translateMentions(text, m.reverseNames, m.reverseChannels, m.userGroups)
+//
+// It is translateMentions over the box's maps, with the mention list
+// built once per change of them (mentionList).
+func (m *Model) TranslateMentionsForSend(text string) string {
+	return applyMentions(text, m.mentionList())
 }
 
 // translateMentions is TranslateMentionsForSend's pure core. names maps
@@ -1173,8 +1204,8 @@ func translateMentions(text string, names, channels, groups map[string]string) s
 // <#C…>, <!here>, <!subteam^S…>) as the @name / #name a person types,
 // for seeding the composer when the message is edited (E). It is the
 // inverse of TranslateMentionsForSend, and delegates to mentionsForEdit.
-func (m Model) MentionsForEdit(text string) string {
-	return mentionsForEdit(text, m.reverseNames, m.reverseChannels, m.userGroups)
+func (m *Model) MentionsForEdit(text string) string {
+	return editMentions(text, m.reverseNames, m.reverseChannels, m.userGroups, m.mentionList())
 }
 
 // mentionsForEdit is MentionsForEdit's pure core, over the same maps as
@@ -1188,6 +1219,12 @@ func (m Model) MentionsForEdit(text string) string {
 // the text after it, stays in wire form, which translateMentions leaves
 // alone and Slack accepts.
 func mentionsForEdit(text string, names, channels, groups map[string]string) string {
+	return editMentions(text, names, channels, groups, mentionEntries(names, channels, groups))
+}
+
+// editMentions is mentionsForEdit with the maps' mention list already
+// built (entries is mentionEntries(names, channels, groups)).
+func editMentions(text string, names, channels, groups map[string]string, entries []mentionEntry) string {
 	tokens := mrkdwn.Mentions(text)
 	if len(tokens) == 0 {
 		return text
@@ -1211,7 +1248,7 @@ func mentionsForEdit(text string, names, channels, groups map[string]string) str
 		last = tok.End
 	}
 	full.WriteString(text[last:])
-	entries := relevantMentions(mentionEntries(names, channels, groups), text, full.String())
+	entries = relevantMentions(entries, text, full.String())
 
 	var b strings.Builder
 	last = 0
