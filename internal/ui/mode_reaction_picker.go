@@ -4,13 +4,12 @@
 //
 // Forwards normalised keys to the reaction picker overlay. On a
 // result (Enter on a selected emoji):
-//   - Records frecent usage (skipped for removes).
 //   - Applies an optimistic update to the message's reaction list
 //     in both messagepane and threadPanel via
 //     updateReactionOnMessage.
 //   - Fires the API call asynchronously; the result lands as a
 //     ReactionSentMsg and is folded back via reduceReactions
-//     (Phase 4g).
+//     (Phase 4g), which records an added emoji in the history.
 //
 // channelID / messageTS are captured BEFORE HandleKey runs because
 // HandleKey may call Close internally, which resets those fields.
@@ -61,11 +60,6 @@ func handleReactionPickerMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	a.SetMode(ModeNormal)
 	if cmd, blocked := a.sendingGuard(messageTSStr); blocked {
 		return cmd
-	}
-
-	// Record frecent usage on add (not remove).
-	if !result.Remove {
-		a.reactions.RecordFrecent(emojiName)
 	}
 
 	// Optimistic update.

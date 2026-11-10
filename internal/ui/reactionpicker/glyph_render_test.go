@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gammons/slk/internal/core"
 	slkemoji "github.com/gammons/slk/internal/emoji"
 	imgpkg "github.com/gammons/slk/internal/image"
 )
@@ -24,7 +23,6 @@ import (
 // behind the shortcode fallback, this test fails.
 func TestPickerRendersFireGlyph(t *testing.T) {
 	m := New()
-	m.SetFrecentEmoji([]core.EmojiEntry{})
 	m.Open("Cxxx", "1.0", nil)
 	for _, ch := range "fire" {
 		m.HandleKey(string(ch))
@@ -48,7 +46,6 @@ func TestPickerRendersFireGlyph(t *testing.T) {
 // overlay path was dropping wide-character cells.
 func TestViewOverlayPreservesFireGlyph(t *testing.T) {
 	m := New()
-	m.SetFrecentEmoji([]core.EmojiEntry{})
 	m.Open("Cxxx", "1.0", nil)
 	for _, ch := range "fire" {
 		m.HandleKey(string(ch))
@@ -71,7 +68,6 @@ func TestViewOverlayPreservesFireGlyph(t *testing.T) {
 // base codepoint.
 func TestPickerRendersVS16EmojiAsBareGlyph(t *testing.T) {
 	m := New()
-	m.SetFrecentEmoji([]core.EmojiEntry{})
 	m.Open("Cxxx", "1.0", nil)
 	for _, ch := range "heart" {
 		m.HandleKey(string(ch))
@@ -94,7 +90,6 @@ func TestPickerRendersVS16EmojiAsBareGlyph(t *testing.T) {
 // the broken-glyph Unicode sequence.
 func TestPickerFallsBackForZWJSequence(t *testing.T) {
 	m := New()
-	m.SetFrecentEmoji([]core.EmojiEntry{})
 	m.Open("Cxxx", "1.0", nil)
 	for _, ch := range "rainbow-f" {
 		m.HandleKey(string(ch))

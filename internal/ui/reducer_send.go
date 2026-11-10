@@ -99,12 +99,14 @@ var reduceSend reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 			}
 			return a.releaseHeld(release), true
 		}
+		var record tea.Cmd
 		if ok {
 			a.delivered(ins.typed)
+			record = a.recordEmojiUse(ins.emoji...)
 		}
 		// settle gives each channel window its own clone.
 		a.sinksFor(m.ChannelID).settle(m.LocalTS, sentItem(ins, ok, m.Message))
-		return a.releaseHeld(release), true
+		return tea.Batch(a.releaseHeld(release), record), true
 
 	case MessageSendFailedMsg:
 		// The chat.postMessage HTTP call failed; roll back the
@@ -501,6 +503,7 @@ func (a *App) beginSend(m sendRequest) tea.Cmd {
 	ins := pendingInsert{
 		localTS: localTS, channelID: m.ChannelID, body: messages.TypedBody(m.Text),
 		postTeam: a.activeTeamID, teamID: m.TeamID, typed: m.Typed,
+		emoji: usedEmoji(m.Text, a.emojiCustoms),
 	}
 	ins.row, ins.begun = a.localRow(localTS, ins.body, "", ""), a.now()
 	a.pendingOps.BeginInsert(ins)

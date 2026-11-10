@@ -97,6 +97,11 @@ type pendingInsert struct {
 	// when the send began (holdFetched).
 	row   messages.MessageItem
 	begun time.Time
+	// emoji is what the text uses (usedEmoji, against the custom
+	// emoji of the workspace it was typed in), recorded in the emoji
+	// history once Slack accepts the send. A failed send records
+	// nothing, so sending its text again counts once.
+	emoji []string
 }
 
 // conversation is the conversation ins posts to.

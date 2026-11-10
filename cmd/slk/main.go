@@ -1370,19 +1370,16 @@ func run() error {
 				return wctx.Client.RemoveReaction(ctx, string(channelID), string(messageTS), emojiName)
 			},
 			// LoadFrecent: not workspace-specific, captures only db.
+			// The pickers read only the names; each draws an emoji
+			// from its own list.
 			func(limit int) []core.EmojiEntry {
 				names, err := db.GetFrecentEmoji(limit)
 				if err != nil {
 					return nil
 				}
-				codeMap := emojiwidth.CodeMap()
-				var entries []core.EmojiEntry
-				for _, name := range names {
-					unicode := codeMap[":"+name+":"]
-					entries = append(entries, core.EmojiEntry{
-						Name:    name,
-						Unicode: unicode,
-					})
+				entries := make([]core.EmojiEntry, len(names))
+				for i, name := range names {
+					entries[i] = core.EmojiEntry{Name: name}
 				}
 				return entries
 			},

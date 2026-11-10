@@ -230,7 +230,7 @@ var reduceIO reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		if a.threadCloseAfterUpload {
 			a.CloseThread()
 		}
-		return toastWithClear(a, "Sent", 2*time.Second), true
+		return tea.Batch(toastWithClear(a, "Sent", 2*time.Second), a.recordEmojiUse(m.emoji...)), true
 
 	case ConnectionStateMsg:
 		a.statusbar.SetConnectionState(statusbar.ConnectionState(m.State))

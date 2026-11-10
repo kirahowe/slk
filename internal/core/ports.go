@@ -32,13 +32,15 @@ type ReactionService interface {
 	Remove(channelID ids.ChannelID, messageTS ids.MessageTS, emoji string) error
 
 	// LoadFrecent returns up to limit emoji entries from the user's
-	// recent-use history, ordered by frecency. May return nil; the
-	// reaction picker handles an empty slice as "no recents yet".
+	// recent-use history, ordered by frecency. May return nil (no
+	// history yet). Only the names are read. Blocking: the App calls
+	// it from a tea.Cmd.
 	LoadFrecent(limit int) []EmojiEntry
 
-	// RecordFrecent records emoji as recently used so future
-	// LoadFrecent calls surface it. Called after every successful
-	// reaction add.
+	// RecordFrecent records emoji (Slack's canonical name) as used, so
+	// future LoadFrecent calls surface it. Called for every reaction
+	// Slack adds and every emoji in a message, thread reply or upload
+	// caption Slack accepts. Blocking: the App calls it from a tea.Cmd.
 	RecordFrecent(emoji string)
 }
 

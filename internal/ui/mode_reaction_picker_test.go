@@ -58,9 +58,10 @@ func reactionPickerOpts(reacted bool) []testOpt {
 	}
 }
 
-// openReactionPicker wires a recording ReactionService whose frecent
-// list is the deterministic two-entry fixture, then drives the
-// production open path (App.openReactionPicker on the channel pane).
+// openReactionPicker wires a recording ReactionService whose emoji
+// history is frecent, delivers a read of it to the pickers, then
+// drives the production open path (App.openReactionPicker on the
+// channel pane).
 func openReactionPicker(calls *reactionCalls, frecent ...string) func(*testing.T, *App) {
 	return func(t *testing.T, a *App) {
 		*calls = reactionCalls{}
@@ -81,6 +82,7 @@ func openReactionPicker(calls *reactionCalls, frecent ...string) func(*testing.T
 			func(int) []core.EmojiEntry { return entries },
 			func(emoji string) { calls.frecent = append(calls.frecent, emoji) },
 		))
+		a.Update(a.loadEmojiHistory()())
 		a.openReactionPicker(a.messagepane, a.activeChannelID)
 		if !a.reactionPicker.IsVisible() {
 			t.Fatal("precondition: openReactionPicker did not open the picker")
@@ -91,16 +93,44 @@ func openReactionPicker(calls *reactionCalls, frecent ...string) func(*testing.T
 		if got := a.reactionPicker.MessageTS(); got != "1.0" {
 			t.Fatalf("precondition: picker MessageTS = %q, want %q", got, "1.0")
 		}
-		// BoxSize floors its row count at 1, so an empty frecent list
-		// still reports one row.
-		wantRows := len(frecent)
-		if wantRows < 1 {
-			wantRows = 1
+		// With no query the picker lists every emoji, the frecent ones
+		// first, so the window is full and the cursor starts on the
+		// most frecent.
+		if got := modalRows(a.reactionPicker); got != 10 {
+			t.Fatalf("precondition: %d rows, want the full 10-row window", got)
 		}
-		if got := modalRows(a.reactionPicker); got != wantRows {
-			t.Fatalf("precondition: %d rows, want %d for %d frecent entries", got, wantRows, len(frecent))
+		if len(frecent) > 0 {
+			if got := highlightedEmoji(t, a); got != frecent[0] {
+				t.Fatalf("precondition: highlighted %q, want the most frecent %q", got, frecent[0])
+			}
 		}
 	}
+}
+
+// highlightedEmoji is the name on the reaction picker's highlighted row
+// (a row is the preview, the name, then a ✓ when the user has already
+// reacted with it).
+func highlightedEmoji(t *testing.T, a *App) string {
+	t.Helper()
+	fields := strings.Fields(strings.TrimSuffix(modalHighlightedRow(t, a.reactionPicker.View(120)), " ✓"))
+	if len(fields) == 0 {
+		t.Fatal("highlighted row is empty")
+	}
+	return fields[len(fields)-1]
+}
+
+// commitAfterDowns moves the cursor down n rows, presses enter and
+// returns the emoji committed. With the fixture's history (tada,
+// rocket) and no query, two downs land on "+1", the alphabetically
+// first emoji after the history.
+func commitAfterDowns(t *testing.T, a *App, calls *reactionCalls, n int) string {
+	t.Helper()
+	for range n {
+		_ = dispatchModeKey(a, keyCode(tea.KeyDown))
+	}
+	var got string
+	saveCommitted(t, a, calls, func(name string) { got = name })
+	return got
 }
 
 // reactionOn returns the message's reaction for emoji, or false.
@@ -134,7 +164,7 @@ func TestReactionPickerModeKeys(t *testing.T) {
 				if a.reactionPicker.IsVisible() {
 					t.Error("picker still visible after esc")
 				}
-				if len(calls.frecent) != 0 || len(calls.added) != 0 {
+				if len(calls.added)+len(calls.removed) != 0 {
 					t.Errorf("esc touched the reaction service: %+v", calls)
 				}
 				r, ok := reactionOn(a, "tada")
@@ -156,8 +186,10 @@ func TestReactionPickerModeKeys(t *testing.T) {
 				if a.reactionPicker.IsVisible() {
 					t.Error("picker still visible after enter")
 				}
-				if len(calls.frecent) != 1 || calls.frecent[0] != "tada" {
-					t.Errorf("RecordFrecent calls = %v, want [tada]", calls.frecent)
+				// The use is recorded when Slack answers (the
+				// ReactionSentMsg arm), not at enter.
+				if len(calls.frecent) != 0 {
+					t.Errorf("RecordFrecent calls = %v at enter, want none", calls.frecent)
 				}
 				r, ok := reactionOn(a, "tada")
 				if !ok {
@@ -233,9 +265,6 @@ func TestReactionPickerModeKeys(t *testing.T) {
 			key:      keyCode(tea.KeyEnter),
 			wantMode: ModeNormal,
 			assert: func(t *testing.T, a *App, cmd tea.Cmd) {
-				if len(calls.frecent) != 1 || calls.frecent[0] != "+1" {
-					t.Errorf("RecordFrecent calls = %v, want [+1]", calls.frecent)
-				}
 				if _, ok := reactionOn(a, "+1"); !ok {
 					t.Error("message did not gain a \"+1\" reaction")
 				}
@@ -251,19 +280,22 @@ func TestReactionPickerModeKeys(t *testing.T) {
 			},
 		},
 		{
-			// displayedList() is the frecent list while the query is
-			// empty, so a picker opened with no frecency has nothing
-			// to commit and enter falls through the result==nil arm.
-			name:     "enter with an empty list is a no-op",
-			opts:     reactionPickerOpts(false),
-			setup:    openReactionPicker(&calls),
+			// A query no emoji name contains empties the list, so
+			// enter has nothing to commit and falls through the
+			// result==nil arm.
+			name: "enter with an empty list is a no-op",
+			opts: reactionPickerOpts(false),
+			setup: func(t *testing.T, a *App) {
+				openReactionPicker(&calls)(t, a)
+				_ = dispatchModeKey(a, keyPress('~'))
+			},
 			key:      keyCode(tea.KeyEnter),
 			wantMode: ModeReactionPicker,
 			assert: func(t *testing.T, a *App, cmd tea.Cmd) {
 				if !a.reactionPicker.IsVisible() {
 					t.Error("picker closed on a no-op enter")
 				}
-				if len(calls.frecent) != 0 || len(calls.added) != 0 {
+				if len(calls.added)+len(calls.removed) != 0 {
 					t.Errorf("a no-op enter touched the reaction service: %+v", calls)
 				}
 				if cmd != nil {
@@ -340,7 +372,7 @@ func TestReactionPickerModeKeys(t *testing.T) {
 				if a.reactionPicker.IsVisible() {
 					t.Error("picker still visible: alt+esc should normalise to esc")
 				}
-				if len(calls.added)+len(calls.removed)+len(calls.frecent) != 0 {
+				if len(calls.added)+len(calls.removed) != 0 {
 					t.Errorf("alt+esc touched the service: %+v", calls)
 				}
 			},
@@ -352,11 +384,11 @@ func TestReactionPickerModeKeys(t *testing.T) {
 			key:      keyMod(tea.KeyEnter, tea.ModCtrl),
 			wantMode: ModeNormal,
 			assert: func(t *testing.T, a *App, cmd tea.Cmd) {
-				if len(calls.frecent) != 1 || calls.frecent[0] != "tada" {
-					t.Errorf("frecent = %v, want [tada]: ctrl+enter should normalise to enter", calls.frecent)
-				}
 				if cmd == nil {
 					t.Fatal("cmd = nil, want the reaction-add cmd")
+				}
+				if msg, ok := cmd().(ReactionSentMsg); !ok || msg.Emoji != "tada" {
+					t.Errorf("cmd() = %#v, want the tada add: ctrl+enter should normalise to enter", msg)
 				}
 			},
 		},
@@ -373,8 +405,8 @@ func TestReactionPickerModeKeys(t *testing.T) {
 			key:      keyMod(tea.KeyBackspace, tea.ModShift),
 			wantMode: ModeReactionPicker,
 			assert: func(t *testing.T, a *App, _ tea.Cmd) {
-				if got := modalRows(a.reactionPicker); got != 2 {
-					t.Errorf("rows = %d, want the 2 frecent entries back: shift+backspace should normalise to backspace", got)
+				if got := commitAfterDowns(t, a, &calls, 2); got != "+1" {
+					t.Errorf("third row = %q, want \"+1\" from the unfiltered list: shift+backspace should normalise to backspace", got)
 				}
 			},
 		},
@@ -416,9 +448,8 @@ func TestReactionPickerModeKeys(t *testing.T) {
 			},
 		},
 		{
-			// A non-empty query switches displayedList from the
-			// frecent list to a filter over the whole emoji table,
-			// which fills the picker's 10-row window.
+			// A query filters the whole emoji table, which still
+			// fills the picker's 10-row window.
 			name:     "a printable key filters the full emoji list",
 			opts:     reactionPickerOpts(false),
 			setup:    open,
@@ -428,42 +459,27 @@ func TestReactionPickerModeKeys(t *testing.T) {
 				if got := modalRows(a.reactionPicker); got != 10 {
 					t.Errorf("rows = %d, want the full 10-row window after filtering", got)
 				}
-				// BUG?: reactionpicker.filter (reactionpicker/model.go:242-265)
-				// means to rank prefix matches ahead of substring ones,
-				// but it breaks out of the scan at 50 accumulated
-				// candidates and allEmoji is sorted alphabetically, so
-				// for a late-alphabet query the substring matches from
-				// "a..." exhaust the budget before any "t..." prefix
-				// match is even visited. The tier-0-first ordering is
-				// therefore unreachable for such queries.
-				//
-				// Both halves of this assertion are the pin. Contains
-				// records that the query filters at all; the NEGATIVE
-				// HasPrefix records the bug — fix the 50-cap and row 0
-				// becomes a "t..." prefix match, and this row fails and
-				// says so. A Contains-only assertion would survive the
-				// fix silently, which is the one thing a BUG?: marker
-				// must not do.
-				//
-				// Filed as https://github.com/gammons/slk/issues/193.
-				// WHEN THAT BUG IS FIXED: row 0 becomes a "t..." prefix
-				// match, the HasPrefix half fires with the message
-				// below, and this row should be re-pinned to REQUIRE
-				// HasPrefix rather than forbid it.
-				saveCommitted(t, a, &calls, func(name string) {
-					if !strings.Contains(name, "t") {
-						t.Errorf("committed %q, want a name matching the query \"t\"", name)
-					}
-					if strings.HasPrefix(name, "t") {
-						t.Errorf("committed %q, a prefix match: the 50-candidate cap in "+
-							"reactionpicker.filter appears to be fixed, so tier-0-first "+
-							"ranking now works. Re-characterize this row (and drop the BUG?).", name)
-					}
-				})
+				// The history leads the matches: "tada" starts with
+				// the query, "rocket" only contains it. Then the
+				// unused names that start with the query come before
+				// those that only contain it, however late in the
+				// alphabet the query is (gammons/slk#193: the old
+				// 50-candidate scan let "a..." substring matches crowd
+				// them out).
+				if got := highlightedEmoji(t, a); got != "tada" {
+					t.Errorf("row 0 = %q, want the used prefix match \"tada\"", got)
+				}
+				_ = dispatchModeKey(a, keyCode(tea.KeyDown))
+				if got := highlightedEmoji(t, a); got != "rocket" {
+					t.Errorf("row 1 = %q, want the used substring match \"rocket\"", got)
+				}
+				if got := commitAfterDowns(t, a, &calls, 1); !strings.HasPrefix(got, "t") {
+					t.Errorf("row 2 = %q, want an unused prefix match for \"t\"", got)
+				}
 			},
 		},
 		{
-			name: "backspace clears the query and restores the frecent list",
+			name: "backspace clears the query and restores the full list",
 			opts: reactionPickerOpts(false),
 			setup: func(t *testing.T, a *App) {
 				open(t, a)
@@ -475,8 +491,8 @@ func TestReactionPickerModeKeys(t *testing.T) {
 			key:      keyCode(tea.KeyBackspace),
 			wantMode: ModeReactionPicker,
 			assert: func(t *testing.T, a *App, _ tea.Cmd) {
-				if got := modalRows(a.reactionPicker); got != 2 {
-					t.Errorf("rows = %d, want the 2 frecent entries back", got)
+				if got := commitAfterDowns(t, a, &calls, 2); got != "+1" {
+					t.Errorf("third row = %q, want \"+1\" from the unfiltered list", got)
 				}
 			},
 		},
@@ -487,8 +503,8 @@ func TestReactionPickerModeKeys(t *testing.T) {
 			key:      keyCode(tea.KeyBackspace),
 			wantMode: ModeReactionPicker,
 			assert: func(t *testing.T, a *App, _ tea.Cmd) {
-				if got := modalRows(a.reactionPicker); got != 2 {
-					t.Errorf("rows = %d, want 2", got)
+				if got := commitAfterDowns(t, a, &calls, 2); got != "+1" {
+					t.Errorf("third row = %q, want \"+1\" from the unfiltered list", got)
 				}
 			},
 		},
@@ -499,9 +515,6 @@ func TestReactionPickerModeKeys(t *testing.T) {
 			key:      keyMod('x', tea.ModCtrl),
 			wantMode: ModeReactionPicker,
 			assert: func(t *testing.T, a *App, cmd tea.Cmd) {
-				if got := modalRows(a.reactionPicker); got != 2 {
-					t.Errorf("rows = %d, want 2: ctrl+x should not have filtered", got)
-				}
 				if cmd != nil {
 					t.Errorf("cmd = %T, want nil", cmd)
 				}
@@ -545,15 +558,19 @@ func assertReactionCommitsTo(t *testing.T, a *App, calls *reactionCalls, want st
 	})
 }
 
-// saveCommitted presses enter and hands the committed emoji name to
-// check. It fails the test when nothing was committed, so a probe
-// whose precondition collapsed cannot pass vacuously.
+// saveCommitted presses enter and hands the committed emoji name (the
+// one the reaction call carries) to check. It fails the test when
+// nothing was committed, so a probe whose precondition collapsed
+// cannot pass vacuously.
 func saveCommitted(t *testing.T, a *App, calls *reactionCalls, check func(string)) {
 	t.Helper()
-	calls.frecent = nil
-	_ = dispatchModeKey(a, keyCode(tea.KeyEnter))
-	if len(calls.frecent) != 1 {
-		t.Fatalf("enter recorded %d frecent emoji, want 1; the cursor probe proves nothing", len(calls.frecent))
+	cmd := dispatchModeKey(a, keyCode(tea.KeyEnter))
+	if cmd == nil {
+		t.Fatal("enter committed nothing; the cursor probe proves nothing")
 	}
-	check(calls.frecent[0])
+	sent, ok := cmd().(ReactionSentMsg)
+	if !ok {
+		t.Fatal("enter's command is not a reaction call; the cursor probe proves nothing")
+	}
+	check(sent.Emoji)
 }

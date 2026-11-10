@@ -15,6 +15,9 @@
 //	ReactionSentMsg     - our reaction API call completed. On failure the
 //	                      optimistic update is rolled back (inverse op) and
 //	                      logged, so a rejected reaction doesn't linger.
+//	                      A reaction Slack added is a use of its emoji,
+//	                      recorded in the emoji history.
+//	emojiHistoryLoadedMsg - a read of the emoji history, for the pickers.
 //
 // Free reducer (no dedicated controller) because reactions are a
 // per-message annotation with no cross-message invariant and no
@@ -53,7 +56,16 @@ var reduceReactions reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		if m.Err != nil {
 			log.Printf("Warning: reaction API call failed (emoji=%q remove=%v): %v", m.Emoji, m.Remove, m.Err)
 			a.updateReactionOnMessage(m.ChannelID, m.MessageTS, m.Emoji, m.UserID, !m.Remove)
+			return nil, true
 		}
+		if m.Remove {
+			// Taking a reaction back is not a use.
+			return nil, true
+		}
+		return a.recordEmojiUse(m.Emoji), true
+
+	case emojiHistoryLoadedMsg:
+		a.applyEmojiHistory(m)
 		return nil, true
 	}
 	return nil, false

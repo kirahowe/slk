@@ -1299,6 +1299,13 @@ func (m *Model) SetEmojiCustoms(customs map[string]string) {
 	m.emojiPicker.SetEmojiCustoms(customs)
 }
 
+// SetEmojiFrecency hands the user's emoji history to the underlying
+// autocomplete picker, which lists frecent matches first.
+func (m *Model) SetEmojiFrecency(f emoji.Frecency) {
+	m.emojiPicker.SetFrecency(f)
+	m.dirty()
+}
+
 // IsEmojiActive returns whether the emoji picker is currently showing.
 func (m Model) IsEmojiActive() bool {
 	return m.emojiActive && len(m.emojiPicker.Filtered()) > 0

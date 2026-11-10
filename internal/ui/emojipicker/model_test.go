@@ -245,3 +245,44 @@ func TestDropdown_ResolvesCustomEmojiURL_AfterSetEmojiCustoms(t *testing.T) {
 		t.Logf("rendered view (first 200 chars): %q", view[:min(200, len(view))])
 	}
 }
+
+func TestFrecentMatchesComeFirst(t *testing.T) {
+	m := New()
+	m.SetEntries(sampleEntries())
+	m.Open("ro")
+	m.SetFrecency(emoji.NewFrecency([]string{"rose", "rocket"}))
+
+	var got []string
+	for _, e := range m.Filtered() {
+		got = append(got, e.Name)
+	}
+	if want := "rose rocket rock"; strings.Join(got, " ") != want {
+		t.Errorf("filtered = %v, want %s", got, want)
+	}
+	if e, ok := m.SelectedEntry(); !ok || e.Name != "rose" {
+		t.Errorf("selected = %v, want the most frecent match rose", e)
+	}
+}
+
+// A row's preview goes through the VS16 gate: a base+VS16 glyph is
+// drawn as its bare base, and a ZWJ sequence the gate refuses is left
+// out, so no row carries a width terminals disagree on.
+func TestRowPreviewGoesThroughTheVS16Gate(t *testing.T) {
+	m := New()
+	m.SetEntries([]emoji.EmojiEntry{
+		{Name: "small_airplane", Display: "\U0001F6E9\ufe0f"},
+		{Name: "smile", Display: "\U0001F604"},
+		{Name: "smiling_family", Display: "\U0001F468\u200d\U0001F469"},
+	})
+	m.Open("sm")
+	view := m.View(60)
+	if strings.Contains(view, "\ufe0f") {
+		t.Errorf("view keeps a VS16 selector:\n%s", view)
+	}
+	if !strings.Contains(view, "\U0001F6E9") || !strings.Contains(view, "\U0001F604") {
+		t.Errorf("view lost a glyph the gate accepts:\n%s", view)
+	}
+	if strings.Contains(view, "\u200d") {
+		t.Errorf("view draws a ZWJ sequence:\n%s", view)
+	}
+}

@@ -37,7 +37,7 @@ func toMrkdwn(s string) string {
 	return out
 }
 
-var frecentNames = []string{"thumbsup", "rocket", "tada", "eyes", "white_check_mark", "heart", "fire", "pray"}
+var frecentNames = []string{"+1", "rocket", "tada", "eyes", "white_check_mark", "heart", "fire", "pray"}
 
 func frecentEmoji(limit int) []core.EmojiEntry {
 	codes := emoji.CodeMap()

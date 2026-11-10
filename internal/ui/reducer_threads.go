@@ -367,14 +367,16 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		// channel feed, swapping the optimistic thread_broadcast
 		// placeholder added in beginReply. Mirrors
 		// MessageSentMsg's swap-or-upsert contract.
+		var record tea.Cmd
 		if ok {
 			a.delivered(ins.typed)
+			record = a.recordEmojiUse(ins.emoji...)
 		}
 		a.replySinksFor(m.ChannelID, m.ThreadTS, m.Broadcast).settle(m.LocalTS, sentItem(ins, ok, m.Message))
 		for _, mm := range a.modelsForChannel(m.ChannelID) {
 			mm.IncrementReplyCount(m.ThreadTS, m.Message.TS)
 		}
-		return tea.Batch(a.scheduleThreadsDirty(), a.releaseHeld(release)), true
+		return tea.Batch(a.scheduleThreadsDirty(), a.releaseHeld(release), record), true
 
 	case ThreadReplySendFailedMsg:
 		// chat.postMessage for the thread reply failed; roll back
@@ -502,6 +504,7 @@ func (a *App) beginReply(m replyRequest) tea.Cmd {
 		localTS: localTS, channelID: m.ChannelID, threadTS: m.ThreadTS, broadcast: m.Broadcast,
 		body:     messages.TypedBody(m.Text),
 		postTeam: a.activeTeamID, teamID: m.TeamID, typed: m.Typed,
+		emoji: usedEmoji(m.Text, a.emojiCustoms),
 	}
 	ins.row, ins.begun = a.localRow(localTS, ins.body, m.ThreadTS, ""), a.now()
 	a.pendingOps.BeginInsert(ins)

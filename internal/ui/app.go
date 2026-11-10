@@ -431,6 +431,9 @@ type App struct {
 	imageCtx     imgrender.ImageContext
 	emojiCtx     messages.EmojiContext
 	emojiCustoms map[string]string
+	// emojiHistory orders the emoji history's reads and writes and
+	// knows which read the pickers show (emoji_history.go).
+	emojiHistory emojiHistory
 	channelNames map[string]string
 	userGroups   map[string]string
 
@@ -963,6 +966,7 @@ func NewApp() *App {
 		preview:               newImagePreviewController(),
 		layout:                newPanelLayout(),
 		reactions:             noopReactionService,
+		emojiHistory:          emojiHistory{io: &emojiHistoryIO{}},
 		interactions:          noopInteractionService,
 		commandSvc:            noopCommandService,
 		threads:               noopThreadService,
@@ -1038,9 +1042,10 @@ func (a *App) Init() tea.Cmd {
 			tick(15*time.Second, func(time.Time) tea.Msg {
 				return LoadingTimeoutMsg{}
 			}),
+			a.loadEmojiHistory(),
 		)
 	}
-	return nil
+	return a.loadEmojiHistory()
 }
 
 // Update is the bubbletea entry point: the reducer chain in update,
@@ -1400,7 +1405,6 @@ func (a *App) openReactionPicker(p contentPane, channelID string) tea.Cmd {
 		}
 	}
 	p.ExitReactionNav()
-	a.reactionPicker.SetFrecentEmoji(a.reactions.LoadFrecent(10))
 	a.reactionPicker.Open(channelID, msg.TS, existing)
 	a.SetMode(ModeReactionPicker)
 	return nil
@@ -4053,12 +4057,18 @@ func (a *App) submitWithAttachments(c *compose.Model) tea.Cmd {
 
 	c.SetUploading(true)
 	upload := teaCmd(a.files.Upload(channelID, threadTS, caption, attachments))
+	used := usedEmoji(caption, a.emojiCustoms)
 	cmds := []tea.Cmd{
 		failNil(func() tea.Msg {
 			if upload == nil {
 				return nil
 			}
-			return upload()
+			r := upload()
+			if res, ok := r.(UploadResultMsg); ok {
+				res.emoji = used
+				return res
+			}
+			return r
 		}, UploadResultMsg{Err: errNoWorkspace}),
 		toastWithClear(a, fmt.Sprintf("Uploading 0/%d…", len(attachments)), 30*time.Second),
 	}

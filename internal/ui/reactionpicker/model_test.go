@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gammons/slk/internal/core"
 	slkemoji "github.com/gammons/slk/internal/emoji"
 	imgpkg "github.com/gammons/slk/internal/image"
 )
@@ -152,20 +151,91 @@ func TestBackspace(t *testing.T) {
 	}
 }
 
-func TestFrecentShownWhenQueryEmpty(t *testing.T) {
-	m := New()
-	m.SetFrecentEmoji([]core.EmojiEntry{
-		{Name: "thumbsup", Unicode: "\U0001f44d"},
-		{Name: "rocket", Unicode: "\U0001f680"},
-	})
-	m.Open("C123", "1234.5678", nil)
+func TestFrecentLeadsTheFullListWhenQueryEmpty(t *testing.T) {
+	m := withEmoji("a", "b", "rocket", "tada", "zap")
+	m.SetFrecency(slkemoji.NewFrecency([]string{"zap", "rocket"}))
+	m.Open("C1", "1.2", nil)
 
-	displayed := m.displayedList()
-	if len(displayed) < 2 {
-		t.Fatalf("expected at least 2 frecent entries, got %d", len(displayed))
+	var got []string
+	for _, e := range m.displayedList() {
+		got = append(got, e.Name)
 	}
-	if displayed[0].Name != "thumbsup" {
-		t.Errorf("expected first frecent entry thumbsup, got %s", displayed[0].Name)
+	if want := "zap rocket a b tada"; strings.Join(got, " ") != want {
+		t.Errorf("list = %v, want %s", got, want)
+	}
+}
+
+func TestNoHistoryStillListsEmojiWhenQueryEmpty(t *testing.T) {
+	m := New()
+	m.Open("C1", "1.2", nil)
+	if got := len(m.displayedList()); got != maxResults {
+		t.Errorf("empty picker lists %d emoji, want %d", got, maxResults)
+	}
+	if r := m.HandleKey("enter"); r == nil {
+		t.Error("enter with no history picked nothing")
+	}
+}
+
+// A history arriving while the picker is open reorders it at once.
+func TestSetFrecencyWhileOpenReorders(t *testing.T) {
+	m := withEmoji("a", "b", "c")
+	m.Open("C1", "1.2", nil)
+	m.SetFrecency(slkemoji.NewFrecency([]string{"c"}))
+	if got := m.displayedList(); len(got) == 0 || got[0].Name != "c" {
+		t.Errorf("list = %v, want c first", got)
+	}
+}
+
+func TestFrecentRankFirstInSearch(t *testing.T) {
+	m := New()
+	// "fire" sorts first alphabetically among the "fire" matches; the
+	// user has only used "fireworks" and "heart_on_fire".
+	m.SetFrecency(slkemoji.NewFrecency([]string{"heart_on_fire", "fireworks"}))
+	m.Open("C1", "1.2", nil)
+	for _, k := range "fire" {
+		m.HandleKey(string(k))
+	}
+	list := m.displayedList()
+	if len(list) < 3 {
+		t.Fatalf("got %d matches for fire, want at least 3", len(list))
+	}
+	got := []string{list[0].Name, list[1].Name, list[2].Name}
+	// The used prefix match, then the used substring match, then the
+	// rest from the top of the alphabet.
+	if want := "fireworks heart_on_fire fire"; strings.Join(got, " ") != want {
+		t.Errorf("first matches = %v, want %s", got, want)
+	}
+}
+
+func TestFrecentAliasCountsInSearch(t *testing.T) {
+	m := New()
+	m.SetFrecency(slkemoji.NewFrecency([]string{"+1"}))
+	m.Open("C1", "1.2", nil)
+	for _, k := range "thumbs" {
+		m.HandleKey(string(k))
+	}
+	list := m.displayedList()
+	if len(list) == 0 || list[0].Name != "thumbsup" {
+		t.Fatalf("first match for thumbs = %v, want thumbsup (recorded as +1)", list)
+	}
+	if r := m.HandleKey("enter"); r == nil || r.Emoji != "+1" {
+		t.Errorf("enter = %+v, want +1", r)
+	}
+}
+
+// A custom emoji ranks like a built-in once used.
+func TestFrecentCustomEmojiRanks(t *testing.T) {
+	m := New()
+	customs := map[string]string{"partyparrot": "https://e/p.gif", "party_blob": "https://e/b.gif"}
+	m.SetEmojiCustoms(customs)
+	m.SetCustomEmoji(customs)
+	m.SetFrecency(slkemoji.NewFrecency([]string{"partyparrot"}))
+	m.Open("C1", "1.2", nil)
+	for _, k := range "part" {
+		m.HandleKey(string(k))
+	}
+	if list := m.displayedList(); len(list) == 0 || list[0].Name != "partyparrot" {
+		t.Fatalf("first match for part = %v, want the used custom partyparrot", list)
 	}
 }
 

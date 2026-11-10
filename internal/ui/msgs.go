@@ -788,6 +788,10 @@ type CanvasLoadedMsg struct {
 // UploadResultMsg carries the final result of an upload batch.
 type UploadResultMsg struct {
 	Err error
+	// emoji is what the caption uses (usedEmoji), recorded in the
+	// emoji history when the upload succeeds. submitWithAttachments
+	// puts it on the result; services never set it.
+	emoji []string
 }
 
 // ChannelJoinedMsg is sent after the user successfully joins a channel from
