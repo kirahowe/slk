@@ -297,9 +297,15 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		// tests because the compose rows sit below every message row.
 		// Only from normal mode, the one mode `i` works in: in insert
 		// mode a compose may hold an edit, and in command or search
-		// mode the status bar holds a half-typed line.
-		if a.mode == ModeNormal && a.layout.msgComposeTop > 0 && py >= a.layout.msgComposeTop {
-			return a.beginInsertMode(false)
+		// mode the status bar holds a half-typed line. In any other
+		// mode the click does nothing: it is not on a message row, and
+		// the hit tests below would read it as a row of the list past
+		// the window's bottom edge.
+		if a.layout.msgComposeTop > 0 && py >= a.layout.msgComposeTop {
+			if a.mode == ModeNormal {
+				return a.beginInsertMode(false)
+			}
+			return nil
 		}
 		// Hit-test reactions and inline images first: a click
 		// that lands inside a pill toggles the user's reaction;
@@ -360,8 +366,11 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 
 		// The thread pane's own compose region, same as the channel
 		// pane's above but targeting the thread compose.
-		if a.mode == ModeNormal && a.layout.threadComposeTop > 0 && py >= a.layout.threadComposeTop {
-			return a.beginInsertMode(true)
+		if a.layout.threadComposeTop > 0 && py >= a.layout.threadComposeTop {
+			if a.mode == ModeNormal {
+				return a.beginInsertMode(true)
+			}
+			return nil
 		}
 		// Hit-test reactions and inline images first on the thread
 		// pane too.

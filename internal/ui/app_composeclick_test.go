@@ -158,3 +158,44 @@ func TestMouseClick_StackedThreadComposeFocusesTheThread(t *testing.T) {
 	}
 	assertFront(t, a, false, true)
 }
+
+// A click on a compose region in insert mode is not a click on a
+// message. Scrolled away from the bottom, the list goes on past the
+// window, and the hit tests read the row under the click as one of the
+// messages below it: they selected it, and the release opened its
+// thread.
+func TestMouseClick_OnComposeInInsertLeavesTheList(t *testing.T) {
+	t.Run("channel", func(t *testing.T) {
+		a := newTestApp(t, withSize(120, 30), withActiveChannel("C1"), withMessages(testMessageItems(60)...), withRender())
+		a.messagepane.GoToTop()
+		_ = a.beginInsertMode(false)
+		_ = a.View()
+		before, _ := a.messagepane.SelectedMessage()
+		x, y := a.layout.sidebarEnd+5, 1+a.layout.msgComposeTop+2
+		clickAt(t, a, x, y)
+		updateAndRender(t, a, tea.MouseReleaseMsg{X: x, Y: y, Button: tea.MouseLeft})
+		if after, _ := a.messagepane.SelectedMessage(); after.TS != before.TS || a.threadVisible {
+			t.Fatalf("selection %s -> %s, thread open %v; want the click to change neither", before.TS, after.TS, a.threadVisible)
+		}
+		if a.mode != ModeInsert {
+			t.Fatalf("mode = %v, want insert mode kept", a.mode)
+		}
+	})
+	t.Run("thread", func(t *testing.T) {
+		a := newTestApp(t, withSize(120, 30), withActiveChannel("C1"), withMessages(testMessageItems(3)...))
+		parent := messages.MessageItem{TS: "0.5", UserName: "alice", Text: "parent", ThreadTS: "0.5"}
+		a.threadPanel.SetThread(parent, testMessageItems(40), "C1", "0.5")
+		a.threadVisible = true
+		a.focusedPanel = PanelThread
+		a.threadPanel.GoToTop()
+		_ = a.beginInsertMode(true)
+		_ = a.View()
+		before := a.threadPanel.SelectedReply()
+		x, y := a.layout.ThreadEnd()-5, 1+a.layout.threadComposeTop+2
+		clickAt(t, a, x, y)
+		updateAndRender(t, a, tea.MouseReleaseMsg{X: x, Y: y, Button: tea.MouseLeft})
+		if after := a.threadPanel.SelectedReply(); before == nil || after == nil || after.TS != before.TS {
+			t.Fatalf("thread selection moved from %v to %v", before, after)
+		}
+	})
+}
