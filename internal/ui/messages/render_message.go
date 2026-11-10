@@ -60,6 +60,7 @@ type RenderedMessage struct {
 	Mention   mention.Kind
 	SixelRows map[int]sixelEntry
 	// Kitty uploads by source: each pane keeps its own upload order.
+	// BodyFlushes also carries the author status emoji's upload.
 	BodyFlushes, BlockFlushes, ReactionFlushes, AttachmentFlushes []func(io.Writer) error
 }
 
@@ -177,10 +178,6 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 	}
 	avatarStr := opt.Avatar
 	stats := opt.stats
-	headerTimestamp := styles.Timestamp.Render(msg.Timestamp)
-	headerGap := lipgloss.NewStyle().Background(styles.Background).Render("  ")
-	line := styles.Username(msg.UserID, rc.ColoredUsernames).Render(msg.UserName) + AuthorStatusSuffix(rc.UserStatuses, msg.UserID, time.Now()) + headerGap + headerTimestamp
-
 	// If we have an avatar, reserve space on the left for it
 	contentWidth := width - 4
 	if avatarStr != "" {
@@ -190,10 +187,6 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 		contentWidth = 20
 	}
 
-	var bodyT0 time.Time
-	if stats != nil {
-		bodyT0 = time.Now()
-	}
 	// Emoji-image opts pass through the active EmojiContext; when
 	// image mode is off (or PlaceCtx.Fetcher is nil) RenderSlackMarkdownWith
 	// falls through to the legacy glyph/shortcode-text path. Warm-path
@@ -208,6 +201,18 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 		Customs:      rc.Emoji.Customs,
 		EmojiFlushes: &out.BodyFlushes,
 		Width:        contentWidth,
+	}
+	// The author's status emoji draws through the body's emoji path, so
+	// an image status emoji is the body's image and uploads with it.
+	headerTimestamp := styles.Timestamp.Render(msg.Timestamp)
+	headerGap := lipgloss.NewStyle().Background(styles.Background).Render("  ")
+	line := styles.Username(msg.UserID, rc.ColoredUsernames).Render(msg.UserName) +
+		AuthorStatusSuffix(rc.UserStatuses, msg.UserID, time.Now(), &bodyOpts) +
+		headerGap + headerTimestamp
+
+	var bodyT0 time.Time
+	if stats != nil {
+		bodyT0 = time.Now()
 	}
 	// Blocks that render the body suppress Slack's notification-fallback
 	// text and its row. See BlocksCarryBody.

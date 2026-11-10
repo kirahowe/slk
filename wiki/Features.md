@@ -8,7 +8,8 @@
 - Delete your own messages (`D`) — centered confirmation overlay with message preview
 - Slack markdown rendering (bold, italic, strikethrough, code, blockquotes, links, mentions)
 - Mentions of you stand out: a message that names you gets a yellow bar in the gutter, a faint tint across the row, and a pill behind your `@name`; an `@here` / `@channel` / `@everyone` message gets only the bar. Your own messages are never marked. Theme keys `mention_bar`, `mention_bg` and `mention_pill_bg` change the colours
-- Emoji shortcodes (`:rocket:` → 🚀)
+- Emoji shortcodes (`:rocket:` → 🚀), in Block Kit headers and button labels too (`:white_check_mark: Resolve` → `✅ Resolve`); headers and labels are plain text, not markdown
+- In image-emoji mode, a workspace emoji wins over a built-in of the same name, also through aliases, and an author's status emoji in a message header is drawn as the same image as in the body; if the image cannot be fetched the status glyph stays
 - Day separators (Today, Yesterday, Monday, full date)
 - Infinite scroll backfill into SQLite cache
 - Search: vim-style in-channel search (`/`, `n`/`N`) over cached history, plus server-side workspace search (`Ctrl+f`) with `from:` / `in:` / `before:` modifiers

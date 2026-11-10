@@ -1377,10 +1377,30 @@ func (m *Model) hasAuthor(userID string) bool {
 // AuthorStatusSuffix is what follows an author's name in a message
 // header: a space and their status emoji on the pane background, or ""
 // when they have no live custom status. Shared with the thread pane.
-func AuthorStatusSuffix(statuses map[string]peerstatus.Status, userID string, now time.Time) string {
-	g := statuses[userID].Glyph(now)
+//
+// With opts, in image mode, the emoji is drawn as the image the body
+// would draw for it (opts' placement context, customs and upload
+// collector): the status emoji itself, or for a huddle or a status emoji
+// with no glyph of its own, the glyph peerstatus picks. Where no image
+// can be placed the glyph is drawn, as it is with nil opts.
+func AuthorStatusSuffix(statuses map[string]peerstatus.Status, userID string, now time.Time, opts *RenderSlackMarkdownOpts) string {
+	status := statuses[userID]
+	g := status.Glyph(now)
 	if g == "" {
 		return ""
+	}
+	if opts != nil && emojiutil.ImageModeActive() && opts.PlaceCtx.Fetcher != nil {
+		var tokens []emojiutil.Token
+		if !status.InHuddle(now) && status.Emoji != "" {
+			tokens = emojiutil.ResolveEmojiToTokens(status.Emoji, opts.Customs)
+		}
+		if len(tokens) == 1 && tokens[0].Kind == emojiutil.TokenEmoji {
+			// The glyph stands in when the image cannot be placed.
+			tokens[0].Text = g
+		} else {
+			tokens = emojiutil.ResolveEmojiToTokens(g, opts.Customs)
+		}
+		g = renderEmojiTokensInline(tokens, opts.PlaceCtx, opts.EmojiCells, opts.EmojiFlushes)
 	}
 	return lipgloss.NewStyle().Background(styles.Background).Render(" " + g)
 }

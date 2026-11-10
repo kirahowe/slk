@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/gammons/slk/internal/mention"
+	"io"
 	"math"
 	"slices"
 	"strings"
@@ -1191,11 +1192,28 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 	// The parent is rendered every frame for its current state (selected
 	// or not, focused or not) and is entry 0 of the list: its rows, then
 	// the rule under it. The rule is not selectable text (Plain stops
-	// before it). We discard the parent's image flushes and reaction hits
-	// in v1, as before; its image hits are kept so a click on its image
-	// opens the preview.
+	// before it). Its reaction hits are dropped; its image hits are kept
+	// so a click on its image opens the preview.
 	parentIsSelected := m.selected == parentSelected
 	parentRendered := m.renderMessage(m.parent, width, parentIsSelected)
+	// The parent is outside the reply cache and its upload pass below, so
+	// its kitty uploads (body, status and block emoji, reactions,
+	// attachments) go out here, in draw order, replies or not. Each
+	// upload sends its image once, so a repeat frame writes nothing.
+	var parentUploads bytes.Buffer
+	for _, flushes := range [][]func(io.Writer) error{
+		parentRendered.BodyFlushes, parentRendered.BlockFlushes,
+		parentRendered.ReactionFlushes, parentRendered.AttachmentFlushes,
+	} {
+		for _, fl := range flushes {
+			if fl != nil {
+				_ = fl(&parentUploads)
+			}
+		}
+	}
+	if parentUploads.Len() > 0 {
+		_, _ = imgpkg.KittyOutput.Write(parentUploads.Bytes())
+	}
 	parentContent, parentHeader, parentHeaderBudget := parentRendered.Content, parentRendered.Header, parentRendered.HeaderBudget
 	// Replies only get a day divider when their day differs from the
 	// parent's, so the parent header carries its own date; otherwise a
