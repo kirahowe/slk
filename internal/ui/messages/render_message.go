@@ -144,7 +144,22 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 		// muted. The body's own wrap is undone so the line wraps once, with
 		// the timestamp.
 		plain := strings.Join(strings.Fields(ansi.Strip(body)), " ")
+		// Channel search matches a notice's text too, so its matches are
+		// highlighted as a body's are; the close restores the muted style.
+		if len(rc.SearchTerms) > 0 {
+			muted := strings.SplitN(styles.Timestamp.Render("\x00"), "\x00", 2)[0]
+			if hlStart, hlEnd, ok := searchHighlightSGRRestoring(muted); ok {
+				plain = HighlightSearchTerms(plain, rc.SearchTerms, hlStart, hlEnd)
+			}
+		}
 		out.Content = styles.Timestamp.Render(WordWrap(msg.Timestamp+"  "+plain, noticeWidth))
+		// People react to a join; its pills and their hit rects are a
+		// message's, under the notice, from column 1 (after the border).
+		if lines, specs := renderReactions(msg, noticeWidth, rc, opt, &out.ReactionFlushes); len(lines) > 0 {
+			rowBase := lipgloss.Height(out.Content)
+			out.Content += "\n" + strings.Join(lines, "\n")
+			out.Hits = reactionHits(specs, rowBase, 1)
+		}
 		return out
 	}
 	if rc.SelfUserID != "" && msg.UserID != rc.SelfUserID {
