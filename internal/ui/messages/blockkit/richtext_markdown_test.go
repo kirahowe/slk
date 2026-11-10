@@ -69,7 +69,10 @@ func TestRichTextToMarkdown_RoundTrip(t *testing.T) {
 }
 
 // A message written in Slack's own client (SLK-330): its text field has
-// no line breaks and an escaped link, but the block has them all.
+// no line breaks and an escaped link, but the block has them all. The
+// client ends the paragraph before a list with a line break of its
+// own, which the seed keeps as a blank line, and starts the link's
+// paragraph right under the list; saving the seed sends the same block.
 func TestRichTextToMarkdown_SlackClientList(t *testing.T) {
 	const raw = `{"type":"rich_text","elements":[
 		{"type":"rich_text_section","elements":[{"type":"text","text":"here's a test with another list\n"}]},
@@ -82,10 +85,14 @@ func TestRichTextToMarkdown_SlackClientList(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &b); err != nil {
 		t.Fatal(err)
 	}
-	got := RichTextToMarkdown(RichTextBlock{Elements: b.Elements})
-	want := "here's a test with another list\n- list 1\n- list 2\n- list 3\n\n[and a link](https://example.com/genie/)"
+	rt := RichTextBlock{Elements: b.Elements}
+	got := RichTextToMarkdown(rt)
+	want := "here's a test with another list\n\n- list 1\n- list 2\n- list 3\n[and a link](https://example.com/genie/)"
 	if got != want {
 		t.Errorf("got %q\nwant %q", got, want)
+	}
+	if saved := blockJSON(t, received(t, got)); saved != blockJSON(t, rt) {
+		t.Errorf("saving the seed sends %s\nwant %s", saved, blockJSON(t, rt))
 	}
 }
 
@@ -102,15 +109,22 @@ func TestRichTextToMarkdown_Inline(t *testing.T) {
 		want string
 	}{
 		{"bold keeps spaces outside", []slack.RichTextSectionElement{text("a", nil), text(" bold ", &slack.RichTextSectionTextStyle{Bold: true}), text("b", nil)}, "a **bold** b"},
-		{"style per line", []slack.RichTextSectionElement{text("one\ntwo", &slack.RichTextSectionTextStyle{Italic: true})}, "_one_\n_two_"},
+		{"style over a line break", []slack.RichTextSectionElement{text("one\ntwo", &slack.RichTextSectionTextStyle{Italic: true})}, "_one\ntwo_"},
+		{"style over a blank line", []slack.RichTextSectionElement{text("one\n\ntwo", &slack.RichTextSectionTextStyle{Italic: true})}, "_one_\n\n_two_"},
+		{"bold around code", []slack.RichTextSectionElement{text("see ", &slack.RichTextSectionTextStyle{Bold: true}), text("x", &slack.RichTextSectionTextStyle{Bold: true, Code: true})}, "**see `x`**"},
+		{"italic outside bold", []slack.RichTextSectionElement{text("a", &slack.RichTextSectionTextStyle{Bold: true, Italic: true}), text(" b", &slack.RichTextSectionTextStyle{Italic: true})}, "_**a** b_"},
 		{"code with backtick", []slack.RichTextSectionElement{text("a`b", &slack.RichTextSectionTextStyle{Code: true})}, "``a`b``"},
 		{"link label is url", []slack.RichTextSectionElement{link("https://x.com", "https://x.com")}, "https://x.com"},
 		{"link without label", []slack.RichTextSectionElement{link("https://x.com", "")}, "https://x.com"},
 		{"mailto", []slack.RichTextSectionElement{link("mailto:a@b.com", "a@b.com")}, "a@b.com"},
-		{"url markdown can't hold", []slack.RichTextSectionElement{link("https://x.com/a_(b)", "wiki")}, "<https://x.com/a_(b)|wiki>"},
+		{"parens in the url", []slack.RichTextSectionElement{link("https://x.com/a_(b)", "wiki")}, "[wiki](https://x.com/a_(b))"},
+		{"url markdown can't hold", []slack.RichTextSectionElement{link("https://x.com/a b", "wiki")}, "<https://x.com/a b|wiki>"},
+		{"bare url glued to text", []slack.RichTextSectionElement{link("https://x.com/a", ""), text("b", nil)}, "<https://x.com/a>b"},
 		{"literal text unescaped", []slack.RichTextSectionElement{text("a < b & c", nil)}, "a < b & c"},
-		{"literal mentions stay text", []slack.RichTextSectionElement{text("<!here> <@U1> <#C1>", nil)}, "&lt;!here&gt; &lt;@U1&gt; &lt;#C1&gt;"},
-		{"literal link becomes a link", []slack.RichTextSectionElement{text("<https://x.com/|x>", nil)}, "<https://x.com/|x>"},
+		{"literal markup escaped", []slack.RichTextSectionElement{text("*a* - b", nil)}, `*a\* - b`},
+		{"literal list marker escaped", []slack.RichTextSectionElement{text("- a", nil)}, `\- a`},
+		{"literal mentions stay text", []slack.RichTextSectionElement{text("<!here> <@U1> <#C1>", nil)}, `<!here\> <@U1\> <#C1\>`},
+		{"literal link stays text", []slack.RichTextSectionElement{text("<https://x.com/|x>", nil)}, `<https\://x.com/|x>`},
 		{"label markdown would restyle", []slack.RichTextSectionElement{link("https://x.com", "**docs**")}, "<https://x.com|**docs**>"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -157,6 +171,61 @@ func TestRichTextToMarkdown_LiteralMentionDoesNotPingOnSave(t *testing.T) {
 			case *slack.RichTextSectionBroadcastElement, *slack.RichTextSectionUserElement:
 				t.Errorf("saved edit has a mention element %#v", el)
 			}
+		}
+	}
+}
+
+// Editing a message keeps its links to other messages; they go back out
+// as links on save.
+func TestRichTextToMarkdown_MessageMention(t *testing.T) {
+	const url = "https://example.slack.com/archives/C0000TEST1/p1700000000000100"
+	for _, tc := range []struct {
+		name, label, want string
+	}{
+		{"label is url", url, url},
+		{"other label", "earlier", "[earlier](" + url + ")"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rt := richTextFromJSON(t, `{"type":"rich_text","elements":[{"type":"rich_text_section","elements":[`+
+				`{"type":"text","text":"see "},`+
+				`{"type":"message_mention","message_ts":"1700000000.000100","channel_id":"C0000TEST1",`+
+				`"text":"`+tc.label+`","url":"`+url+`"}]}]}`)
+			if got, want := RichTextToMarkdown(rt), "see "+tc.want; got != want {
+				t.Errorf("got %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// A link is written bare only when Convert links the whole bare URL
+// back: one the typed-URL rule would cut (at a non-ASCII character or a
+// space) keeps its explicit form, so saving keeps the whole target.
+func TestLinkToMarkdown_BareOnlyWhenWholeURLSurvives(t *testing.T) {
+	for _, tc := range []struct {
+		url      string
+		wantBare bool
+	}{
+		{"https://x.example/a.txt", true},
+		{"ftp://x.example/a.txt", true},
+		{"https://x.example/résumé.txt", false},
+		{"ftp://x.example/my file.txt", false},
+		{"ftp://x.example/日本.txt", false},
+	} {
+		got := LinkToMarkdown(tc.url, "")
+		if bare := got == tc.url; bare != tc.wantBare {
+			t.Errorf("LinkToMarkdown(%q) = %q, bare=%v want %v", tc.url, got, bare, tc.wantBare)
+		}
+		_, block := mrkdwn.Convert(got)
+		var targets []string
+		for _, e := range block.Elements {
+			for _, se := range e.(*slack.RichTextSection).Elements {
+				if l, ok := se.(*slack.RichTextSectionLinkElement); ok {
+					targets = append(targets, l.URL)
+				}
+			}
+		}
+		if len(targets) != 1 || targets[0] != tc.url {
+			t.Errorf("saving %q links %q, want %q", got, targets, tc.url)
 		}
 	}
 }

@@ -24,7 +24,8 @@ var wireTokenRe = regexp.MustCompile(`<[^<>]*>`)
 // MessageTextSource); all of them, a blank line apart, so saving does
 // not drop the later ones. Otherwise it is msg.Text with each link
 // written as markdown and Slack's &lt; &gt; &amp; decoded, except where
-// the decoded text would read as a mention (blockkit.EscapeLiteralMentions).
+// the decoded text would read as a mention or link on save, which is
+// backslash-escaped (blockkit.EscapeLiteralTokens).
 func EditSource(msg MessageItem) string {
 	var parts []string
 	for _, b := range msg.Blocks {
@@ -63,10 +64,10 @@ func decodeLiteral(s string) string {
 	var b strings.Builder
 	last := 0
 	for _, m := range wireTokenRe.FindAllStringIndex(s, -1) {
-		b.WriteString(blockkit.EscapeLiteralMentions(slackEntityDecoder.Replace(s[last:m[0]])))
+		b.WriteString(blockkit.EscapeLiteralTokens(slackEntityDecoder.Replace(s[last:m[0]])))
 		b.WriteString(s[m[0]:m[1]])
 		last = m[1]
 	}
-	b.WriteString(blockkit.EscapeLiteralMentions(slackEntityDecoder.Replace(s[last:])))
+	b.WriteString(blockkit.EscapeLiteralTokens(slackEntityDecoder.Replace(s[last:])))
 	return b.String()
 }

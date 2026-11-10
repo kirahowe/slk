@@ -154,6 +154,100 @@ func TS() *rapid.Generator[string] {
 	})
 }
 
+// ComposerText is text a person types into slk's composer, the input of
+// mrkdwn.Convert: lines of words and markdown (**bold**, _italic_,
+// ~~strike~~, `code`, [label](url), bare URLs), wire tokens for
+// mentions and links, emoji shortcodes, "- " and "N. " list items (some
+// nested four spaces under another item), "> " quotes, fenced code and
+// blank lines. users
+// and channels are the IDs mentions draw from.
+func ComposerText(users, channels []string) *rapid.Generator[string] {
+	return ComposerTextWith(Word(), users, channels)
+}
+
+// ComposerTextWith is ComposerText with its words drawn from word.
+func ComposerTextWith(word *rapid.Generator[string], users, channels []string) *rapid.Generator[string] {
+	return rapid.Custom(func(t *rapid.T) string {
+		user := func() string {
+			if len(users) > 0 && rapid.Bool().Draw(t, "knownUser") {
+				return rapid.SampledFrom(users).Draw(t, "user")
+			}
+			return ID("U").Draw(t, "user")
+		}
+		channel := func() string {
+			if len(channels) > 0 && rapid.Bool().Draw(t, "knownChannel") {
+				return rapid.SampledFrom(channels).Draw(t, "channel")
+			}
+			return ID("C").Draw(t, "channel")
+		}
+		inline := func() string {
+			w := word.Draw(t, "word")
+			path := "https://example.com/" + rapid.StringMatching(`[a-z0-9/]{0,8}`).Draw(t, "path")
+			switch rapid.IntRange(0, 15).Draw(t, "inline") {
+			case 0:
+				return "**" + w + "**"
+			case 1:
+				return "_" + w + "_"
+			case 2:
+				return "~~" + w + "~~"
+			case 3:
+				return "`" + w + "`"
+			case 4:
+				return "[" + w + "](" + path + ")"
+			case 5:
+				return path
+			case 6:
+				return rapid.SampledFrom([]string{
+					"<@" + user() + ">", "<#" + channel() + ">", "<#" + channel() + "|" + w + ">",
+					"<!here>", "<!subteam^" + ID("S").Draw(t, "group") + ">", "<" + path + "|" + w + ">",
+				}).Draw(t, "wire")
+			case 7:
+				return ":" + rapid.SampledFrom([]string{"tada", "heart", "+1", "wave::skin-tone-3"}).Draw(t, "emoji") + ":"
+			default:
+				return w
+			}
+		}
+		line := func() string {
+			n := rapid.IntRange(1, 5).Draw(t, "inlines")
+			parts := make([]string, n)
+			for i := range parts {
+				parts[i] = inline()
+			}
+			return strings.Join(parts, rapid.SampledFrom([]string{" ", " ", "  "}).Draw(t, "space"))
+		}
+		n := rapid.IntRange(1, 8).Draw(t, "lines")
+		var b strings.Builder
+		inList := false
+		for i := range n {
+			if i > 0 {
+				brk := rapid.SampledFrom([]string{"\n", "\n", "\n\n"}).Draw(t, "break")
+				inList = inList && brk == "\n"
+				b.WriteString(brk)
+			}
+			kind := rapid.IntRange(0, 9).Draw(t, "line")
+			if kind == 1 && !inList {
+				kind = 0 // a nested item needs an item to nest under
+			}
+			inList = kind <= 2
+			switch kind {
+			case 0:
+				b.WriteString("- " + line())
+			case 1:
+				b.WriteString("    - " + line())
+			case 2:
+				b.WriteString(fmt.Sprint(rapid.IntRange(1, 3).Draw(t, "num")) + ". " + line())
+			case 3:
+				b.WriteString("> " + line())
+			case 4:
+				b.WriteString("```\n" + PlainText().Draw(t, "code") + "\n```")
+			default:
+				b.WriteString(line())
+			}
+		}
+		return b.String()
+	})
+}
+
 // SlackText is message text in Slack's wire form: words mixed with user,
 // channel, usergroup and broadcast mentions (bare and pipe-labelled),
 // links, emphasis markers, inline and fenced code, blockquotes, entities

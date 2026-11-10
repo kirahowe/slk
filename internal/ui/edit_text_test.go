@@ -35,7 +35,11 @@ func listMessage(ts string) messages.MessageItem {
 	}
 }
 
-const listMessageEdit = "a list\n- one\n- two in #general\n\n[a link](https://x.com/)"
+// listMessageEdit is listMessage in the composer. Slack's client ends
+// the paragraph before a list with a line break of its own, which reads
+// as a blank line, and starts the link's paragraph right under the
+// list; saving it sends the same block.
+const listMessageEdit = "a list\n\n- one\n- two in #general\n[a link](https://x.com/)"
 
 // SLK-330: the box shows the message as it was typed (lines, list,
 // link, channel name), not Slack's flattened text field.
