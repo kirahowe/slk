@@ -8,7 +8,7 @@ Earlier history, up to v0.26.2, is in [upstream's releases](https://github.com/g
 
 ## [Unreleased]
 
-## [0.31.0] - 2026-11-09
+## [0.31.0] - 2026-11-10
 
 ### Added
 

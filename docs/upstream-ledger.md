@@ -22,7 +22,7 @@ Reviewed through upstream `04d0a2d4` (2026-10-26).
 | #339 | fix(emoji): keep an emoji that follows a skin-toned one | taken | `ad4ec3bf`..`41b0d7b5`; properties and a fuzz target for `StripSkinToneFromText` in `306b89f5` |
 | #340 | fix(emoji): draw skin-toned emoji as one image in the right shade | taken | `8bd7510f`, `8c0422d5`; tone-mapping properties in `306b89f5` |
 | #351 | fix(emoji): draw two-person emoji with a tone per person | taken | `edbad06a`..`a3d08c01`; tone-per-person property in `306b89f5` |
-| #341 | fix(slackdesktop): read Secret Service via spec-only D-Bus calls | taken | `17ca18ca`; upstream's vendorHash commit `5f5b373b` not taken, regenerate `flake.nix` from CI. Linux tests compiled, not yet run |
+| #341 | fix(slackdesktop): read Secret Service via spec-only D-Bus calls | taken | `17ca18ca`; upstream's vendorHash commit `5f5b373b` not taken; `flake.nix` regenerated from CI before 0.31.0. Linux tests compiled, not yet run |
 | #336 | fix(ui): o finds links in Block Kit blocks and legacy attachment bodies | taken | `1c122b95`; property over `proptest.SlackText` in `93b20496` |
 | #337 | fix(export): convert inline markup inside quotes to CommonMark | taken | `c253313e`, the conversion line and export tests only |
 | #364 | fix: pin the Activity badge to the workspace's unread-activity total | taken | `b290bff6`; UI rollback and zero floor in `4d6f2844`; `badge_clock.go` replaced by `activityBadge` on `selfStatus`'s mark scheme in `6523c14a` |
