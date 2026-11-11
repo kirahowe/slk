@@ -225,6 +225,11 @@ func TestEditSourceBreaksAfterEmptyBlock(t *testing.T) {
 	roundTripsAsTyped(t, "> -\n\n>\n2. a", "> q\n> -\n\nb")
 }
 
+// The line after a quote in a list item stays a line of its own.
+func TestEditSourceItemParagraphAfterQuote(t *testing.T) {
+	sendsSameBlock(t, "- > a b\n  c", "- **a**\n- > **a** aaaaaaaa\n  **.**")
+}
+
 // denseLine is a line of the punctuation a person types in prose, each
 // mark one the seed could escape: a colon, parens, a URL, a code span,
 // " - ", "!", brackets, an HTML-shaped word, a pipe and "3.".

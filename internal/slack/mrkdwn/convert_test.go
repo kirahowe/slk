@@ -850,6 +850,16 @@ func TestConvert_BreaksAfterEmptyBlock(t *testing.T) {
 	}
 }
 
+// A list item's paragraph after a quote in the item starts on its own
+// line, as typed, not run onto the quote's last word.
+func TestConvert_ItemParagraphAfterQuote(t *testing.T) {
+	_, blk := Convert("- > a b\n  c")
+	want := `{"type":"rich_text","elements":[{"type":"rich_text_list","elements":[{"type":"rich_text_section","elements":[{"type":"text","text":"a b\nc"}]}],"style":"bullet","indent":0,"border":0,"offset":0}]}`
+	if blockJSON(blk) != want {
+		t.Errorf("got  %s\nwant %s", blockJSON(blk), want)
+	}
+}
+
 func TestConvert_BackslashEscape(t *testing.T) {
 	mr, blk := Convert(`\*not bold\*`)
 	want := "*not bold*"

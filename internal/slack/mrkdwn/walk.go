@@ -504,17 +504,17 @@ func (w *walker) walkList(n *ast.List, indent int) {
 
 		// Walk item children: inline body then any nested lists.
 		// Paragraphs of one item (a loose list) keep the breaks
-		// typed between them, and before and after a nested list,
-		// which the block puts after this list.
-		var prevText, prevChild ast.Node
+		// typed between them and after any other block in the item
+		// (a quote, or a nested list, which the block puts after
+		// this list).
+		var prevChild ast.Node
 		for sub := item.FirstChild(); sub != nil; sub = sub.NextSibling() {
 			switch sub := sub.(type) {
 			case *ast.TextBlock, *ast.Paragraph:
-				if prevText != nil {
+				if prevChild != nil {
 					w.appendText(strings.Repeat("\n", w.lineBreaksBetween(prevChild, sub)))
 				}
 				w.walkInlineChildren(sub)
-				prevText = sub
 			case *ast.List:
 				w.mrkdwn.WriteString("\n")
 				w.walkListInto(sub, indent+1, &nested)
