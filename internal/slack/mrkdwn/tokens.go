@@ -43,19 +43,30 @@ type token struct {
 }
 
 // Patterns are tried in order; first match wins. None overlap given
-// their leading characters (<@, <#, <!, <h, :).
+// their leading characters (<@, <#, <!, <h, :). Each is compiled by
+// tokenPattern, so it matches only at the start of what it is given.
 var (
-	reUser      = regexp.MustCompile(`<@([UW][A-Z0-9]+)>`)
-	reChannel   = regexp.MustCompile(`<#([CG][A-Z0-9]+)(?:\|([^>]*))?>`)
-	reBroadcast = regexp.MustCompile(`<!([a-z]+(?:\^[A-Za-z0-9]+)?)(?:\|([^>]*))?>`)
-	reLink      = regexp.MustCompile(`<(https?://[^|>]+)(?:\|([^>]*))?>`)
+	reUser      = tokenPattern(`<@([UW][A-Z0-9]+)>`)
+	reChannel   = tokenPattern(`<#([CG][A-Z0-9]+)(?:\|([^>]*))?>`)
+	reBroadcast = tokenPattern(`<!([a-z]+(?:\^[A-Za-z0-9]+)?)(?:\|([^>]*))?>`)
+	reLink      = tokenPattern(`<(https?://[^|>]+)(?:\|([^>]*))?>`)
 	// Slack emoji shortcode. Matches the canonical wire form
 	// :name: where name uses lowercase ASCII letters, digits,
 	// underscores, plus, or hyphen. Skin-tone modifiers like
 	// :skin-tone-3: parse as their own emoji (matching what
 	// Slack web does — adjacent emoji elements compose visually).
-	reEmoji = regexp.MustCompile(`:([a-z0-9_+-]+):`)
+	reEmoji = tokenPattern(`:([a-z0-9_+-]+):`)
 )
+
+// tokenPattern compiles expr anchored at the start of the text. tokenAt
+// asks whether a token starts at one byte of the input, and an
+// unanchored pattern that does not match there would go on searching
+// the rest of the input, once for every '<' or ':' in it: Convert
+// would take time quadratic in a run of those characters. An anchored
+// pattern gives up at the first byte that cannot continue a token.
+func tokenPattern(expr string) *regexp.Regexp {
+	return regexp.MustCompile(`^(?:` + expr + `)`)
+}
 
 // tokenize replaces all Slack wire-form tokens in s with sentinel
 // markers and returns the rewritten string plus an ordered table.
@@ -121,7 +132,7 @@ func tokenAt(s string, i int) (tok token, n int, ok bool) {
 			{reLink, tokLink},
 		} {
 			loc := p.re.FindStringSubmatchIndex(s[i:])
-			if loc == nil || loc[0] != 0 {
+			if loc == nil {
 				continue
 			}
 			// loc is relative to s[i:].
@@ -138,7 +149,7 @@ func tokenAt(s string, i int) (tok token, n int, ok bool) {
 		// "see:https://x" is text and a URL, not the emoji :https:
 		// (the closing colon is the scheme's). An emoji after a URL
 		// is still one: "x/a:tada:" ends the URL.
-		if loc != nil && loc[0] == 0 && typedURLLen(s[i+1:]) == 0 {
+		if loc != nil && typedURLLen(s[i+1:]) == 0 {
 			return token{kind: tokEmoji, id: s[i+loc[2] : i+loc[3]]}, loc[1], true
 		}
 	}
