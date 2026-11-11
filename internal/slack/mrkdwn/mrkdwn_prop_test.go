@@ -290,17 +290,59 @@ func TestConvertKeepsOrderedListStart(t *testing.T) {
 	})
 }
 
+// sentMentions lists the mention elements of a block Convert made, in
+// order, each as its kind and ID ("@U1", "#C1", "!here",
+// "!subteam^S1"). Code blocks hold no elements of those kinds.
+func sentMentions(rt *slack.RichTextBlock) []string {
+	var out []string
+	walk := func(els []slack.RichTextSectionElement) {
+		for _, el := range els {
+			switch v := el.(type) {
+			case *slack.RichTextSectionUserElement:
+				out = append(out, "@"+v.UserID)
+			case *slack.RichTextSectionChannelElement:
+				out = append(out, "#"+v.ChannelID)
+			case *slack.RichTextSectionBroadcastElement:
+				out = append(out, "!"+v.Range)
+			case *slack.RichTextSectionUserGroupElement:
+				out = append(out, "!subteam^"+v.UsergroupID)
+			}
+		}
+	}
+	if rt == nil {
+		return nil
+	}
+	for _, e := range rt.Elements {
+		switch v := e.(type) {
+		case *slack.RichTextSection:
+			walk(v.Elements)
+		case *slack.RichTextQuote:
+			walk(v.Elements)
+		case *slack.RichTextList:
+			for _, item := range v.Elements {
+				if sec, ok := item.(*slack.RichTextSection); ok {
+					walk(sec.Elements)
+				}
+			}
+		}
+	}
+	return out
+}
+
 // Mentions reports exactly the user, channel and broadcast tokens
 // Convert sends as mention elements, in order: for any Slack text
-// without a code block, its list matches the mention elements of
+// without a code fence, its list matches the mention elements of
 // Convert's block, kind and ID, and each span is a token, from "<" to
-// ">". (In a code block Convert sends the token as text, and Mentions,
-// which reads no markdown, still lists it.)
+// ">". A fence is three backticks or three tildes. (In a code block
+// Convert sends the token as text, and after an opening fence, where
+// a language name goes, it sends nothing; Mentions, which reads no
+// markdown, lists the token either way. See
+// TestMentionsListsATokenAfterATildeFence.)
 func TestMentionsAreTheMentionsConvertSends(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		s := rapid.OneOf(proptest.SlackText([]string{"U1"}, []string{"C1"}), proptest.PlainText()).Draw(t, "text")
-		if strings.Contains(s, "```") {
-			t.Skip("code block")
+		if strings.Contains(s, "```") || strings.Contains(s, "~~~") {
+			t.Skip("code fence")
 		}
 		var got []string
 		for _, m := range Mentions(s) {
@@ -310,40 +352,26 @@ func TestMentionsAreTheMentionsConvertSends(t *testing.T) {
 			}
 			got = append(got, string(m.Kind)+m.ID)
 		}
-		var want []string
 		_, rt := Convert(s)
-		walk := func(els []slack.RichTextSectionElement) {
-			for _, el := range els {
-				switch v := el.(type) {
-				case *slack.RichTextSectionUserElement:
-					want = append(want, "@"+v.UserID)
-				case *slack.RichTextSectionChannelElement:
-					want = append(want, "#"+v.ChannelID)
-				case *slack.RichTextSectionBroadcastElement:
-					want = append(want, "!"+v.Range)
-				case *slack.RichTextSectionUserGroupElement:
-					want = append(want, "!subteam^"+v.UsergroupID)
-				}
-			}
-		}
-		if rt != nil {
-			for _, e := range rt.Elements {
-				switch v := e.(type) {
-				case *slack.RichTextSection:
-					walk(v.Elements)
-				case *slack.RichTextQuote:
-					walk(v.Elements)
-				case *slack.RichTextList:
-					for _, item := range v.Elements {
-						if sec, ok := item.(*slack.RichTextSection); ok {
-							walk(sec.Elements)
-						}
-					}
-				}
-			}
-		}
-		if strings.Join(got, " ") != strings.Join(want, " ") {
+		if want := sentMentions(rt); strings.Join(got, " ") != strings.Join(want, " ") {
 			t.Fatalf("Mentions(%q) = %v, Convert sends %v", s, got, want)
 		}
 	})
+}
+
+// Three tildes at a line's start open a code block as three backticks
+// do, and what follows them on that line is where a language name
+// goes, which Convert does not send. Mentions reads no markdown and
+// lists the token. The property above skips such text; this pins what
+// each of the two does with it.
+func TestMentionsListsATokenAfterATildeFence(t *testing.T) {
+	const s = "a <https://example.com/>\n~~~ <@U1>"
+	got := Mentions(s)
+	if len(got) != 1 || got[0].Kind != '@' || got[0].ID != "U1" {
+		t.Fatalf("Mentions(%q) = %v, want the one user token", s, got)
+	}
+	_, rt := Convert(s)
+	if sent := sentMentions(rt); len(sent) != 0 {
+		t.Fatalf("Convert(%q) sends %v, want no mention", s, sent)
+	}
 }
