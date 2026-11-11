@@ -1376,7 +1376,8 @@ func (m *Model) hasAuthor(userID string) bool {
 
 // AuthorStatusSuffix is what follows an author's name in a message
 // header: a space and their status emoji on the pane background, or ""
-// when they have no live custom status. Shared with the thread pane.
+// when they have no live custom status. RenderMessage calls it for the
+// headers of both panes.
 //
 // With opts, in image mode, the emoji is drawn as the image the body
 // would draw for it (opts' placement context, customs and upload
