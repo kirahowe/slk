@@ -45,11 +45,10 @@ func TestFrecencyPosition(t *testing.T) {
 			t.Errorf("Position(%q) = %d, %v; want %d, %v", tc.name, pos, ok, tc.wantPos, tc.wantOK)
 		}
 	}
-	if (Frecency{}).Len() != 0 {
-		t.Error("zero Frecency ranks something")
-	}
-	if _, ok := (Frecency{}).Position("tada", nil); ok {
-		t.Error("zero Frecency ranked tada")
+	for _, name := range []string{"tada", "+1", "+1::skin-tone-3", "wave", ""} {
+		if _, ok := (Frecency{}).Position(name, nil); ok {
+			t.Errorf("zero Frecency ranked %q", name)
+		}
 	}
 }
 

@@ -40,10 +40,6 @@ func NewFrecency(names []string) Frecency {
 	return f
 }
 
-// Len is the number of names the Frecency ranks, bases of toned uses
-// included.
-func (f Frecency) Len() int { return len(f.pos) }
-
 // Position returns where name stands in the history (0 is the most
 // frecent) and whether it is there at all. name may be any alias or
 // skin-tone spelling of a recorded emoji ("thumbsup" finds a recorded
