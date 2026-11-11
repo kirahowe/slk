@@ -196,9 +196,20 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		return nil // click on status bar, ignore
 	}
 
+	// While a composer has the keyboard, a click changes neither the
+	// focused pane (see clickFocus) nor the conversation or view on
+	// screen: switching workspace, picking a sidebar row, opening a
+	// thread card, an Activity item or a message's thread all move focus
+	// or tear down the composer being typed in. The keyboard has no way
+	// to do any of them without leaving insert mode first.
+	navigates := a.mode != ModeInsert
+
 	// Determine which panel was clicked.
 	switch {
 	case x < a.layout.RailWidth():
+		if !navigates {
+			return nil
+		}
 		if a.compose.Uploading() || a.threadCompose.Uploading() {
 			return toastWithClear(a, "Upload in progress", 2*time.Second)
 		}
@@ -216,7 +227,12 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		return a.switchWorkspace(item.ID)
 
 	case a.sidebarShown() && x < a.layout.SidebarEnd():
-		a.focusedPanel = PanelSidebar
+		// The sidebar never holds a composer, so in insert mode it
+		// does not get focus and every row would navigate: the click
+		// does nothing.
+		if !a.clickFocus(PanelSidebar) {
+			return nil
+		}
 		sidebarY := m.Y - 1 // account for top border
 		if sidebarY < 0 {
 			return nil
@@ -258,7 +274,7 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		if a.wins.Len() > 1 {
 			return nil
 		}
-		a.focusedPanel = PanelMessages
+		a.clickFocus(PanelMessages)
 		// In the threads-list view, the messages-pane region
 		// renders threadsView, not the channel messages. Route
 		// the click through threadsView.ClickAt so the cursor
@@ -269,7 +285,7 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		// channel pane and must not run here.
 		if a.view == ViewThreads {
 			panel, _, py, ok := a.panelAt(m.X, m.Y)
-			if ok && panel == PanelMessages && py >= 0 && a.threadsView.ClickAt(py) {
+			if navigates && ok && panel == PanelMessages && py >= 0 && a.threadsView.ClickAt(py) {
 				return a.openSelectedThreadCmd(false)
 			}
 			return nil
@@ -280,7 +296,7 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		// the ViewThreads branch and the j/k/Enter paths).
 		if a.view == ViewActivity {
 			panel, _, py, ok := a.panelAt(m.X, m.Y)
-			if ok && panel == PanelMessages && py >= 0 && a.activityView.ClickAt(py) {
+			if navigates && ok && panel == PanelMessages && py >= 0 && a.activityView.ClickAt(py) {
 				if it, ok := a.activityView.SelectedItem(); ok {
 					team := a.activeTeamID
 					return func() tea.Msg { return ActivitySelectedMsg{TeamID: team, Item: it} }
@@ -298,9 +314,10 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		// Only from normal mode, the one mode `i` works in: in insert
 		// mode a compose may hold an edit, and in command or search
 		// mode the status bar holds a half-typed line. In any other
-		// mode the click does nothing: it is not on a message row, and
-		// the hit tests below would read it as a row of the list past
-		// the window's bottom edge.
+		// mode the click goes no further than clickFocus above, which
+		// in insert mode leaves focus with the composer being typed in:
+		// it is not on a message row, and the hit tests below would
+		// read it as a row of the list past the window's bottom edge.
 		if a.layout.msgComposeTop > 0 && py >= a.layout.msgComposeTop {
 			if a.mode == ModeNormal {
 				return a.beginInsertMode(false)
@@ -330,12 +347,14 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		// Remember whether this press actually landed on a message
 		// row -- MouseReleaseMsg uses this to decide whether a
 		// plain click (no drag) should open the message's thread
-		// (mirrors pressing Enter on the selected message).
-		a.drag.SetClickedMessage(a.messagepane.ClickAt(py))
+		// (mirrors pressing Enter on the selected message). In insert
+		// mode the click still selects the row but never opens its
+		// thread (see navigates).
+		a.drag.SetClickedMessage(a.messagepane.ClickAt(py) && navigates)
 		return nil
 
 	case a.threadVisible && x < a.layout.ThreadEnd():
-		a.focusedPanel = PanelThread
+		ownPane := a.clickFocus(PanelThread)
 		panel, px, py, ok := a.panelAt(m.X, m.Y)
 		if !ok || panel != PanelThread || py < 0 {
 			return nil
@@ -346,8 +365,12 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		// content hit tests: the breadcrumb row is chrome above every reply.
 		// Only from normal and insert mode, the modes esc closes a thread
 		// from: in command or search mode the status bar holds a
-		// half-typed line, which leaving the mode would throw away.
-		if (a.mode == ModeNormal || a.mode == ModeInsert) && a.threadPanel.HitTestBreadcrumbChannel(py, px) {
+		// half-typed line, which leaving the mode would throw away. In
+		// insert mode only while typing in the thread: typing in the
+		// channel, the click would close a pane and end insert mode
+		// from a composer the click was not on, cancelling an edit
+		// there.
+		if ownPane && (a.mode == ModeNormal || a.mode == ModeInsert) && a.threadPanel.HitTestBreadcrumbChannel(py, px) {
 			// An upload in flight refuses the close (CloseThread drops
 			// it), so refuse the whole sequence: switching mode first
 			// would drop the user out of insert mode with the thread
@@ -389,6 +412,22 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		return nil
 	}
 	return nil
+}
+
+// clickFocus gives keyboard focus to p, the pane a click landed in, and
+// reports whether p has it. Every focus change a click makes goes
+// through here. In insert mode (an edit included) a composer has the
+// keyboard and focus stays on that composer's pane, so a click in any
+// other pane reports false: insert-mode keys pick the composer they
+// type into from focusedPanel, and the composer's textarea keeps its
+// own focus, so moving focusedPanel would send the next keys and Enter
+// to the other, blurred composer.
+func (a *App) clickFocus(p Panel) bool {
+	if a.mode == ModeInsert {
+		return a.focusedPanel == p
+	}
+	a.focusedPanel = p
+	return true
 }
 
 // toggleReactionAt toggles the reaction whose pill is at pane-local
