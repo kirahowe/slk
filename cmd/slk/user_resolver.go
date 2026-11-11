@@ -90,6 +90,13 @@ type userResolver struct {
 	// avatarTried is RequestAvatar's once-per-session set: userID ->
 	// struct{}. Entries are never removed.
 	avatarTried sync.Map
+
+	// missing holds the IDs users.info answered with "no such user"
+	// (isNoSuchUser) in this workspace: userID -> struct{}. Entries are
+	// never removed, so such an ID costs one lookup per session however
+	// often a message naming it is read. Only that answer adds an entry;
+	// a rate limit, timeout or cancellation leaves the ID retryable.
+	missing sync.Map
 }
 
 func newUserResolver(
@@ -120,6 +127,9 @@ func newUserResolver(
 // callback so the App can patch in-history display names live.
 func (r *userResolver) Request(userID string) {
 	if r == nil || userID == "" {
+		return
+	}
+	if _, gone := r.missing.Load(userID); gone {
 		return
 	}
 	if _, exists := r.inflight.LoadOrStore(userID, struct{}{}); exists {
@@ -174,6 +184,9 @@ func (r *userResolver) resolveOne(userID string) {
 // This direct path does not own a Request inflight slot; background callers
 // release their own claim in resolveOne rather than clearing a racing request.
 func (r *userResolver) resolveOneContext(ctx context.Context, userID string) {
+	if _, gone := r.missing.Load(userID); gone {
+		return
+	}
 	if r.sem != nil {
 		select {
 		case r.sem <- struct{}{}:
@@ -186,6 +199,9 @@ func (r *userResolver) resolveOneContext(ctx context.Context, userID string) {
 	if err != nil {
 		debuglog.Cache("userResolver: GetUserProfile team=%s user=%s err=%v",
 			r.teamID, userID, err)
+		if isNoSuchUser(err) {
+			r.missing.Store(userID, struct{}{})
+		}
 		return
 	}
 	name := u.Profile.DisplayName
@@ -428,7 +444,7 @@ func (r *userResolver) ResolveNowContext(ctx context.Context, ids []string) []ed
 	}
 	updated := make(map[string]int64, len(ids))
 	for _, id := range ids {
-		if id != "" {
+		if _, gone := r.missing.Load(id); id != "" && !gone {
 			updated[id] = 0
 		}
 	}
