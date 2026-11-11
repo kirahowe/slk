@@ -835,6 +835,21 @@ func TestConvert_EmptyQuoteIsText(t *testing.T) {
 	}
 }
 
+// The blank lines typed after a block that ends in an empty item or
+// quote ("> -") are kept like those after any other block.
+func TestConvert_BreaksAfterEmptyBlock(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"> -\n\n>", `{"type":"rich_text","elements":[{"type":"rich_text_quote","elements":[{"type":"text","text":"-"}]},` +
+			`{"type":"rich_text_section","elements":[{"type":"text","text":"\n\u003e"}]}]}`},
+		{"> q\n> -\n\nb", `{"type":"rich_text","elements":[{"type":"rich_text_quote","elements":[{"type":"text","text":"q\n-"}]},` +
+			`{"type":"rich_text_section","elements":[{"type":"text","text":"\nb"}]}]}`},
+	} {
+		if _, blk := Convert(tc.in); blockJSON(blk) != tc.want {
+			t.Errorf("Convert(%q)\n got %s\nwant %s", tc.in, blockJSON(blk), tc.want)
+		}
+	}
+}
+
 func TestConvert_BackslashEscape(t *testing.T) {
 	mr, blk := Convert(`\*not bold\*`)
 	want := "*not bold*"

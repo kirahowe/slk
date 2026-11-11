@@ -628,7 +628,7 @@ func (w *walker) walkQuote(n *ast.Blockquote) {
 	var prev ast.Node
 	for c := n.FirstChild(); c != nil; c = c.NextSibling() {
 		if prev != nil {
-			w.appendText(strings.Repeat("\n", breaksBetween(w.source, w.quotedLastLine(prev), w.quotedFirstLine(c))))
+			w.appendText(strings.Repeat("\n", w.lineBreaksBetween(prev, c)))
 		}
 		if p, ok := c.(*ast.Paragraph); ok {
 			w.appendText(w.indentAt(p, lineStart(w.source, p.Lines().At(0).Start)))
@@ -667,7 +667,7 @@ func (w *walker) walkQuote(n *ast.Blockquote) {
 // and addresses goldmark linked in it (a quote inside the quote, a list)
 // are still links; code in it has none.
 func (w *walker) appendQuotedSource(n ast.Node) {
-	start, last := w.quotedFirstLine(n), w.quotedLastLine(n)
+	start, last := w.placedFirstLine(n), w.placedLastLine(n)
 	if start < 0 || last < start {
 		var b strings.Builder
 		collectRawInline(&b, n, w.source)
@@ -819,7 +819,7 @@ func (w *walker) indentAt(n ast.Node, start int) string {
 // 2 for one blank line between them, and so on. It falls back to 1
 // when either position is unknown.
 func (w *walker) lineBreaksBetween(prev, next ast.Node) int {
-	return breaksBetween(w.source, w.lastLineStart(prev), w.firstLineStart(next))
+	return breaksBetween(w.source, w.placedLastLine(prev), w.placedFirstLine(next))
 }
 
 // breaksBetween is lineBreaksBetween for the line starts a and b.
@@ -830,19 +830,20 @@ func breaksBetween(src []byte, a, b int) int {
 	return max(1, strings.Count(string(src[a:b]), "\n"))
 }
 
-// quotedFirstLine and quotedLastLine are firstLineStart and
-// lastLineStart for a block inside a quote, where an empty list item
-// ("> -") or empty quote ("> >") is a line of the quote's text: such a
-// block has no lines of its own, so it is placed by the line it opened
-// on (placedParser).
-func (w *walker) quotedFirstLine(n ast.Node) int {
+// placedFirstLine and placedLastLine are firstLineStart and
+// lastLineStart that also place an empty list item ("-") or empty quote
+// (">"), or a block ending in one: such a block has no lines of its
+// own, so it is placed by the line it opened on (placedParser). Inside
+// a quote that line is text of the quote, and anywhere the line breaks
+// typed around it count from it.
+func (w *walker) placedFirstLine(n ast.Node) int {
 	if pos := w.firstLineStart(n); pos >= 0 {
 		return pos
 	}
 	return openedLine(n)
 }
 
-func (w *walker) quotedLastLine(n ast.Node) int {
+func (w *walker) placedLastLine(n ast.Node) int {
 	if pos := w.lastLineStart(n); pos >= 0 {
 		return pos
 	}

@@ -81,7 +81,8 @@ func newParser() parser.Parser {
 // the start of the line it opened on (openedLineAttr). goldmark places a
 // block only by its lines of text, and an empty list item ("-") or
 // empty quote (">") has none; the walker places those by this
-// (quotedFirstLine), so a quote holding one keeps the line.
+// (placedFirstLine), so a quote holding one keeps the line,
+// and the line breaks around it count from it.
 type placedParser struct{ parser.BlockParser }
 
 func (p placedParser) Open(parent ast.Node, reader text.Reader, pc parser.Context) (ast.Node, parser.State) {

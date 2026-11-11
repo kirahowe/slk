@@ -220,6 +220,11 @@ func TestEditSourceLoneQuoteMarker(t *testing.T) {
 	sendsSameBlock(t, ">", "- a\n    - b\n>\n    - d")
 }
 
+// The blank line after a quote that ends in an empty item is kept.
+func TestEditSourceBreaksAfterEmptyBlock(t *testing.T) {
+	roundTripsAsTyped(t, "> -\n\n>\n2. a", "> q\n> -\n\nb")
+}
+
 // denseLine is a line of the punctuation a person types in prose, each
 // mark one the seed could escape: a colon, parens, a URL, a code span,
 // " - ", "!", brackets, an HTML-shaped word, a pipe and "3.".
