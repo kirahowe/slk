@@ -167,6 +167,22 @@ func ComposerText(users, channels []string) *rapid.Generator[string] {
 
 // ComposerTextWith is ComposerText with its words drawn from word.
 func ComposerTextWith(word *rapid.Generator[string], users, channels []string) *rapid.Generator[string] {
+	return composerText(word, users, channels, false)
+}
+
+// ComposerTextWithMarkers is ComposerTextWith with three more kinds of
+// line: one continuing a list item (indented to the item's text, or
+// after a nested item to its parent's), a lone ">", and a quote line
+// that is only a marker ("> -", "> >") or a marker and words. The edit
+// seed's round-trip properties do not use it yet: Convert keeps a
+// quote's blank first or last line (a ">" next to "> x") in the mrkdwn
+// fallback but not in the block, and writes an item's paragraph after
+// its nested list after that list in the fallback.
+func ComposerTextWithMarkers(word *rapid.Generator[string], users, channels []string) *rapid.Generator[string] {
+	return composerText(word, users, channels, true)
+}
+
+func composerText(word *rapid.Generator[string], users, channels []string, markers bool) *rapid.Generator[string] {
 	return rapid.Custom(func(t *rapid.T) string {
 		user := func() string {
 			if len(users) > 0 && rapid.Bool().Draw(t, "knownUser") {
@@ -216,30 +232,47 @@ func ComposerTextWith(word *rapid.Generator[string], users, channels []string) *
 			return strings.Join(parts, rapid.SampledFrom([]string{" ", " ", "  "}).Draw(t, "space"))
 		}
 		n := rapid.IntRange(1, 8).Draw(t, "lines")
+		kinds := 9
+		if markers {
+			kinds = 12
+		}
 		var b strings.Builder
 		inList := false
+		// The columns a line continuing the last item, or the item it
+		// is nested under, starts at.
+		var itemCols []string
 		for i := range n {
 			if i > 0 {
 				brk := rapid.SampledFrom([]string{"\n", "\n", "\n\n"}).Draw(t, "break")
 				inList = inList && brk == "\n"
 				b.WriteString(brk)
 			}
-			kind := rapid.IntRange(0, 9).Draw(t, "line")
-			if kind == 1 && !inList {
-				kind = 0 // a nested item needs an item to nest under
+			kind := rapid.IntRange(0, kinds).Draw(t, "line")
+			if (kind == 1 || kind == 10) && !inList {
+				kind = 0 // a nested item or a continuation needs an item
 			}
-			inList = kind <= 2
+			inList = kind <= 2 || kind == 10
 			switch kind {
 			case 0:
 				b.WriteString("- " + line())
+				itemCols = []string{"  "}
 			case 1:
 				b.WriteString("    - " + line())
+				itemCols = append(itemCols[:1], "      ")
 			case 2:
-				b.WriteString(fmt.Sprint(rapid.IntRange(1, 3).Draw(t, "num")) + ". " + line())
+				num := fmt.Sprint(rapid.IntRange(1, 3).Draw(t, "num"))
+				b.WriteString(num + ". " + line())
+				itemCols = []string{strings.Repeat(" ", len(num)+2)}
 			case 3:
 				b.WriteString("> " + line())
 			case 4:
 				b.WriteString("```\n" + PlainText().Draw(t, "code") + "\n```")
+			case 10:
+				b.WriteString(rapid.SampledFrom(itemCols).Draw(t, "itemCol") + line())
+			case 11:
+				b.WriteString(">")
+			case 12:
+				b.WriteString(rapid.SampledFrom([]string{"> -", "> >", "> - " + line()}).Draw(t, "marker"))
 			default:
 				b.WriteString(line())
 			}
