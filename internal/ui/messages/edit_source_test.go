@@ -172,31 +172,6 @@ func TestEditSourceItemContinuationLines(t *testing.T) {
 	)
 }
 
-// A list the block has apart from the list before it at its level (an
-// empty quote, which sends nothing, ended that one) stays apart when
-// the edit is saved, also after a nested level in between: the seed
-// writes it with the other markers, "* " or "N) ".
-func TestEditSourceListAfterNestedLevelStaysApart(t *testing.T) {
-	for _, tc := range []struct{ typed, want string }{
-		{"- a\n    - b\n>\n- c", "- a\n    - b\n* c"},
-		{"- a\n    - b\n        - c\n>\n- d", "- a\n    - b\n        - c\n* d"},
-		{"1. a\n    - b\n>\n2. c", "1. a\n    - b\n2) c"},
-		{"- a\n    1. b\n>\n- c", "- a\n    1. b\n* c"},
-		{"- a\n>\n- c", "- a\n* c"},
-	} {
-		var msg MessageItem
-		TypedBody(tc.typed).Apply(&msg)
-		seed := EditSource(msg)
-		_, want := mrkdwn.Convert(tc.typed)
-		_, got := mrkdwn.Convert(seed)
-		wj, _ := json.Marshal(want)
-		gj, _ := json.Marshal(got)
-		if seed != tc.want || string(gj) != string(wj) {
-			t.Errorf("typed %q, seed %q, want %q:\n got %s\nwant %s", tc.typed, seed, tc.want, gj, wj)
-		}
-	}
-}
-
 // A link labelled with HTML-shaped text keeps its label on save.
 func TestEditSourceLinkLabelWithRawHTML(t *testing.T) {
 	roundTripsAsTyped(t, "- [<a>](https://example.com/)", "[see <b>this</b> now](https://example.com/)")
@@ -236,6 +211,13 @@ func TestEditSourceItemParagraphAfterNestedList(t *testing.T) {
 		"- a\n    - b\n        - c\n      more about b",
 		"- a\n    - b\n  **more** [x](https://example.com/) <@U1>",
 	)
+}
+
+// A line that is only ">" is text in the block, and comes back as
+// typed.
+func TestEditSourceLoneQuoteMarker(t *testing.T) {
+	roundTripsAsTyped(t, "a\n>\nb", "**a**\n>\n2. **a**", "- a\n>\n- b", "a\n\n>")
+	sendsSameBlock(t, ">", "- a\n    - b\n>\n    - d")
 }
 
 // denseLine is a line of the punctuation a person types in prose, each

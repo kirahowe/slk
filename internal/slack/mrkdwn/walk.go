@@ -2,6 +2,7 @@ package mrkdwn
 
 import (
 	"bytes"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -68,8 +69,7 @@ func (w *walker) separateBlocks(prev, next ast.Node) {
 	n := w.lineBreaksBetween(prev, next)
 	w.mrkdwn.WriteString(strings.Repeat("\n", n))
 
-	_, prevPara := prev.(*ast.Paragraph)
-	_, nextPara := next.(*ast.Paragraph)
+	prevPara, nextPara := isTextBlock(prev), isTextBlock(next)
 	switch {
 	case prevPara && nextPara:
 		w.appendTextElement(strings.Repeat("\n", n))
@@ -101,12 +101,46 @@ func (w *walker) walkBlock(n ast.Node) {
 	case *ast.FencedCodeBlock:
 		w.walkCodeBlock(n)
 	case *ast.Blockquote:
+		if n.FirstChild() == nil {
+			w.walkEmptyQuote(n)
+			return
+		}
 		w.walkQuote(n)
 	default:
 		// newParser builds no other block types; walk children as
 		// inline so nothing is lost if that ever changes.
 		w.walkInlineChildren(n)
 	}
+}
+
+// isTextBlock reports whether n is a top-level block that goes into the
+// section as text: a paragraph, or a quote with nothing in it.
+func isTextBlock(n ast.Node) bool {
+	switch n := n.(type) {
+	case *ast.Paragraph:
+		return true
+	case *ast.Blockquote:
+		return n.FirstChild() == nil
+	}
+	return false
+}
+
+// walkEmptyQuote sends a quote with nothing in it (lines that are only
+// ">") as the text typed, in the section like a paragraph: a
+// rich_text_quote cannot be empty, and dropping the lines would lose
+// what the user typed ("a\n>\nb" would draw as "ab").
+func (w *walker) walkEmptyQuote(n *ast.Blockquote) {
+	if w.curSection == nil {
+		w.curSection = slack.NewRichTextSection()
+	}
+	w.appendTextElement(w.sectionLead)
+	w.sectionLead = ""
+	first, last := w.firstLineStart(n), w.lastLineStart(n)
+	if first < 0 || last < first {
+		w.appendText(">")
+		return
+	}
+	w.appendText(string(w.source[first:lineEnd(w.source, last)]))
 }
 
 // flushSection moves the current in-progress section into block.Elements.
@@ -850,6 +884,9 @@ func (w *walker) firstLineStart(n ast.Node) int {
 	if c := n.FirstChild(); c != nil {
 		return w.firstLineStart(c)
 	}
+	if _, ok := n.(*ast.Blockquote); ok {
+		return openedLine(n)
+	}
 	return -1
 }
 
@@ -883,8 +920,34 @@ func (w *walker) lastLineStart(n ast.Node) int {
 	if c := n.LastChild(); c != nil {
 		return w.lastLineStart(c)
 	}
+	if _, ok := n.(*ast.Blockquote); ok {
+		return w.emptyQuoteLastLine(n)
+	}
 	return -1
 }
+
+// emptyQuoteLastLine returns the start of the last line of an empty
+// quote. At the top level that is the last of the lines from the one it
+// opened on that are only a ">" (up to three spaces before it, spaces
+// after): a line with more after its ">" would have put something in
+// the quote. Inside a quote, a following ">" line is the outer quote's,
+// so an empty quote there is its first line.
+func (w *walker) emptyQuoteLastLine(n ast.Node) int {
+	last := openedLine(n)
+	if last < 0 || n.Parent() == nil || n.Parent().Kind() != ast.KindDocument {
+		return last
+	}
+	for next := lineEnd(w.source, last) + 1; next < len(w.source); next = lineEnd(w.source, next) + 1 {
+		if !emptyQuoteLineRe.Match(w.source[next:lineEnd(w.source, next)]) {
+			break
+		}
+		last = next
+	}
+	return last
+}
+
+// emptyQuoteLineRe matches a line that is only a quote marker.
+var emptyQuoteLineRe = regexp.MustCompile(`^ {0,3}>[ \t]*$`)
 
 // lineStart returns the offset of the start of the line holding pos.
 func lineStart(src []byte, pos int) int {

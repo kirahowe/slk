@@ -2,6 +2,7 @@ package blockkit
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -307,5 +308,35 @@ func TestRichTextToMarkdown_EscapesThatStayAreBounded(t *testing.T) {
 	}
 	if limit := (shortenWork + 2) * len(long); st.bytes > limit {
 		t.Errorf("Convert read %d bytes, want at most %d", st.bytes, limit)
+	}
+}
+
+// A list the block has apart from the list before it at its level
+// (Slack's own client sends such lists) stays apart when the edit is
+// saved, also after a nested level in between: the seed writes it with
+// the other markers, "* " or "N) ".
+func TestRichTextToMarkdown_ListAfterNestedLevelStaysApart(t *testing.T) {
+	list := func(style string, indent, offset int, item string) string {
+		return `{"type":"rich_text_list","style":"` + style + `","indent":` + strconv.Itoa(indent) +
+			`,"offset":` + strconv.Itoa(offset) + `,"elements":[{"type":"rich_text_section","elements":[{"type":"text","text":"` + item + `"}]}]}`
+	}
+	block := func(lists ...string) string {
+		return `{"type":"rich_text","elements":[` + strings.Join(lists, ",") + `]}`
+	}
+	for _, tc := range []struct{ raw, want string }{
+		{block(list("bullet", 0, 0, "a"), list("bullet", 1, 0, "b"), list("bullet", 0, 0, "c")), "- a\n    - b\n* c"},
+		{block(list("bullet", 0, 0, "a"), list("bullet", 1, 0, "b"), list("bullet", 2, 0, "c"), list("bullet", 0, 0, "d")), "- a\n    - b\n        - c\n* d"},
+		{block(list("ordered", 0, 0, "a"), list("bullet", 1, 0, "b"), list("ordered", 0, 1, "c")), "1. a\n    - b\n2) c"},
+		{block(list("bullet", 0, 0, "a"), list("ordered", 1, 0, "b"), list("bullet", 0, 0, "c")), "- a\n    1. b\n* c"},
+		{block(list("bullet", 0, 0, "a"), list("bullet", 0, 0, "c")), "- a\n* c"},
+	} {
+		rt := richTextFromJSON(t, tc.raw)
+		got := RichTextToMarkdown(rt)
+		if got != tc.want {
+			t.Errorf("got %q, want %q", got, tc.want)
+		}
+		if saved := blockJSON(t, received(t, got)); saved != blockJSON(t, rt) {
+			t.Errorf("saving %q sends %s\nwant %s", got, saved, blockJSON(t, rt))
+		}
 	}
 }

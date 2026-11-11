@@ -803,6 +803,38 @@ func TestConvert_ItemParagraphAfterNestedList(t *testing.T) {
 	}
 }
 
+// A top-level quote with nothing in it (a line that is only ">") is
+// text the user typed: it goes out as that text, with the line breaks
+// around it, as a paragraph would. A quote with text in it is a quote.
+func TestConvert_EmptyQuoteIsText(t *testing.T) {
+	sec := func(els ...string) string {
+		return `{"type":"rich_text_section","elements":[` + strings.Join(els, ",") + `]}`
+	}
+	text := func(s string) string { return `{"type":"text","text":"` + s + `"}` }
+	block := func(els ...string) string {
+		return `{"type":"rich_text","elements":[` + strings.Join(els, ",") + `]}`
+	}
+	bullet := func(s string) string {
+		return `{"type":"rich_text_list","elements":[` + sec(text(s)) + `],"style":"bullet","indent":0,"border":0,"offset":0}`
+	}
+	for _, tc := range []struct{ in, mrkdwn, want string }{
+		{">", ">", block(sec(text(`\u003e`)))},
+		{"a\n>\nb", "a\n>\nb", block(sec(text(`a\n\u003e\nb`)))},
+		{"a\n\n>", "a\n\n>", block(sec(text(`a\n\n\u003e`)))},
+		{">\n>", ">\n>", block(sec(text(`\u003e\n\u003e`)))},
+		{"- a\n>\n- b", "• a\n>\n• b", block(bullet("a"), sec(text(`\u003e`)), bullet("b"))},
+		{"**a**\n>\n2. b", "*a*\n>\n2. b", block(sec(`{"type":"text","text":"a","style":{"bold":true}}`, text(`\n\u003e`)),
+			`{"type":"rich_text_list","elements":[`+sec(text("b"))+`],"style":"ordered","indent":0,"border":0,"offset":1}`)},
+		{"> a", "> a", block(`{"type":"rich_text_quote","elements":[` + text("a") + `]}`)},
+		{"> a\n>\n> b", "> a\n>\n> b", block(`{"type":"rich_text_quote","elements":[` + text(`a\n\nb`) + `]}`)},
+	} {
+		mr, blk := Convert(tc.in)
+		if mr != tc.mrkdwn || blockJSON(blk) != tc.want {
+			t.Errorf("Convert(%q) = %q\n %s\nwant %q\n %s", tc.in, mr, blockJSON(blk), tc.mrkdwn, tc.want)
+		}
+	}
+}
+
 func TestConvert_BackslashEscape(t *testing.T) {
 	mr, blk := Convert(`\*not bold\*`)
 	want := "*not bold*"

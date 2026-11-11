@@ -601,7 +601,11 @@ func indentLines(s, indent string) string {
 // quote that follows another. Two quotes in a row need a blank line,
 // or they read as one; so does an ordered list not starting at 1 under
 // a paragraph, which CommonMark reads as more of the paragraph, unless
-// the section already ends in one (written is the text so far).
+// the section already ends in one (written is the text so far), or in
+// a line that is only ">". Convert reads that line, typed bare, as an
+// empty quote it sends as text, and a list may follow a quote directly;
+// a bare ">" there is the only spelling of the block, and the shortening
+// finds it.
 func separator(prev, next slack.RichTextElement, written string) string {
 	_, prevQuote := prev.(*slack.RichTextQuote)
 	_, nextQuote := next.(*slack.RichTextQuote)
@@ -615,13 +619,17 @@ func separator(prev, next slack.RichTextElement, written string) string {
 		// as one paragraph they draw the same.
 		return ""
 	}
-	if prevSection && !strings.HasSuffix(written, "\n") {
+	if prevSection && !strings.HasSuffix(written, "\n") && !quoteMarkerLineRe.MatchString(written) {
 		if l, ok := next.(*slack.RichTextList); ok && l.Style == slack.RTEListOrdered && l.Offset > 0 {
 			return "\n\n"
 		}
 	}
 	return "\n"
 }
+
+// quoteMarkerLineRe matches text whose last line is only a quote marker,
+// escaped or not.
+var quoteMarkerLineRe = regexp.MustCompile(`(?:^|\n) {0,3}\\?>[ \t]*$`)
 
 // inlines renders the inline elements of a section, list item or quote.
 //
