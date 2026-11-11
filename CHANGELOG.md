@@ -8,6 +8,114 @@ Earlier history, up to v0.26.2, is in [upstream's releases](https://github.com/g
 
 ## [Unreleased]
 
+### Added
+
+- A draft preview. `Ctrl+R` while typing shows the draft above the
+  compose box as the message will look once sent: list bullets, bold,
+  links as their labels, mentions as names, and emoji as images where
+  the terminal draws them. It follows the draft as you type and keeps
+  the end of a long one in view. The channel and thread boxes each have
+  their own, and sending or leaving the box closes it.
+- The emoji you use come first in the reaction picker and in the `:`
+  autocomplete, whatever you have typed. A reaction counts once Slack
+  adds it, and the emoji in a message, thread reply or upload caption
+  once Slack accepts it.
+- `p` with a thread open goes to the thread's message in its channel
+  and closes the thread, so a thread opened from Threads or Activity
+  leads back to its conversation. `''` returns to the thread.
+- Emoji shortcodes in Block Kit headers, button labels and accessory
+  labels are drawn as emoji: `:white_check_mark: Resolve` shows the
+  check mark.
+- In image-emoji mode an author's status emoji beside their name is the
+  same image as in the message body.
+
+### Changed
+
+- `F` forwards a message the way Slack's own Forward does. The
+  destination gets a shared message with the original embedded in it,
+  where it used to get a link to the original, and the forward shows
+  there at once. Enter on a forwarded message opens its thread, as on
+  any message; `o` offers the original.
+- `E` opens a message as it was typed: `- ` lists, `**bold**`,
+  `[label](url)` links and line breaks, with people, channels and
+  groups by name. It used to show Slack's wire text, such as
+  `<#CUJL4QPU0>` for a channel. Saving an edit you did not change sends
+  the same message.
+- Join, leave and canvas-update messages are drawn as one muted line.
+  They do not notify, mark a channel unread or count as a mention, and
+  a canvas update arrives live where it used to show up later as an
+  empty Slackbot message. Reactions on them are drawn and can be
+  clicked. Replying to, editing, deleting or forwarding one is refused.
+
+### Fixed
+
+- Presence dots on DMs are right after connecting and after switching
+  workspaces. Someone already online when slk connected kept whatever
+  the cache held until they next went away and came back, a workspace
+  switch showed everyone as they were at connect time, and a reply from
+  someone could reset them to away. The channel finder's dots follow
+  presence as the sidebar's do; they used to stay as they were when slk
+  connected.
+- A mention inside a message shows the person's name, in forwarded
+  messages too, and fills in when the name arrives.
+- `y` copies the shared text of a forwarded message, the markdown
+  export includes it, and `o` offers the links in it.
+- A link that an app turns into a chip (a Linear issue, say) shows by
+  its title. It used to vanish from a message that also had text.
+  `&amp;` in a link's label shows as `&`.
+- A typed URL on `localhost` or an IP address is sent as a link, and so
+  is one right after a quote mark or colon (`see:https://x`) or inside
+  a nested quote. A closing paren or square bracket after a URL stays
+  out of the link unless the URL opened it.
+- Text of a list item that comes after a nested list is sent. It used
+  to be dropped from the message.
+- A line that is only `>` is sent as typed. It used to disappear and
+  pull the lines either side of it onto one line.
+- A quoted line that is only `-` or `>` is sent. It used to be left out
+  of the message.
+- A link whose label is HTML-shaped text (`[<a>](https://example.com)`)
+  or holds an address in angle brackets is sent with that label. It
+  used to go out with part of the label, or none, missing.
+- A long author name wraps beside the avatar in a narrow pane and the
+  avatar stays in one piece. The timestamp stays whole.
+- Plain lines in Block Kit messages and attachments keep the theme's
+  text colour. They used to take the terminal's default foreground.
+- Custom emoji in Block Kit text and attachments show their image, and
+  so do emoji that only a thread's parent message uses. Their cells
+  used to stay blank.
+- A workspace emoji wins over a built-in of the same name when it is
+  reached through an alias.
+- Mentioning a user group whose handle is also someone's display name
+  sends the group mention intact.
+- An email address is no longer sent as a mention when the part after
+  the `@` is someone's name (`alice@bob.com` with a user named bob),
+  and `page#general` no longer names a channel. A `@` or `#` right
+  after an ASCII letter or digit is left as typed.
+- A mention of someone who no longer exists costs one request to Slack
+  per session. It used to cost one every time the channel was read.
+- Sending or previewing a draft with thousands of `:` or `<` in a row
+  no longer freezes slk.
+- `O` / `v` on an image Slack made no thumbnail for (an SVG) downloads
+  it and opens it in the system viewer. Nothing used to happen.
+- The `:` prompt and every dialog's search box take non-ASCII
+  characters, and backspace removes a whole character. Every search
+  box takes a space too, so a DM can be found by first and last name.
+- Shift+Enter and Shift+Esc submit and cancel a search.
+- `gg` goes to the top of the Activity view.
+- Ctrl+C's quit prompt is no longer hidden behind an open dialog, and
+  cancelling it no longer leaves a dialog on screen over live keys.
+- The compose cursor is drawn in the theme's text colour. It vanished
+  on light themes.
+- A click in another pane while you are typing leaves the keyboard
+  with the box you are typing in. The next character used to be
+  dropped, and Enter could send the other box's draft. While typing, a
+  click on the sidebar, a thread card or an Activity item does nothing,
+  and a click on a message selects it without opening its thread.
+- A click on a compose box while typing, with the list scrolled up, no
+  longer selects a message and opens its thread.
+- `appearance.show_avatars = false` hides avatars. The setting was read
+  from the config and never used.
+
 ## [0.31.0] - 2026-11-10
 
 ### Added
@@ -323,6 +431,7 @@ v0.26.2.
   last-viewed channel drops its `▌` marker while Threads or Activity is the
   view on screen.
 
+[0.31.0]: https://github.com/kirahowe/slk/releases/tag/v0.31.0
 [0.30.0]: https://github.com/kirahowe/slk/releases/tag/v0.30.0
 [0.29.2]: https://github.com/kirahowe/slk/releases/tag/v0.29.2
 [0.29.1]: https://github.com/kirahowe/slk/releases/tag/v0.29.1
