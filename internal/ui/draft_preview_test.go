@@ -395,7 +395,9 @@ func draftText(t *rapid.T) string {
 
 // The preview's body is the placeholder row Enter makes for the same
 // draft, drawn by the same pane at the same width: for the channel box
-// (beginSend) and the thread box (beginReply).
+// (beginSend) and the thread box (beginReply). It holds for every draft
+// the preview draws. A draft it shows a note for (a blank one, a slash
+// command) is not sent as a message, so Enter makes no row to compare.
 func TestDraftPreviewIsThePlaceholderEnterMakes(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
 		thread := rapid.Bool().Draw(rt, "thread")
@@ -415,6 +417,9 @@ func TestDraftPreviewIsThePlaceholderEnterMakes(t *testing.T) {
 		c.SetUsers(draftUsers)
 		c.SetValue(draft)
 		c.SetPreview(true)
+		if note := a.draftPreviewNote(c, box.panel); note != "" {
+			rt.Skipf("the preview shows a note for %q: %s", draft, note)
+		}
 		width := a.computeFrame().MsgWidth - 2
 		if thread {
 			width = a.computeFrame().ThreadWidth - 2
