@@ -261,6 +261,52 @@ func TestTranslateMentionsWithoutTokensTranslatesEveryMention(t *testing.T) {
 	})
 }
 
+// A mention starts a word: '@' or '#' right after an ASCII letter or
+// digit is part of an address or a word. Text in a script that puts no
+// spaces between words mentions whoever follows it.
+func TestTranslateMentionsStartsAWord(t *testing.T) {
+	names := map[string]string{"bob": "U1"}
+	channels := map[string]string{"general": "C1"}
+	for _, tc := range []struct{ in, want string }{
+		{"mail alice@bob.com", "mail alice@bob.com"},
+		{"see page#general", "see page#general"},
+		{"x9@bob ok", "x9@bob ok"},
+		{"こんにちは@bob", "こんにちは<@U1>"},
+		{"é#general", "é<#C1|general>"},
+		{"(@bob) _#general", "(<@U1>) _<#C1|general>"},
+	} {
+		if got := translateMentions(tc.in, names, channels, nil); got != tc.want {
+			t.Errorf("translateMentions(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// Property: a trigger right after an ASCII letter or digit is never
+// translated, and one right after a non-ASCII letter always is.
+func TestTranslateMentionsAfterASCIIWordProp(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		name := rapid.StringMatching(`[a-z]{1,6}`).Draw(t, "name")
+		if name == "here" || name == "channel" || name == "everyone" {
+			t.Skip("a broadcast name")
+		}
+		trigger := rapid.SampledFrom([]string{"@", "#"}).Draw(t, "trigger")
+		sep := rapid.SampledFrom([]string{"", " ", ".", "\n"}).Draw(t, "sep")
+		names := map[string]string{name: "U1"}
+		channels := map[string]string{name: "C1"}
+		replacement := map[string]string{"@": "<@U1>", "#": "<#C1|" + name + ">"}[trigger]
+
+		word := rapid.StringMatching(`[a-zA-Z0-9 .,(_-]{0,4}[a-zA-Z0-9]`).Draw(t, "asciiWord")
+		glued := word + trigger + name + sep
+		if got := translateMentions(glued, names, channels, nil); got != glued {
+			t.Fatalf("translateMentions(%q) = %q, want it unchanged", glued, got)
+		}
+		other := rapid.SampledFrom([]string{"こんにちは", "漢", "é", "ß"}).Draw(t, "otherWord")
+		if got, want := translateMentions(other+trigger+name+sep, names, channels, nil), other+replacement+sep; got != want {
+			t.Fatalf("translateMentions(%q) = %q, want %q", other+trigger+name+sep, got, want)
+		}
+	})
+}
+
 // A display name containing '>' or '|' ("a>b") is replaced correctly,
 // since the wire token is built from the ID, not the name.
 func genMaps(t *rapid.T) (names, channels, groups map[string]string) {

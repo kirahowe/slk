@@ -41,6 +41,8 @@ func TestMentionsForEdit(t *testing.T) {
 		{"usergroup a user's name wins", "cc <!subteam^S2|@design>", "cc <!subteam^S2|@design>"},
 		{"glued to the next word", "<#C111>-ish", "<#C111>-ish"},
 		{"would become a longer name", "<#C111>.old", "<#C111>.old"},
+		{"glued to an ASCII word before it", "mail x<@U1> and page<#C111>", "mail x<@U1> and page<#C111>"},
+		{"after a word with no spaces", "こんにちは<@U1>", "こんにちは@Alice"},
 	}
 	m := editModel()
 	for _, c := range cases {
@@ -60,5 +62,17 @@ func TestMentionsForEditRoundTrips(t *testing.T) {
 	want := "hey <@U1> <!here> see <#C111|general> and <#C222|general-help> cc <!subteam^S1|@platform-team> and <!subteam^S2|@design>"
 	if got := m.TranslateMentionsForSend(m.MentionsForEdit(in)); got != want {
 		t.Errorf("round trip = %q, want %q", got, want)
+	}
+}
+
+// A token glued after an ASCII letter or digit stays in wire form on
+// edit, because typing its name there would not be a mention, so
+// saving the edit unchanged sends the same text.
+func TestMentionsForEditKeepsTokensAfterAWord(t *testing.T) {
+	m := editModel()
+	for _, in := range []string{"mail x<@U1>", "page<#C111|general> 9<!here>", "こんにちは<@U1>, a<@U1>"} {
+		if got := m.TranslateMentionsForSend(m.MentionsForEdit(in)); got != m.TranslateMentionsForSend(in) {
+			t.Errorf("round trip of %q = %q, want %q", in, got, m.TranslateMentionsForSend(in))
+		}
 	}
 }

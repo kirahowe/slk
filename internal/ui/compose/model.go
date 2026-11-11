@@ -1224,8 +1224,8 @@ func (m *Model) MentionsForEdit(text string) string {
 // token in the form translateMentions writes, so saving the edit
 // unchanged sends the same mentions. A token for an ID the maps do not
 // know, or whose name another mention would win, or that is glued to
-// the text after it, stays in wire form, which translateMentions leaves
-// alone and Slack accepts.
+// the text after it or to an ASCII letter or digit before it, stays in
+// wire form, which translateMentions leaves alone and Slack accepts.
 func mentionsForEdit(text string, names, channels, groups map[string]string) string {
 	return editMentions(text, names, channels, groups, mentionEntries(names, channels, groups))
 }
@@ -1438,6 +1438,15 @@ func insideToken(spans []mrkdwn.Span, i int) bool {
 	return false
 }
 
+// asciiWordByte reports whether c is an ASCII letter or digit. A
+// trigger right after one is inside a word or an address
+// ("alice@bob.com", "page#general"), not the start of a mention. Other
+// letters do not count: Japanese and Chinese put no space between
+// words, so "こんにちは@bob" mentions bob.
+func asciiWordByte(c byte) bool {
+	return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9'
+}
+
 // applyMentions rewrites every occurrence of each entry's trigger+name
 // in text as its wire form, entry by entry in the order given. Text
 // inside a token mrkdwn.Convert reads (mrkdwn.Tokens) is left alone,
@@ -1445,7 +1454,9 @@ func insideToken(spans []mrkdwn.Span, i int) bool {
 // wrote is rewritten again: a usergroup's "|@handle>" label, a link's
 // label, or "<@U1>" when another user's display name is "U1". Text
 // Convert does not read as a token ("<@bob>", "<!-- @bob -->") is
-// text, and a mention in it is translated.
+// text, and a mention in it is translated. A mention starts a word: a
+// trigger right after an ASCII letter or digit is left alone
+// (asciiWordByte).
 func applyMentions(text string, entries []mentionEntry) string {
 	spans := mrkdwn.Tokens(text)
 	for _, e := range entries {
@@ -1458,7 +1469,7 @@ func applyMentions(text string, entries []mentionEntry) string {
 			}
 			idx := searchFrom + rel
 			end := idx + len(mention)
-			if insideToken(spans, idx) {
+			if insideToken(spans, idx) || idx > 0 && asciiWordByte(text[idx-1]) {
 				searchFrom = idx + 1
 				continue
 			}
