@@ -202,6 +202,12 @@ func TestEditSourceLinkLabelWithRawHTML(t *testing.T) {
 	roundTripsAsTyped(t, "- [<a>](https://example.com/)", "[see <b>this</b> now](https://example.com/)")
 }
 
+// A link labelled with an autolink typed in angle brackets keeps its
+// label on save.
+func TestEditSourceLinkLabelWithAngleAutolink(t *testing.T) {
+	roundTripsAsTyped(t, "- [<aa:>](https://example.com/)", "[x <a@b.com>](https://example.com/)")
+}
+
 // denseLine is a line of the punctuation a person types in prose, each
 // mark one the seed could escape: a colon, parens, a URL, a code span,
 // " - ", "!", brackets, an HTML-shaped word, a pipe and "3.".

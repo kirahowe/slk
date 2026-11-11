@@ -747,6 +747,27 @@ func TestConvert_LinkLabelKeepsRawHTML(t *testing.T) {
 	}
 }
 
+// An autolink typed in angle brackets inside a link's label ("<aa:>",
+// "<a@b.com>") is text of the label, brackets and all: a link holds no
+// link.
+func TestConvert_LinkLabelKeepsAngleAutolink(t *testing.T) {
+	for _, tc := range []struct{ in, label string }{
+		{"[<aa:>](https://example.com/)", "<aa:>"},
+		{"[x <a@b.com>](https://example.com/)", "x <a@b.com>"},
+	} {
+		_, blk := Convert(tc.in)
+		var link *slack.RichTextSectionLinkElement
+		if blk != nil && len(blk.Elements) == 1 {
+			if sec, ok := blk.Elements[0].(*slack.RichTextSection); ok && len(sec.Elements) == 1 {
+				link, _ = sec.Elements[0].(*slack.RichTextSectionLinkElement)
+			}
+		}
+		if link == nil || link.Text != tc.label || link.URL != "https://example.com/" {
+			t.Errorf("Convert(%q) = %s, want one link labelled %q", tc.in, blockJSON(blk), tc.label)
+		}
+	}
+}
+
 func TestConvert_BackslashEscape(t *testing.T) {
 	mr, blk := Convert(`\*not bold\*`)
 	want := "*not bold*"

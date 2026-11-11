@@ -376,6 +376,12 @@ func (w *walker) collectInlineText(n ast.Node) string {
 			}
 			return
 		}
+		if al, ok := c.(*ast.AutoLink); ok {
+			// A link holds no link: an autolink in the label is the
+			// text it was typed as, with its angle brackets.
+			b.WriteString(w.typedAutoLink(al))
+			return
+		}
 		for cc := c.FirstChild(); cc != nil; cc = cc.NextSibling() {
 			walk(cc)
 		}
@@ -385,6 +391,34 @@ func (w *walker) collectInlineText(n ast.Node) string {
 	}
 	// Restore Slack wire-form tokens that may live inside the label.
 	return detokenizeText(b.String(), w.table)
+}
+
+// typedAutoLink is the source text of an autolink: its label, and the
+// "<" and ">" around it when it was typed in them.
+func (w *walker) typedAutoLink(al *ast.AutoLink) string {
+	label := al.Label(w.source)
+	if start, ok := w.autoLinkStart(al); ok {
+		end := start + len(label)
+		if start > 0 && end < len(w.source) && w.source[start-1] == '<' && w.source[end] == '>' {
+			return "<" + string(label) + ">"
+		}
+	}
+	return string(label)
+}
+
+// autoLinkStart is the offset in the source of an autolink's text, and
+// whether it is known. AutoLink keeps its text segment unexported, but
+// Label returns that segment as a subslice of the source, which places
+// it: it starts cap(source)-cap(label) bytes in. The bytes there are
+// compared with the label, so if goldmark ever returned a copy the
+// offset would be reported unknown, not wrong.
+func (w *walker) autoLinkStart(al *ast.AutoLink) (int, bool) {
+	label := al.Label(w.source)
+	start := cap(w.source) - cap(label)
+	if start < 0 || start+len(label) > len(w.source) || !bytes.Equal(w.source[start:start+len(label)], label) {
+		return 0, false
+	}
+	return start, true
 }
 
 // walkList emits a rich_text_list block (flat at Slack's level —
@@ -640,12 +674,8 @@ func (w *walker) autoLinksIn(n ast.Node) []sourceLink {
 		if !entering || !ok {
 			return ast.WalkContinue, nil
 		}
-		// AutoLink keeps its text segment unexported, but Label
-		// returns that segment as a subslice of the source, which
-		// places it: it starts cap(source)-cap(label) bytes in.
-		label := al.Label(w.source)
-		start := cap(w.source) - cap(label)
-		if start < 0 || start+len(label) > len(w.source) || !bytes.Equal(w.source[start:start+len(label)], label) {
+		start, ok := w.autoLinkStart(al)
+		if !ok {
 			return ast.WalkContinue, nil
 		}
 		url, text := autoLinkTarget(al, w.source)
