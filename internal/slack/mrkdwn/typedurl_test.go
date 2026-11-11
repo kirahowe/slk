@@ -196,3 +196,69 @@ func TestConvert_QuoteBlankLine(t *testing.T) {
 		t.Errorf("quote text = %q, want %q; block=%s", text.String(), want, blockJSON(blk))
 	}
 }
+
+// A closing square bracket ends a typed URL when the URL opened one
+// before it, as in a path segment or an IPv6 host, and stays text when
+// the URL holds no unmatched '[', as when the URL is written inside
+// brackets.
+func TestConvert_TypedURLClosingBracket(t *testing.T) {
+	cases := []struct {
+		in, mr string
+		links  []string
+	}{
+		{"https://a.b/[x]", "<https://a.b/[x]>", []string{"https://a.b/[x]"}},
+		{"see https://a.b/[x] ok", "see <https://a.b/[x]> ok", []string{"https://a.b/[x]"}},
+		{"https://a.b/[x]].", "<https://a.b/[x]>].", []string{"https://a.b/[x]"}},
+		{"(https://a.b/[x])", "(<https://a.b/[x]>)", []string{"https://a.b/[x]"}},
+		{`"https://a.b/[x]"`, `"<https://a.b/[x]>"`, []string{"https://a.b/[x]"}},
+		{"http://[::1]", "<http://[::1]>", []string{"http://[::1]"}},
+		{"http://[::1]/x", "<http://[::1]/x>", []string{"http://[::1]/x"}},
+		{"see http://[::1]:8080, ok", "see <http://[::1]:8080>, ok", []string{"http://[::1]:8080"}},
+		{"x https://a.b/x]", "x <https://a.b/x>]", []string{"https://a.b/x"}},
+		{"x https://a.b/x.]", "x <https://a.b/x>.]", []string{"https://a.b/x"}},
+		{"[https://a.b]", "[https://a.b]", nil},
+		{"see [https://a.b] ok", "see [https://a.b] ok", nil},
+	}
+	for _, c := range cases {
+		mr, blk := Convert(c.in)
+		if mr != c.mr {
+			t.Errorf("Convert(%q) mrkdwn = %q, want %q", c.in, mr, c.mr)
+		}
+		if got := linkURLs(blk); !reflect.DeepEqual(got, c.links) {
+			t.Errorf("Convert(%q) links = %q, want %q; block=%s", c.in, got, c.links, blockJSON(blk))
+		}
+	}
+}
+
+// typedURLLen keeps a trailing ']' or ')' only when the URL holds an
+// unmatched opener before it, and ends the URL on a character the
+// pattern allows last once a closer is dropped.
+func TestTypedURLLen(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"https://a.b/[x]", "https://a.b/[x]"},
+		{"https://a.b/[x]]", "https://a.b/[x]"},
+		{"https://a.b/[[x]]]", "https://a.b/[[x]]"},
+		{"https://a.b]", "https://a.b"},
+		{"https://a.b/x.]", "https://a.b/x"},
+		{"http://[::1]", "http://[::1]"},
+		{"http://[::1]/x", "http://[::1]/x"},
+		{"http://[::1]:8080]", "http://[::1]:8080"},
+		{"https://a.b/(x])", "https://a.b/(x])"},
+		{"https://a.b/[x)]", "https://a.b/[x)]"},
+		{"https://a.b/x)]", "https://a.b/x"},
+		{"https://a.b/x).", "https://a.b/x"},
+		{"https://a.b/(x)", "https://a.b/(x)"},
+		{"https://a.b/x)a)", "https://a.b/x)a"},
+		{"http://]", ""},
+		{"http://)", ""},
+		{"http://", ""},
+		{"x https://a.b", ""},
+	}
+	for _, c := range cases {
+		if got := typedURLLen(c.in); got != len(c.want) {
+			t.Errorf("typedURLLen(%q) = %d (%q), want %d (%q)", c.in, got, c.in[:got], len(c.want), c.want)
+		}
+	}
+}

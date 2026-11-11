@@ -34,13 +34,7 @@ func Convert(input string) (string, *slack.RichTextBlock) {
 
 	md := goldmark.New(
 		goldmark.WithParser(newParser()),
-		goldmark.WithExtensions(
-			extension.Strikethrough,
-			extension.NewLinkify(
-				extension.WithLinkifyURLRegexp(typedURLRegexp),
-				extension.WithLinkifyAllowedProtocols(typedURLProtocols),
-			),
-		),
+		goldmark.WithExtensions(extension.Strikethrough),
 	)
 	doc := md.Parser().Parse(text.NewReader([]byte(tokenized)))
 
@@ -78,6 +72,8 @@ func newParser() parser.Parser {
 		// After the default parsers, so code spans and links claim
 		// their punctuation first (typedurl.go).
 		parser.WithInlineParsers(util.Prioritized(afterPunctURL{}, 900)),
+		// Linkify, at the priority its own extension gives it.
+		parser.WithInlineParsers(util.Prioritized(newTypedURLLinkify(), 999)),
 	)
 }
 
