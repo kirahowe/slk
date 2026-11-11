@@ -91,12 +91,33 @@ type userResolver struct {
 	// struct{}. Entries are never removed.
 	avatarTried sync.Map
 
-	// missing holds the IDs users.info answered with "no such user"
-	// (isNoSuchUser) in this workspace: userID -> struct{}. Entries are
-	// never removed, so such an ID costs one lookup per session however
-	// often a message naming it is read. Only that answer adds an entry;
-	// a rate limit, timeout or cancellation leaves the ID retryable.
+	// missing holds the IDs Slack said do not exist in this workspace:
+	// users.info's "no such user" (isNoSuchUser) and bots.info's
+	// bot_not_found (isNoSuchBot), userID or botID -> struct{}. Entries
+	// are never removed, so such an ID costs one lookup per session
+	// however often a message naming it is read or a DM sweep lists it.
+	// Only those answers add an entry; a rate limit, timeout or
+	// cancellation leaves the ID retryable. Read and written through
+	// isMissing and markMissing.
 	missing sync.Map
+}
+
+// isMissing reports whether Slack said id does not exist (see missing).
+// A nil resolver knows of no missing IDs.
+func (r *userResolver) isMissing(id string) bool {
+	if r == nil {
+		return false
+	}
+	_, gone := r.missing.Load(id)
+	return gone
+}
+
+// markMissing records that Slack said id does not exist, so no path
+// through this resolver asks for it again this session. Nil-safe.
+func (r *userResolver) markMissing(id string) {
+	if r != nil {
+		r.missing.Store(id, struct{}{})
+	}
 }
 
 func newUserResolver(
@@ -129,7 +150,7 @@ func (r *userResolver) Request(userID string) {
 	if r == nil || userID == "" {
 		return
 	}
-	if _, gone := r.missing.Load(userID); gone {
+	if r.isMissing(userID) {
 		return
 	}
 	if _, exists := r.inflight.LoadOrStore(userID, struct{}{}); exists {
@@ -184,7 +205,7 @@ func (r *userResolver) resolveOne(userID string) {
 // This direct path does not own a Request inflight slot; background callers
 // release their own claim in resolveOne rather than clearing a racing request.
 func (r *userResolver) resolveOneContext(ctx context.Context, userID string) {
-	if _, gone := r.missing.Load(userID); gone {
+	if r.isMissing(userID) {
 		return
 	}
 	if r.sem != nil {
@@ -200,7 +221,7 @@ func (r *userResolver) resolveOneContext(ctx context.Context, userID string) {
 		debuglog.Cache("userResolver: GetUserProfile team=%s user=%s err=%v",
 			r.teamID, userID, err)
 		if isNoSuchUser(err) {
-			r.missing.Store(userID, struct{}{})
+			r.markMissing(userID)
 		}
 		return
 	}
@@ -444,7 +465,7 @@ func (r *userResolver) ResolveNowContext(ctx context.Context, ids []string) []ed
 	}
 	updated := make(map[string]int64, len(ids))
 	for _, id := range ids {
-		if _, gone := r.missing.Load(id); id != "" && !gone {
+		if id != "" && !r.isMissing(id) {
 			updated[id] = 0
 		}
 	}
@@ -524,7 +545,7 @@ func (r *userResolver) applyEdgeUser(u edge.User) {
 // none). Mirrors Request: inflight dedup, cache-skip, async fetch,
 // Preload + UpsertUser + UserResolvedMsg (which AvatarReadyMsg follows).
 func (r *userResolver) RequestBot(botID, username string) {
-	if r == nil || botID == "" {
+	if r == nil || botID == "" || r.isMissing(botID) {
 		return
 	}
 	if _, exists := r.inflight.LoadOrStore(botID, struct{}{}); exists {
@@ -539,6 +560,9 @@ func (r *userResolver) RequestBot(botID, username string) {
 		bot, err := r.client.GetBotInfo(context.Background(), botID)
 		if err != nil {
 			debuglog.Cache("userResolver: GetBotInfo team=%s bot=%s err=%v", r.teamID, botID, err)
+			if isNoSuchBot(err) {
+				r.markMissing(botID)
+			}
 			return
 		}
 		name := username

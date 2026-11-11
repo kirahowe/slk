@@ -65,7 +65,7 @@ func resolveUserCached(userID string, userNames *userNameStore, db *cache.DB) (s
 // recorded in the store (which reports it to the UI once notifying) and
 // also sent as UserResolvedMsg directly, so the sweep works before the
 // store's notifier is installed.
-func resolveUser(client *slackclient.Client, userID string, userNames *userNameStore, db *cache.DB, avatarCache *avatar.Cache, send func(tea.Msg)) (string, bool) {
+func resolveUser(client *slackclient.Client, resolver *userResolver, userID string, userNames *userNameStore, db *cache.DB, avatarCache *avatar.Cache, send func(tea.Msg)) (string, bool) {
 	if name, ok := userNames.Get(userID); ok {
 		// Check if avatar is also cached
 		if avatarCache.Get(userID) == "" {
@@ -92,7 +92,12 @@ func resolveUser(client *slackclient.Client, userID string, userNames *userNameS
 		}
 		return name, false
 	}
-	// Unknown user — fetch profile
+	// Unknown user — fetch profile, unless the workspace's resolver
+	// already heard that Slack has no such user (an ID users.info calls
+	// user_not_found is asked for once per session, on every path).
+	if resolver.isMissing(userID) {
+		return userID, false
+	}
 	if u, err := client.GetUserProfile(userID); err == nil {
 		name := u.Profile.DisplayName
 		if name == "" {
@@ -126,6 +131,8 @@ func resolveUser(client *slackclient.Client, userID string, userNames *userNameS
 			})
 		}
 		return name, isBot
+	} else if isNoSuchUser(err) {
+		resolver.markMissing(userID)
 	}
 	return userID, false
 }
@@ -181,7 +188,7 @@ func resolveDMNames(wctx *WorkspaceContext, db *cache.DB, avatarCache *avatar.Ca
 			// upserted its empty-DisplayName row. Fall through to the per-user
 			// path, which re-fetches and repairs the row.
 		}
-		resolved, isBot := resolveUser(wctx.Client, dm.UserID, wctx.UserNames, db, avatarCache, send)
+		resolved, isBot := resolveUser(wctx.Client, wctx.UserResolver, dm.UserID, wctx.UserNames, db, avatarCache, send)
 		if isBot {
 			wctx.MarkBotUser(dm.UserID)
 		}

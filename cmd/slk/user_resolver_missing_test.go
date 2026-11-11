@@ -21,9 +21,9 @@ func waitResolverIdle(r *userResolver, userID string) {
 	}
 }
 
-// failingUsersInfo answers every users.info with status and body and
-// counts the calls.
-func failingUsersInfo(t *testing.T, status int, body string) (*httptest.Server, *atomic.Int32) {
+// failingWebAPI answers every Web API call (users.info, bots.info)
+// with status and body and counts the calls.
+func failingWebAPI(t *testing.T, status int, body string) (*httptest.Server, *atomic.Int32) {
 	t.Helper()
 	var calls atomic.Int32
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -48,7 +48,7 @@ func TestUserResolver_MissingUserIsLookedUpOnce(t *testing.T) {
 	for _, code := range []string{"user_not_found", "user_not_visible"} {
 		t.Run(code, func(t *testing.T) {
 			t.Parallel()
-			srv, calls := failingUsersInfo(t, http.StatusOK, `{"ok":false,"error":"`+code+`"}`)
+			srv, calls := failingWebAPI(t, http.StatusOK, `{"ok":false,"error":"`+code+`"}`)
 			r := newUserResolver("T1", newTestClient(t, srv), newTestDB(t), nil, nil, nil, nil)
 			for range reads {
 				r.Request("U404")
@@ -68,7 +68,7 @@ func TestUserResolver_MissingUserIsLookedUpOnce(t *testing.T) {
 // queueing.
 func TestUserResolver_MissingUserIsLookedUpOnceThroughEdge(t *testing.T) {
 	const reads = 3
-	srv, calls := failingUsersInfo(t, http.StatusOK, `{"ok":false,"error":"user_not_found"}`)
+	srv, calls := failingWebAPI(t, http.StatusOK, `{"ok":false,"error":"user_not_found"}`)
 	batcher := &fakeBatcher{}
 	r := newUserResolver("T1", newTestClient(t, srv), newTestDB(t), nil, nil, batcher, nil)
 	for range reads {
@@ -86,7 +86,7 @@ func TestUserResolver_MissingUserIsLookedUpOnceThroughEdge(t *testing.T) {
 
 // The direct path reconnect uses learns and honours the same record.
 func TestUserResolver_MissingUserSkipsDirectLookup(t *testing.T) {
-	srv, calls := failingUsersInfo(t, http.StatusOK, `{"ok":false,"error":"user_not_found"}`)
+	srv, calls := failingWebAPI(t, http.StatusOK, `{"ok":false,"error":"user_not_found"}`)
 	r := newUserResolver("T1", newTestClient(t, srv), newTestDB(t), nil, nil, nil, nil)
 	r.resolveOneContext(context.Background(), "U404")
 	r.resolveOneContext(context.Background(), "U404")
@@ -114,7 +114,7 @@ func TestUserResolver_TransientFailureIsRetried(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			srv, calls := failingUsersInfo(t, tc.status, tc.body)
+			srv, calls := failingWebAPI(t, tc.status, tc.body)
 			r := newUserResolver("T1", newTestClient(t, srv), newTestDB(t), nil, nil, nil, nil)
 			for range reads {
 				r.Request("U001")
@@ -131,7 +131,7 @@ func TestUserResolver_TransientFailureIsRetried(t *testing.T) {
 // A lookup cut short by its context is not an answer about the user:
 // the next Request still asks.
 func TestUserResolver_CancelledLookupIsRetried(t *testing.T) {
-	srv, calls := failingUsersInfo(t, http.StatusOK, `{"ok":false,"error":"user_not_found"}`)
+	srv, calls := failingWebAPI(t, http.StatusOK, `{"ok":false,"error":"user_not_found"}`)
 	r := newUserResolver("T1", newTestClient(t, srv), newTestDB(t), nil, nil, nil, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -146,7 +146,7 @@ func TestUserResolver_CancelledLookupIsRetried(t *testing.T) {
 // The record is per workspace: a user missing in one workspace's
 // resolver is still looked up by another's.
 func TestUserResolver_MissingUserIsPerWorkspace(t *testing.T) {
-	srv, calls := failingUsersInfo(t, http.StatusOK, `{"ok":false,"error":"user_not_found"}`)
+	srv, calls := failingWebAPI(t, http.StatusOK, `{"ok":false,"error":"user_not_found"}`)
 	client := newTestClient(t, srv)
 	db := newTestDB(t)
 	r1 := newUserResolver("T1", client, db, nil, nil, nil, nil)
@@ -162,7 +162,7 @@ func TestUserResolver_MissingUserIsPerWorkspace(t *testing.T) {
 
 // Reconnect's batch leaves out an ID already known to be missing.
 func TestUserResolver_ResolveNowSkipsMissingUser(t *testing.T) {
-	srv, _ := failingUsersInfo(t, http.StatusOK, `{"ok":false,"error":"user_not_found"}`)
+	srv, _ := failingWebAPI(t, http.StatusOK, `{"ok":false,"error":"user_not_found"}`)
 	batcher := &fakeBatcher{}
 	r := newUserResolver("T1", newTestClient(t, srv), newTestDB(t), nil, nil, batcher, nil)
 	r.resolveOneContext(context.Background(), "U404")
@@ -173,5 +173,83 @@ func TestUserResolver_ResolveNowSkipsMissingUser(t *testing.T) {
 	}
 	if _, ok := sent[0]["U001"]; !ok {
 		t.Errorf("edge batches = %v; want one batch of U001 alone", sent)
+	}
+}
+
+// A bot ID bots.info answers with bot_not_found is asked for once per
+// session: RequestBot runs for every fetched message the bot wrote.
+func TestUserResolver_MissingBotIsLookedUpOnce(t *testing.T) {
+	const reads = 5
+	srv, calls := failingWebAPI(t, http.StatusOK, `{"ok":false,"error":"bot_not_found"}`)
+	r := newUserResolver("T1", newTestClient(t, srv), newTestDB(t), nil, nil, nil, nil)
+	for range reads {
+		r.RequestBot("B404", "")
+		waitResolverIdle(r, "B404")
+	}
+	t.Logf("bot_not_found: %d bots.info calls over %d reads", calls.Load(), reads)
+	if got := calls.Load(); got != 1 {
+		t.Errorf("bots.info calls = %d over %d reads; want 1", got, reads)
+	}
+}
+
+// A rate-limited bots.info leaves the bot retryable.
+func TestUserResolver_TransientBotFailureIsRetried(t *testing.T) {
+	const reads = 3
+	srv, calls := failingWebAPI(t, http.StatusTooManyRequests, `{"ok":false,"error":"ratelimited"}`)
+	r := newUserResolver("T1", newTestClient(t, srv), newTestDB(t), nil, nil, nil, nil)
+	for range reads {
+		r.RequestBot("B001", "")
+		waitResolverIdle(r, "B001")
+	}
+	t.Logf("429: %d bots.info calls over %d reads", calls.Load(), reads)
+	if got := calls.Load(); got != reads {
+		t.Errorf("bots.info calls = %d over %d reads; want %d", got, reads, reads)
+	}
+}
+
+// sweepWorkspace is a workspace whose one unresolved DM is with U404,
+// resolved through client and no edge batcher.
+func sweepWorkspace(t *testing.T, srv *httptest.Server) *WorkspaceContext {
+	t.Helper()
+	client := newTestClient(t, srv)
+	return &WorkspaceContext{
+		TeamID:        "T1",
+		Client:        client,
+		UserNames:     newUserNameStore(nil),
+		UserResolver:  newUserResolver("T1", client, newTestDB(t), nil, nil, nil, nil),
+		UnresolvedDMs: []UnresolvedDM{{ChannelID: "D404", UserID: "U404"}},
+	}
+}
+
+// The DM sweep's per-user lookup shares the resolver's record: a peer
+// users.info calls user_not_found costs one call over many sweeps, and
+// Request does not ask for them again either.
+func TestResolveDMNames_MissingPeerIsLookedUpOnce(t *testing.T) {
+	const sweeps = 3
+	srv, calls := failingWebAPI(t, http.StatusOK, `{"ok":false,"error":"user_not_found"}`)
+	wctx := sweepWorkspace(t, srv)
+	db := wctx.UserResolver.db
+	for range sweeps {
+		resolveDMNames(wctx, db, nil, nil)
+	}
+	wctx.UserResolver.Request("U404")
+	waitResolverIdle(wctx.UserResolver, "U404")
+	t.Logf("sweep: %d users.info calls over %d sweeps and a Request", calls.Load(), sweeps)
+	if got := calls.Load(); got != 1 {
+		t.Errorf("users.info calls = %d over %d sweeps and a Request; want 1", got, sweeps)
+	}
+}
+
+// A sweep whose lookup fails for another reason asks again next time.
+func TestResolveDMNames_TransientFailureIsRetried(t *testing.T) {
+	const sweeps = 3
+	srv, calls := failingWebAPI(t, http.StatusInternalServerError, `oops`)
+	wctx := sweepWorkspace(t, srv)
+	for range sweeps {
+		resolveDMNames(wctx, wctx.UserResolver.db, nil, nil)
+	}
+	t.Logf("sweep 500: %d users.info calls over %d sweeps", calls.Load(), sweeps)
+	if got := calls.Load(); got != sweeps {
+		t.Errorf("users.info calls = %d over %d sweeps; want %d", got, sweeps, sweeps)
 	}
 }

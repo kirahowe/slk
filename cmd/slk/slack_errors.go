@@ -23,3 +23,11 @@ func isNoSuchUser(err error) bool {
 	var refused slack.SlackErrorResponse
 	return errors.As(err, &refused) && (refused.Err == "user_not_found" || refused.Err == "user_not_visible")
 }
+
+// isNoSuchBot reports whether err is bots.info's bot_not_found: the ID
+// names no bot (Slack's documented answer for an unknown bot). Asking
+// again in the same session gets the same answer.
+func isNoSuchBot(err error) bool {
+	var refused slack.SlackErrorResponse
+	return errors.As(err, &refused) && refused.Err == "bot_not_found"
+}
