@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	bubblesansi "github.com/gammons/slk/internal/bubbles/ansi"
 	"github.com/gammons/slk/internal/bubbles/buttonrow"
 	imgpkg "github.com/gammons/slk/internal/image"
 	"github.com/gammons/slk/internal/ui/styles"
@@ -329,13 +330,13 @@ func renderControlLabel(kind, label string) string {
 		if text == "" {
 			text = "Button"
 		}
-		return controlStyle().Render("[ " + text + " ]")
+		return renderStyled(controlStyle(), "[ "+text+" ]")
 	case "static_select", "multi_select":
 		text := label
 		if text == "" {
 			text = "Select"
 		}
-		return controlStyle().Render(text + " ▾")
+		return renderStyled(controlStyle(), text+" ▾")
 	case "overflow":
 		return controlStyle().Render("⋯")
 	case "datepicker":
@@ -343,13 +344,13 @@ func renderControlLabel(kind, label string) string {
 		if text == "" {
 			text = "Pick date"
 		}
-		return controlStyle().Render("📅 " + text)
+		return renderStyled(controlStyle(), "📅 "+text)
 	case "timepicker":
 		text := label
 		if text == "" {
 			text = "Pick time"
 		}
-		return controlStyle().Render("🕒 " + text)
+		return renderStyled(controlStyle(), "🕒 "+text)
 	case "radio_buttons":
 		return controlStyle().Render("◯ Options")
 	case "checkboxes":
@@ -357,6 +358,21 @@ func renderControlLabel(kind, label string) string {
 	default:
 		return controlStyle().Render("[ control ]")
 	}
+}
+
+// renderStyled draws text in style, and after every foreground reset in
+// text (an image emoji's placement ends in one) it sets the style's
+// foreground again, so the text after an emoji keeps the colour of the
+// text before it. Only the foreground is set again, since that is all
+// the reset clears; the background and bold carry on past it. Every
+// plain-text field (plainText) drawn in a style goes through it.
+func renderStyled(style lipgloss.Style, text string) string {
+	out := style.Render(text)
+	fg := style.GetForeground()
+	if _, none := fg.(lipgloss.NoColor); none {
+		return out
+	}
+	return bubblesansi.ReapplyAfterFgResets(out, ansi.Style{}.ForegroundColor(fg).String())
 }
 
 // plainText draws the emoji in a plain-text field through
@@ -457,7 +473,7 @@ func renderHeader(text string, width int) string {
 	if lipgloss.Width(text) > width {
 		text = truncateToWidth(text, width)
 	}
-	return headerStyle().Render(text)
+	return renderStyled(headerStyle(), text)
 }
 
 func renderUnsupported(typeName string, width int) string {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	goimage "image"
+	"image/color"
 	"image/png"
 	"strings"
 	"testing"
@@ -13,6 +14,7 @@ import (
 
 	emojiutil "github.com/gammons/slk/internal/emoji"
 	imgpkg "github.com/gammons/slk/internal/image"
+	"github.com/gammons/slk/internal/mention"
 	"github.com/gammons/slk/internal/ui/messages/blockkit"
 )
 
@@ -213,4 +215,144 @@ func TestRenderMessageBlockEmojiUploadsReferencedImage(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Text after an image emoji in a header or a control label keeps the
+// label's colour. A kitty placement ends in a foreground reset, so
+// without it the rest of the label takes the terminal's default
+// foreground. Checked on every row a pane draws: unselected, selected
+// and tinted for a direct mention.
+func TestBlockkitPlainTextAfterImageEmojiKeepsForeground(t *testing.T) {
+	t.Setenv("TMUX", "")
+	emojiutil.SetImageMode(true, 2)
+	t.Cleanup(func() { emojiutil.SetImageMode(false, 2) })
+	const url = "https://example.test/plain-text-foreground.png"
+	const label = "Ab :zz: Ready"
+	action := func(kind string) []blockkit.Block {
+		return []blockkit.Block{blockkit.ActionsBlock{Elements: []blockkit.ActionElement{{Kind: kind, Label: label}}}}
+	}
+	cases := []struct {
+		name string
+		msg  MessageItem
+	}{
+		{"header", MessageItem{Blocks: []blockkit.Block{blockkit.HeaderBlock{Text: label}}}},
+		{"button", MessageItem{Blocks: action("button")}},
+		{"workflow_button", MessageItem{Blocks: action("workflow_button")}},
+		{"static_select", MessageItem{Blocks: action("static_select")}},
+		{"multi_select", MessageItem{Blocks: action("multi_select")}},
+		{"datepicker", MessageItem{Blocks: action("datepicker")}},
+		{"timepicker", MessageItem{Blocks: action("timepicker")}},
+		{"accessory", MessageItem{Blocks: []blockkit.Block{
+			blockkit.SectionBlock{Text: "Incident", Accessory: blockkit.LabelAccessory{Kind: "button", Label: label}},
+		}}},
+		{"legacy button", MessageItem{LegacyAttachments: []blockkit.LegacyAttachment{{
+			Actions: []blockkit.LegacyAction{{Type: "button", Text: label}},
+		}}}},
+		{"legacy select", MessageItem{LegacyAttachments: []blockkit.LegacyAttachment{{
+			Actions: []blockkit.LegacyAction{{Type: "select", Text: label}},
+		}}}},
+	}
+	const width = 60
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fetcher, _ := fixtureEmoji(t, url)
+			tc.msg.TS, tc.msg.UserName = "1.0", "alert-bot"
+			m := New([]MessageItem{tc.msg}, "general")
+			m.SetEmojiContext(EmojiContext{
+				PlaceCtx: emojiutil.PlaceContext{Fetcher: fetcher},
+				Cells:    2,
+				Customs:  map[string]string{"zz": url},
+			})
+			rendered := RenderMessage(tc.msg, width, m.renderContext(), RenderOptions{})
+			s := NewWrapStyles(true)
+			wrapped := WrapRows(tc.msg, rendered, width, s)
+			rendered.Mention = mention.Direct
+			tinted := WrapRows(tc.msg, rendered, width, s)
+			for _, v := range []struct {
+				name  string
+				lines []string
+			}{
+				{"content", strings.Split(rendered.Content, "\n")},
+				{"unselected", wrapped.Lines},
+				{"selected", wrapped.Selected},
+				{"mention", tinted.Lines},
+			} {
+				assertForegroundAcrossEmoji(t, v.name, strings.Join(v.lines, "\n"), width+1)
+			}
+		})
+	}
+}
+
+// assertForegroundAcrossEmoji finds the row of content holding emoji
+// placeholder cells and checks that every non-blank cell after them on
+// that row has the foreground of the last non-blank cell before them.
+func assertForegroundAcrossEmoji(t *testing.T, variant, content string, width int) {
+	t.Helper()
+	height := lipgloss.Height(content)
+	canvas := lipgloss.NewCanvas(width, height)
+	canvas.Compose(lipgloss.NewLayer(content))
+	// cell is the content and foreground of the cell at x, y; a cell
+	// with no content reads as blank.
+	cell := func(x, y int) (string, color.Color) {
+		c := canvas.CellAt(x, y)
+		if c == nil {
+			return "", nil
+		}
+		return c.Content, c.Style.Fg
+	}
+	isImage := func(content string) bool {
+		return strings.HasPrefix(content, string(imgpkg.PlaceholderRune))
+	}
+	blank := func(content string) bool { return content == "" || content == " " }
+	for y := range height {
+		first, last := -1, -1
+		for x := range width {
+			if content, _ := cell(x, y); isImage(content) {
+				if first < 0 {
+					first = x
+				}
+				last = x
+			}
+		}
+		if first < 0 {
+			continue
+		}
+		var want color.Color
+		for x := first - 1; x >= 0; x-- {
+			if content, fg := cell(x, y); !blank(content) {
+				want = fg
+				break
+			}
+		}
+		if want == nil {
+			t.Fatalf("%s: no styled text before the emoji on row %d", variant, y)
+		}
+		checked := 0
+		for x := last + 1; x < width; x++ {
+			content, fg := cell(x, y)
+			if blank(content) {
+				continue
+			}
+			checked++
+			if !sameColor(fg, want) {
+				t.Errorf("%s: cell %d %q has foreground %v, want %v (the label's)", variant, x, content, fg, want)
+			}
+		}
+		if checked == 0 {
+			t.Fatalf("%s: no text after the emoji on row %d", variant, y)
+		}
+		return
+	}
+	t.Fatalf("%s: no emoji placeholder cells in %q", variant, content)
+}
+
+// sameColor reports whether a and b are the same colour; nil (the
+// terminal's default) equals only nil.
+func sameColor(a, b color.Color) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	ar, ag, ab, aa := a.RGBA()
+	br, bg, bb, ba := b.RGBA()
+	return ar == br && ag == bg && ab == bb && aa == ba
 }
