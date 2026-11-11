@@ -2,6 +2,7 @@ package blockkit
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/slack-go/slack"
@@ -227,5 +228,84 @@ func TestLinkToMarkdown_BareOnlyWhenWholeURLSurvives(t *testing.T) {
 		if len(targets) != 1 || targets[0] != tc.url {
 			t.Errorf("saving %q links %q, want %q", got, targets, tc.url)
 		}
+	}
+}
+
+// Each unit is decided on its own, and the units' decisions send the
+// whole block. Inline markup pairs across a line break, so a
+// paragraph's lines are one unit and an escape one line needs stays;
+// it does not pair across a blank line or between list items, so there
+// every escape goes. A lone backtick pairs with a code span after it,
+// and brackets across lines make a link, so those escapes stay. A
+// channel token left open in one paragraph would run to the quote
+// marker of the next; the unit refuses it, so the seed never needs the
+// whole-text pass.
+func TestRichTextToMarkdown_UnitsDecideAlone(t *testing.T) {
+	for _, tc := range []struct{ typed, want string }{
+		{"a\\*b\nc\\*d", "a*b\nc\\*d"},
+		{"a\\*b\n\nc\\*d", "a*b\n\nc*d"},
+		{"- a\\*b\n- c\\*d", "- a*b\n- c*d"},
+		{"> a\\*b\n> c\\*d", "> a*b\n> c\\*d"},
+		{"x \\` y `z`", "x \\` y `z`"},
+		{"\\[z\nmore\\](x)", "[z\nmore](x\\)"},
+		{"\\<#C1\\|x\n\n> q", "<#C1\\|x\n\n> q"},
+	} {
+		t.Run(tc.typed, func(t *testing.T) {
+			first := received(t, tc.typed)
+			md, st := richTextToMarkdown(first)
+			if md != tc.want {
+				t.Errorf("edit text = %q, want %q", md, tc.want)
+			}
+			if got, want := blockJSON(t, received(t, md)), blockJSON(t, first); got != want {
+				t.Errorf("re-sent block differs\n got %s\nwant %s", got, want)
+			}
+			if st.wholeText {
+				t.Errorf("decided against the whole text: the units' decisions did not send the block")
+			}
+		})
+	}
+}
+
+// denseLine is a line of prose punctuation, each mark one the seed
+// could escape.
+const denseLine = "Note: see (docs) at https://example.com/a?b=1, then run `make test` - ok! [z] <hm> | 3. done"
+
+// A paragraph whose escapes can all go costs a fixed number of Converts
+// however long it is: the whole seed, the unit long, the unit with
+// every choice short, and the seed's final check.
+func TestRichTextToMarkdown_DenseParagraphWork(t *testing.T) {
+	for _, lines := range []int{1, 35, 130} {
+		typed := strings.TrimSuffix(strings.Repeat(denseLine+"\n", lines), "\n")
+		md, st := richTextToMarkdown(received(t, typed))
+		if md != typed {
+			t.Errorf("%d lines: edit text has %d backslashes, want it as typed", lines, strings.Count(md, `\`))
+		}
+		if st.units != 1 || st.converts > 2+2*st.units || st.wholeText || st.exhausted {
+			t.Errorf("%d lines: work %+v, want 1 unit and at most %d Converts", lines, st, 2+2*st.units)
+		}
+		if st.bytes > 5*len(typed) {
+			t.Errorf("%d lines: Convert read %d bytes for %d typed, want at most %d", lines, st.bytes, len(typed), 5*len(typed))
+		}
+	}
+}
+
+// A paragraph of literal "*" that pair if unescaped (as Slack's own
+// client sends a list of globs) keeps its escapes. Finding the few
+// that could go would take a Convert of the paragraph for each one
+// kept, so the unit's budget runs out, the rest stay escaped, and the
+// seed still sends the block.
+func TestRichTextToMarkdown_EscapesThatStayAreBounded(t *testing.T) {
+	text := strings.TrimSpace(strings.Repeat("src/*.go and lib/*.go ", 400))
+	rt := rtSection(&slack.RichTextSectionTextElement{Type: slack.RTSEText, Text: text})
+	long := segmentsText(layout(rt))
+	md, st := richTextToMarkdown(rt)
+	if sentElements(md) != elementsForm(rt.Elements) {
+		t.Errorf("seed %q does not send the block", md[:min(len(md), 80)])
+	}
+	if !st.exhausted || st.wholeText {
+		t.Errorf("work %+v, want the unit's budget spent and no whole-text pass", st)
+	}
+	if limit := (shortenWork + 2) * len(long); st.bytes > limit {
+		t.Errorf("Convert read %d bytes, want at most %d", st.bytes, limit)
 	}
 }

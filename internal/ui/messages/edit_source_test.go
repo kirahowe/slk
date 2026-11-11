@@ -3,6 +3,7 @@ package messages
 import (
 	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/slack-go/slack"
@@ -113,5 +114,43 @@ func TestEditSource_AllRichTextBlocks(t *testing.T) {
 	msg := MessageItem{Text: "first second", Blocks: []blocks.Block{block("first"), block("second")}}
 	if got, want := EditSource(msg), "first\n\nsecond"; got != want {
 		t.Errorf("EditSource = %q, want %q", got, want)
+	}
+}
+
+// denseLine is a line of the punctuation a person types in prose, each
+// mark one the seed could escape: a colon, parens, a URL, a code span,
+// " - ", "!", brackets, an HTML-shaped word, a pipe and "3.".
+const denseLine = "Note: see (docs) at https://example.com/a?b=1, then run `make test` - ok! [z] <hm> | 3. done"
+
+// denseTyped is denseLine on n lines of one paragraph.
+func denseTyped(n int) string {
+	return strings.TrimSuffix(strings.Repeat(denseLine+"\n", n), "\n")
+}
+
+// A long message dense with punctuation comes back as it was typed, on
+// every line: none of its escapes changes what Convert sends, so the
+// seed drops them all, however long the paragraph.
+func TestEditSourceDenseMessageReadsAsTyped(t *testing.T) {
+	for _, lines := range []int{35, 130} { // 3,254 and 12,089 characters
+		typed := denseTyped(lines)
+		var msg MessageItem
+		TypedBody(typed).Apply(&msg)
+		got := EditSource(msg)
+		if got != typed {
+			first := 0
+			for first < min(len(got), len(typed)) && got[first] == typed[first] {
+				first++
+			}
+			t.Errorf("%d characters: seed differs from the typed text at byte %d, with %d backslashes: ...%q",
+				len(typed), first, strings.Count(got, `\`), got[first:min(len(got), first+80)])
+		}
+	}
+}
+
+func BenchmarkEditSourceDense(b *testing.B) {
+	var msg MessageItem
+	TypedBody(denseTyped(35)).Apply(&msg)
+	for b.Loop() {
+		EditSource(msg)
 	}
 }

@@ -32,59 +32,347 @@ import (
 // "<!here>" written as text) is backslash-escaped, so saving keeps it
 // text and cannot ping anyone. Each place with a shorter spelling (an
 // escape left out, a bare URL, a styled run over several lines marked
-// once) is then tried in turn and kept when Convert sends the same
-// block as before, or when it sends rt itself where the longer
-// spellings did not, so a plain message reads as it was typed.
+// once) is then a choice, and a set of short spellings is kept only
+// when Convert sends the same block as before, or rt itself where the
+// longer spellings did not, so a plain message reads as it was typed.
+//
+// The choices are decided one unit at a time (see mdUnit): a paragraph,
+// a list item or a quote, which Convert reads apart from the rest of
+// the message. All of a unit's choices are tried short at once and the
+// set is halved only where Convert refuses it, so a unit whose escapes
+// can all go costs two Converts of the unit, and the work grows with
+// the length of the message. The whole seed is checked once at the
+// end; if it does not send the block, the choices are decided again
+// against the whole text. Either way the work is bounded (shortenWork).
 func RichTextToMarkdown(rt RichTextBlock) string {
-	w := &mdWriter{}
-	seed := w.richText(rt)
-	if w.n == 0 {
-		return seed
-	}
-	target := elementsForm(rt.Elements)
-	current := sentElements(seed)
-	short := make([]bool, min(w.n, maxShortTries))
-	// try flips the choices in flip to short and keeps them when
-	// Convert sends rt, or what it sent before when that was not rt.
-	try := func(flip ...int) {
-		for _, i := range flip {
-			short[i] = true
-		}
-		s := (&mdWriter{short: short}).richText(rt)
-		if s != seed { // else not drawn: inside a spelling not chosen
-			if got := sentElements(s); got == target || current != target && got == current {
-				seed, current = s, got
-				return
-			}
-		}
-		for _, i := range flip {
-			short[i] = false
-		}
-	}
-	var breaks []int
-	for _, i := range w.breaks {
-		if i < len(short) {
-			breaks = append(breaks, i)
-		}
-	}
-	if len(breaks) > 1 {
-		try(breaks...)
-	}
-	// A second pass revisits the escapes inside a short spelling the
-	// first pass chose after them.
-	for range 2 {
-		for i := range short {
-			if !short[i] {
-				try(i)
-			}
-		}
-	}
-	return seed
+	s, _ := richTextToMarkdown(rt)
+	return s
 }
 
-// maxShortTries bounds the Convert calls RichTextToMarkdown makes to
-// shorten a seed; choices past it keep their long form.
-const maxShortTries = 256
+// shortenWork bounds the work of shortening a seed, as bytes handed to
+// Convert per byte of long spelling: deciding a unit's choices reads at
+// most shortenWork times the unit's length, and deciding against the
+// whole text at most shortenWork times the seed's. A unit whose escapes
+// can all go reads itself twice. Each escape that must stay costs a few
+// more reads of its unit while the halving finds it, so the bound is
+// reached only in a paragraph where many must stay (one full of literal
+// "*" that would pair, say), and it keeps `E`, which runs on the Update
+// goroutine, from stalling there. The choices not decided when a budget
+// runs out keep their long spelling, which sends the block unchanged.
+const shortenWork = 64
+
+// shortenStats is the work richTextToMarkdown did, for tests.
+type shortenStats struct {
+	converts, bytes int  // Convert calls and the bytes handed to them
+	units           int  // units with choices
+	wholeText       bool // the choices were decided against the whole text
+	exhausted       bool // a budget ran out
+}
+
+func richTextToMarkdown(rt RichTextBlock) (string, shortenStats) {
+	s := &shortener{segs: layout(rt)}
+	choices := false
+	for _, u := range s.units() {
+		if u.n+u.nb > 0 {
+			choices = true
+			s.stats.units++
+		}
+	}
+	seed := s.text()
+	if !choices {
+		return seed, s.stats
+	}
+	s.target = elementsForm(rt.Elements)
+	current := s.convert(seed)
+	if current == s.target {
+		s.byUnit()
+		if final := s.text(); s.convert(final) == s.target {
+			return final, s.stats
+		}
+		s.reset()
+	}
+	s.byWholeText(current)
+	return s.text(), s.stats
+}
+
+// shortener decides the choices of a seed laid out as segments.
+type shortener struct {
+	segs   []mdSegment
+	target string // elementsForm of the block
+	stats  shortenStats
+}
+
+// mdSegment is a stretch of the seed: fixed text (glue), or a unit.
+type mdSegment struct {
+	glue string
+	unit *mdUnit
+}
+
+// mdUnit is a part of the seed that Convert reads apart from the rest
+// of the message: a paragraph of a section (paragraphs end at a blank
+// line), a list item (from its marker; the indent is glue) or a quote.
+// CommonMark parses the inline markup of each paragraph, item and quote
+// on its own, and the text between units (separators, indents, blank
+// lines) is glue no choice changes, so short spellings that send a
+// unit's block unchanged send the message's unchanged. Two things reach
+// past a unit, and are handled:
+//
+//   - Convert's tokenizer reads the whole message before any markdown,
+//     and a "<#C1|", "<!here|" or "<https://" left open runs to the next
+//     ">" anywhere after it, across blank lines, items and quotes. A
+//     unit whose text ends inside such a token is refused (openTokenRe).
+//   - A styled run kept open over line breaks (the break choices) stays
+//     inside its paragraph: each paragraph is written on its own, and
+//     closes its markers at its end.
+//
+// A line break inside a paragraph is not a boundary: emphasis, code
+// spans and link brackets pair across it ("a*b\nc*d" is bold), so a
+// paragraph's lines are one unit. RichTextToMarkdown checks the whole
+// seed once at the end, so a case missed here costs work, not the
+// block.
+type mdUnit struct {
+	render func(w *mdWriter) string
+	// short and brk pick the short spelling of each choice and each
+	// break choice; text is the unit under them, and n and nb count
+	// its choices.
+	short, brk []bool
+	text       string
+	n, nb      int
+	form       string // what Convert sends for text, deciding by unit
+}
+
+// draw renders u under its choices.
+func (u *mdUnit) draw() {
+	w := &mdWriter{short: u.short, brk: u.brk}
+	u.text = u.render(w)
+	u.n, u.nb = w.n, w.nb
+}
+
+func newUnit(render func(w *mdWriter) string) mdSegment {
+	u := &mdUnit{render: render}
+	u.draw()
+	return mdSegment{unit: u}
+}
+
+// choiceRef is one choice of a unit: choice i, or break choice i.
+type choiceRef struct {
+	u   *mdUnit
+	i   int
+	brk bool
+}
+
+func (c choiceRef) set(short bool) {
+	if c.brk {
+		c.u.brk[c.i] = short
+	} else {
+		c.u.short[c.i] = short
+	}
+}
+
+func setAll(refs []choiceRef, short bool) {
+	for _, c := range refs {
+		c.set(short)
+	}
+}
+
+// breakRefs and shortRefs list u's break choices and its other choices.
+// Break choices are decided first: whether a run closes at a line break
+// decides which words start a line, and so which escapes there are.
+// The other choices change no count, so shortRefs is taken after.
+func (u *mdUnit) breakRefs() []choiceRef {
+	u.brk = make([]bool, u.nb)
+	refs := make([]choiceRef, u.nb)
+	for i := range refs {
+		refs[i] = choiceRef{u: u, i: i, brk: true}
+	}
+	return refs
+}
+
+func (u *mdUnit) shortRefs() []choiceRef {
+	u.short = nil
+	u.draw()
+	u.short = make([]bool, u.n)
+	refs := make([]choiceRef, u.n)
+	for i := range refs {
+		refs[i] = choiceRef{u: u, i: i}
+	}
+	return refs
+}
+
+// decide keeps short the choices in refs that try accepts: all of them
+// when it accepts them together, else each half decided in turn. try
+// reports whether the choices it was given are decided (kept, or not
+// drawn, or out of budget).
+func decide(refs []choiceRef, try func([]choiceRef) bool) {
+	if len(refs) == 0 || try(refs) || len(refs) == 1 {
+		return
+	}
+	mid := len(refs) / 2
+	decide(refs[:mid], try)
+	decide(refs[mid:], try)
+}
+
+func (s *shortener) units() []*mdUnit {
+	var out []*mdUnit
+	for _, seg := range s.segs {
+		if seg.unit != nil {
+			out = append(out, seg.unit)
+		}
+	}
+	return out
+}
+
+// text is the seed under the current choices.
+func (s *shortener) text() string {
+	return segmentsText(s.segs)
+}
+
+// segmentsText is segs written out, each unit under its choices.
+func segmentsText(segs []mdSegment) string {
+	var b strings.Builder
+	for _, seg := range segs {
+		if seg.unit != nil {
+			b.WriteString(seg.unit.text)
+		} else {
+			b.WriteString(seg.glue)
+		}
+	}
+	return b.String()
+}
+
+func (s *shortener) convert(text string) string {
+	s.stats.converts++
+	s.stats.bytes += len(text)
+	return sentElements(text)
+}
+
+// budget is what is left of a shortenWork allowance.
+type budget struct {
+	left int
+	out  bool
+}
+
+// spend takes n bytes of Convert input from b, and reports false (and
+// that b is out) when there is not that much left.
+func (b *budget) spend(n int) bool {
+	if b.out || n > b.left {
+		b.out = true
+		return false
+	}
+	b.left -= n
+	return true
+}
+
+// byUnit decides each unit's choices against the unit alone: a set of
+// short spellings is kept when Convert sends the unit as before and the
+// unit ends in no open token.
+func (s *shortener) byUnit() {
+	for _, u := range s.units() {
+		if u.n+u.nb == 0 || openTokenRe.MatchString(u.text) {
+			continue
+		}
+		b := &budget{left: shortenWork * len(u.text)}
+		b.spend(len(u.text))
+		u.form = s.convert(u.text)
+		try := func(refs []choiceRef) bool {
+			if b.out {
+				return true
+			}
+			before := u.text
+			setAll(refs, true)
+			u.draw()
+			ok := u.text == before // not drawn: nothing to keep
+			if !ok && b.spend(len(u.text)) && !openTokenRe.MatchString(u.text) && s.convert(u.text) == u.form {
+				return true
+			}
+			// Back to before; the counts break choices change are
+			// taken again by shortRefs.
+			setAll(refs, false)
+			u.text = before
+			return ok || b.out
+		}
+		decide(u.breakRefs(), try)
+		decide(u.shortRefs(), try)
+		if b.out {
+			s.stats.exhausted = true
+		}
+	}
+}
+
+// reset puts every choice back to its long spelling.
+func (s *shortener) reset() {
+	for _, u := range s.units() {
+		u.short, u.brk = nil, nil
+		u.draw()
+	}
+}
+
+// byWholeText decides the choices against the whole seed, by the rule
+// of RichTextToMarkdown: a set is kept when the seed sends the block,
+// or what it sent before (current) when that was not the block. It is
+// for a seed whose long spelling does not send the block, which a unit
+// alone cannot tell, and for a seed the units' decisions did not keep
+// whole.
+func (s *shortener) byWholeText(current string) {
+	s.stats.wholeText = true
+	b := &budget{left: shortenWork * len(s.text())}
+	try := func(refs []choiceRef) bool {
+		if b.out {
+			return true
+		}
+		changed := s.flip(refs, true)
+		if !changed {
+			s.flip(refs, false)
+			return true
+		}
+		whole := s.text()
+		if b.spend(len(whole)) {
+			if got := s.convert(whole); got == s.target || current != s.target && got == current {
+				current = got
+				return true
+			}
+		}
+		s.flip(refs, false)
+		return b.out
+	}
+	var refs []choiceRef
+	for _, u := range s.units() {
+		refs = append(refs, u.breakRefs()...)
+	}
+	decide(refs, try)
+	refs = nil
+	for _, u := range s.units() {
+		refs = append(refs, u.shortRefs()...)
+	}
+	decide(refs, try)
+	if b.out {
+		s.stats.exhausted = true
+	}
+}
+
+// flip sets refs to short and redraws their units, reporting whether
+// any unit's text changed.
+func (s *shortener) flip(refs []choiceRef, short bool) bool {
+	setAll(refs, short)
+	changed := false
+	var last *mdUnit
+	for _, c := range refs {
+		if c.u == last {
+			continue
+		}
+		last = c.u
+		before := c.u.text
+		c.u.draw()
+		changed = changed || c.u.text != before
+	}
+	return changed
+}
+
+// openTokenRe matches text that ends inside a wire token Convert's
+// tokenizer has begun: a channel or broadcast with a label ("<#C1|x",
+// "<!here|x") or a link ("<https://x"), whose label or URL runs to the
+// next ">" in the message, wherever that is.
+var openTokenRe = regexp.MustCompile(`<(?:#[CG][A-Z0-9]+\||![a-z]+(?:\^[A-Za-z0-9]+)?\||https?://)[^>]*\z`)
 
 // sentElements is the rich_text block saving s sends, as JSON.
 func sentElements(s string) string {
@@ -101,17 +389,14 @@ func elementsForm(elements []slack.RichTextElement) string {
 	return string(raw)
 }
 
-// mdWriter renders a block as composer text. Every place with two
+// mdWriter renders a unit as composer text. Every place with two
 // spellings (an escape or none, a link's explicit or short form) is a
 // choice, numbered in render order; short[i] picks the short spelling
 // of choice i, and choices past the end of short take the long one.
+// Break choices (chooseBreak) are numbered apart, in brk.
 type mdWriter struct {
-	short []bool
-	n     int
-	// breaks are the choices that keep a run of style going over a
-	// line break; they only work together, so they are also tried as
-	// one.
-	breaks []int
+	short, brk []bool
+	n, nb      int
 }
 
 // choose is the next choice: long, or short when short asks for it.
@@ -124,45 +409,136 @@ func (w *mdWriter) choose(long, short string) string {
 	return long
 }
 
-// chooseBreak is choose for a choice in breaks.
+// chooseBreak is the next break choice: one that keeps a run of style
+// going over a line break. Break choices only work together, so a
+// unit's are tried together first.
 func (w *mdWriter) chooseBreak(long, short string) string {
-	w.breaks = append(w.breaks, w.n)
-	return w.choose(long, short)
+	i := w.nb
+	w.nb++
+	if i < len(w.brk) && w.brk[i] {
+		return short
+	}
+	return long
 }
 
-func (w *mdWriter) richText(rt RichTextBlock) string {
+// layout lays the block out as the seed's segments, each choice in a
+// unit, all in their long spelling.
+func layout(rt RichTextBlock) []mdSegment {
+	var segs []mdSegment
 	var b strings.Builder
 	var prev slack.RichTextElement
 	prevList := -1   // indent of the list element just written; -1 after anything else
 	prevAlt := false // whether it used the other markers
 	for _, e := range rt.Elements {
-		var part string
+		var part []mdSegment
 		list, alt := -1, false
 		switch v := e.(type) {
 		case *slack.RichTextSection:
-			part = w.inlines(v.Elements)
+			part = paragraphs(v.Elements)
 		case *slack.RichTextList:
 			// A nested level sits directly under its parent list; one
 			// with nothing above it to nest under starts at the margin
 			// (four spaces after a paragraph are paragraph text).
 			list = min(v.Indent, prevList+1)
 			alt = sameList(prev, v) && prevList == list && !prevAlt
-			part = w.list(v, list, alt)
+			part = listItems(v, list, alt)
 		case *slack.RichTextPreformatted:
-			part = preformattedToMarkdown(v.Elements)
+			part = []mdSegment{{glue: preformattedToMarkdown(v.Elements)}}
 		case *slack.RichTextQuote:
-			part = w.quote(v.Elements)
+			elements := v.Elements
+			part = []mdSegment{newUnit(func(w *mdWriter) string { return w.quote(elements) })}
 		}
-		if strings.Trim(part, "\n") == "" {
+		text := segmentsText(part)
+		if strings.Trim(text, "\n") == "" {
 			continue
 		}
 		if b.Len() > 0 {
-			b.WriteString(separator(prev, e, b.String()))
+			sep := separator(prev, e, b.String())
+			segs = append(segs, mdSegment{glue: sep})
+			b.WriteString(sep)
 		}
-		b.WriteString(part)
+		segs = append(segs, part...)
+		b.WriteString(text)
 		prev, prevList, prevAlt = e, list, alt
 	}
-	return b.String()
+	return segs
+}
+
+// paragraphs splits a section's elements at its blank lines into one
+// unit per paragraph, the line breaks between them glue.
+func paragraphs(elements []slack.RichTextSectionElement) []mdSegment {
+	var segs []mdSegment
+	var cur []slack.RichTextSectionElement
+	flush := func() {
+		if len(cur) > 0 {
+			p := cur
+			segs = append(segs, newUnit(func(w *mdWriter) string { return w.inlines(p) }))
+			cur = nil
+		}
+	}
+	for _, e := range elements {
+		t, ok := e.(*slack.RichTextSectionTextElement)
+		if !ok || !strings.Contains(t.Text, "\n\n") {
+			cur = append(cur, e)
+			continue
+		}
+		text, start := t.Text, 0
+		for _, loc := range blankLinesRe.FindAllStringIndex(text, -1) {
+			if loc[0] > start {
+				cur = append(cur, withText(t, text[start:loc[0]]))
+			}
+			flush()
+			segs = append(segs, mdSegment{glue: text[loc[0]:loc[1]]})
+			start = loc[1]
+		}
+		if start < len(text) {
+			cur = append(cur, withText(t, text[start:]))
+		}
+	}
+	flush()
+	return segs
+}
+
+// blankLinesRe matches the line breaks that end a paragraph.
+var blankLinesRe = regexp.MustCompile(`\n\n+`)
+
+// withText is t with text in place of its own.
+func withText(t *slack.RichTextSectionTextElement, text string) *slack.RichTextSectionTextElement {
+	c := *t
+	c.Text = text
+	return &c
+}
+
+// listItems lays out a list, one item per line, four spaces per indent
+// level. Ordered items are numbered from Offset+1.
+func listItems(l *slack.RichTextList, indent int, alt bool) []mdSegment {
+	pad := strings.Repeat("    ", indent)
+	var segs []mdSegment
+	for i, child := range l.Elements {
+		var body []slack.RichTextSectionElement
+		if sec, ok := child.(*slack.RichTextSection); ok {
+			body = sec.Elements
+		}
+		marker := "- "
+		if alt {
+			marker = "* "
+		}
+		if l.Style == slack.RTEListOrdered {
+			marker = strconv.Itoa(l.Offset+i+1) + ". "
+			if alt {
+				marker = strconv.Itoa(l.Offset+i+1) + ") "
+			}
+		}
+		glue := pad
+		if i > 0 {
+			glue = "\n" + pad
+		}
+		if glue != "" {
+			segs = append(segs, mdSegment{glue: glue})
+		}
+		segs = append(segs, newUnit(func(w *mdWriter) string { return marker + w.inlines(body) }))
+	}
+	return segs
 }
 
 // separator is the text between two top-level elements. Convert puts
@@ -206,6 +582,11 @@ func (w *mdWriter) inlines(elements []slack.RichTextSectionElement) string {
 	var b strings.Builder
 	var open []emphasis // markers open, outermost first
 	pending := ""       // whitespace not yet written, kept outside markers that close
+	atStart := true     // whether b ends at a line start, past any spaces
+	write := func(s string) {
+		b.WriteString(s)
+		atStart = lineStart(atStart, s)
+	}
 	// closeAtBreaks is one choice for every line break in these
 	// elements: Convert keeps a run over several breaks only when
 	// none of them closes it.
@@ -218,7 +599,7 @@ func (w *mdWriter) inlines(elements []slack.RichTextSectionElement) string {
 	}
 	closeTo := func(n int) {
 		for len(open) > n {
-			b.WriteString(open[len(open)-1].marker())
+			write(open[len(open)-1].marker())
 			open = open[:len(open)-1]
 		}
 	}
@@ -242,7 +623,7 @@ func (w *mdWriter) inlines(elements []slack.RichTextSectionElement) string {
 			continue
 		}
 		closeTo(keep)
-		b.WriteString(pending)
+		write(pending)
 		pending = ""
 		// The marker whose style lasts longest opens first, so it is
 		// the last to close.
@@ -256,13 +637,13 @@ func (w *mdWriter) inlines(elements []slack.RichTextSectionElement) string {
 			return styleRun(pieces[i:], b) - styleRun(pieces[i:], a)
 		})
 		for _, e := range opening {
-			b.WriteString(e.marker())
+			write(e.marker())
 			open = append(open, e)
 		}
-		b.WriteString(p.render(w, lineStart(b.String())))
+		write(p.render(w, atStart))
 	}
 	closeTo(0)
-	b.WriteString(pending)
+	write(pending)
 	return b.String()
 }
 
@@ -522,9 +903,14 @@ func elementStyle(e slack.RichTextSectionElement) *slack.RichTextSectionTextStyl
 }
 
 // lineStart reports whether text written after s starts a line, past
-// any spaces: where "- ", "1. " and "> " are markup.
-func lineStart(s string) bool {
-	return strings.TrimRight(s[strings.LastIndexByte(s, '\n')+1:], " ") == ""
+// any spaces: where "- ", "1. " and "> " are markup. after is whether
+// the text before s ended at one, so a writer can keep track as it
+// goes instead of reading back over the line.
+func lineStart(after bool, s string) bool {
+	if i := strings.LastIndexByte(s, '\n'); i >= 0 {
+		return strings.TrimRight(s[i+1:], " ") == ""
+	}
+	return after && strings.TrimRight(s, " ") == ""
 }
 
 // escape backslash-escapes each character of literal text that can
@@ -701,31 +1087,6 @@ func EscapeLiteralTokens(s string) string {
 // literalTokenRe matches text shaped like a wire token Convert reads: a
 // mention, broadcast or http(s) link.
 var literalTokenRe = regexp.MustCompile(`<(?:[@#!]|https?://)[^<>]*>`)
-
-// list writes one line per item, four spaces per indent level. Ordered
-// items are numbered from Offset+1.
-func (w *mdWriter) list(l *slack.RichTextList, indent int, alt bool) string {
-	pad := strings.Repeat("    ", indent)
-	lines := make([]string, 0, len(l.Elements))
-	for i, child := range l.Elements {
-		body := ""
-		if sec, ok := child.(*slack.RichTextSection); ok {
-			body = w.inlines(sec.Elements)
-		}
-		marker := "- "
-		if alt {
-			marker = "* "
-		}
-		if l.Style == slack.RTEListOrdered {
-			marker = strconv.Itoa(l.Offset+i+1) + ". "
-			if alt {
-				marker = strconv.Itoa(l.Offset+i+1) + ") "
-			}
-		}
-		lines = append(lines, pad+marker+body)
-	}
-	return strings.Join(lines, "\n")
-}
 
 // preformattedToMarkdown writes a fenced code block. The fence is one
 // backtick longer than any run of three or more inside the body.
