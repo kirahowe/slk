@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/slack-go/slack"
+	"github.com/yuin/goldmark/text"
 )
 
 // linkURLs returns the URL of every link element in blk, in order: in
@@ -260,5 +261,30 @@ func TestTypedURLLen(t *testing.T) {
 		if got := typedURLLen(c.in); got != len(c.want) {
 			t.Errorf("typedURLLen(%q) = %d (%q), want %d (%q)", c.in, got, c.in[:got], len(c.want), c.want)
 		}
+	}
+}
+
+// afterPunctURL is offered every quote mark and colon in a line, so it
+// reads the rest of the line where it lies rather than copying it.
+func TestAfterPunctURLDoesNotCopyTheLine(t *testing.T) {
+	line := []byte(strings.Repeat(`"`, 1000))
+	allocs := testing.AllocsPerRun(100, func() {
+		if (afterPunctURL{}).Parse(nil, text.NewReader(line), nil) != nil {
+			t.Fatal("Parse took a quote mark with no URL after it")
+		}
+	})
+	// text.NewReader itself allocates the reader.
+	base := testing.AllocsPerRun(100, func() { _ = text.NewReader(line) })
+	if allocs > base {
+		t.Errorf("Parse allocates %v times per call beyond the reader's %v", allocs-base, base)
+	}
+}
+
+// BenchmarkConvertQuoteRun is Convert over a long run of quote marks,
+// each of which afterPunctURL is offered.
+func BenchmarkConvertQuoteRun(b *testing.B) {
+	in := strings.Repeat(`"'`, 10000)
+	for b.Loop() {
+		Convert(in)
 	}
 }

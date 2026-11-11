@@ -53,19 +53,53 @@ var typedURLFinal = func() (final [128]bool) {
 // typedURLRegexp match, less any trailing ')' or ']' the URL holds more
 // of than of '(' or '[' (counted over the whole URL), each dropped one
 // at a time from the end, and less the characters the pattern does not
-// let a URL end on that dropping a closer leaves last. So "x/[y]" and
-// "(x/(y))" keep their closers and "[x/y]" does not take its ']'. The
-// result is again a match of the pattern, or 0 when only the scheme is
-// left.
-func typedURLLen(s string) int {
-	m := typedURLRegexp.FindString(s)
-	if m == "" {
+// let a URL end on that dropping a closer leaves last. So
+// "http://[::1]" and "https://h/(x/(y))" keep their closers, and in
+// "[https://h/y]" the URL does not take the ']'. The result is again a
+// match of the pattern, or 0 when only the scheme is left.
+func typedURLLen(s string) int { return typedURLSpan(s) }
+
+// typedURLLenBytes is typedURLLen over bytes, for a parser reading
+// goldmark's line in place: it neither copies b nor keeps it.
+func typedURLLenBytes(b []byte) int { return typedURLSpan(b) }
+
+// typedURLSpan is typedURLLen for either form of text.
+func typedURLSpan[T string | []byte](s T) int {
+	// The regexp's backtracker clears state for the whole of s on every
+	// call, so a call where no scheme starts would cost the length of
+	// the line, at every quote mark and colon in it.
+	if !hasTypedURLScheme(s) {
 		return 0
 	}
-	start := strings.Index(m, "://") + len("://")
-	parens := strings.Count(m, ")") - strings.Count(m, "(")
-	brackets := strings.Count(m, "]") - strings.Count(m, "[")
-	n := len(m)
+	var n int
+	switch s := any(s).(type) {
+	case string:
+		n = len(typedURLRegexp.FindString(s))
+	case []byte:
+		n = len(typedURLRegexp.Find(s))
+	}
+	if n == 0 {
+		return 0
+	}
+	m := s[:n]
+	start := 0
+	for m[start] != '/' {
+		start++
+	}
+	start += len("//")
+	var parens, brackets int
+	for i := start; i < n; i++ {
+		switch m[i] {
+		case '(':
+			parens--
+		case ')':
+			parens++
+		case '[':
+			brackets--
+		case ']':
+			brackets++
+		}
+	}
 	for ; n > start; n-- {
 		switch c := m[n-1]; {
 		case c == ')' && parens > 0:
@@ -80,12 +114,23 @@ func typedURLLen(s string) int {
 	return 0
 }
 
+// hasTypedURLScheme reports whether s starts with one of
+// typedURLProtocols.
+func hasTypedURLScheme[T string | []byte](s T) bool {
+	for _, proto := range typedURLProtocols {
+		if len(s) >= len(proto) && string(s[:len(proto)]) == proto {
+			return true
+		}
+	}
+	return false
+}
+
 // typedURLLinkify is goldmark's Linkify parser held to typedURLLen. Where
 // a typed URL starts, it shows Linkify the line only up to the URL's end,
 // so Linkify, which balances ')' but not ']', links exactly what
-// typedURLLen measures. A typed-URL scheme with no URL after it (only
-// closers) is left as text. Elsewhere (www. names, email addresses)
-// Linkify sees the whole line.
+// typedURLLen measures. A scheme followed by nothing typedURLLen counts,
+// as in "http://)", is left as text. Elsewhere (www. names, email
+// addresses) Linkify sees the whole line.
 type typedURLLinkify struct{ parser.InlineParser }
 
 func newTypedURLLinkify() typedURLLinkify {
@@ -103,15 +148,13 @@ func (p typedURLLinkify) Parse(parent ast.Node, block text.Reader, pc parser.Con
 		lead = 1
 	}
 	rest := line[lead:]
-	for _, proto := range typedURLProtocols {
-		if len(rest) >= len(proto) && string(rest[:len(proto)]) == proto {
-			if n := typedURLLen(string(rest)); n > 0 {
-				return p.InlineParser.Parse(parent, cutLine{block, lead + n}, pc)
-			}
-			return nil
-		}
+	if !hasTypedURLScheme(rest) {
+		return p.InlineParser.Parse(parent, block, pc)
 	}
-	return p.InlineParser.Parse(parent, block, pc)
+	if n := typedURLLenBytes(rest); n > 0 {
+		return p.InlineParser.Parse(parent, cutLine{block, lead + n}, pc)
+	}
+	return nil
 }
 
 // cutLine is a text.Reader whose current line ends stop bytes in.
@@ -136,7 +179,7 @@ func (afterPunctURL) Trigger() []byte { return []byte{'"', '\'', ':'} }
 
 func (afterPunctURL) Parse(_ ast.Node, block text.Reader, _ parser.Context) ast.Node {
 	line, seg := block.PeekLine()
-	if len(line) < 2 || typedURLLen(string(line[1:])) == 0 {
+	if len(line) < 2 || typedURLLenBytes(line[1:]) == 0 {
 		return nil
 	}
 	block.Advance(1)

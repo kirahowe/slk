@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gammons/slk/internal/proptest"
 	"pgregory.net/rapid"
 )
 
@@ -52,4 +53,26 @@ func equalStrings(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// typedURLLen and typedURLLenBytes measure the same URL in any text:
+// Slack wire text, composer text or plain text, after a typed URL or
+// on its own.
+func TestTypedURLLenBytesAgrees(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		text := rapid.OneOf(
+			proptest.SlackText(nil, nil),
+			proptest.ComposerText(nil, nil),
+			proptest.PlainText(),
+		).Draw(t, "text")
+		prefix := rapid.SampledFrom([]string{"", "http://", "https://a.b/", "ftp://[::1]/("}).Draw(t, "prefix")
+		var url string
+		if rapid.Bool().Draw(t, "url") {
+			url = rapid.OneOf(typedURL(), bracketedURL()).Draw(t, "typedURL")
+		}
+		s := prefix + url + text
+		if got, want := typedURLLenBytes([]byte(s)), typedURLLen(s); got != want {
+			t.Fatalf("typedURLLenBytes(%q) = %d, typedURLLen = %d", s, got, want)
+		}
+	})
 }
