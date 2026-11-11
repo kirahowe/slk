@@ -117,6 +117,28 @@ func TestEditSource_AllRichTextBlocks(t *testing.T) {
 	}
 }
 
+// A quote line that is only "-" or ">" (an empty list item or quote
+// inside the quote) comes back in the seed, so saving the edit keeps it.
+func TestEditSourceQuoteKeepsMarkerOnlyLines(t *testing.T) {
+	for _, typed := range []string{
+		"> -\n> **a**",
+		"> a\n> >",
+		"- **a**\n> **a**\n> >",
+		"- **a**\n- **a**\n> -\n> **a**",
+	} {
+		var msg MessageItem
+		TypedBody(typed).Apply(&msg)
+		seed := EditSource(msg)
+		_, want := mrkdwn.Convert(typed)
+		_, got := mrkdwn.Convert(seed)
+		wj, _ := json.Marshal(want)
+		gj, _ := json.Marshal(got)
+		if seed != typed || string(gj) != string(wj) {
+			t.Errorf("typed %q, seed %q:\n got %s\nwant %s", typed, seed, gj, wj)
+		}
+	}
+}
+
 // denseLine is a line of the punctuation a person types in prose, each
 // mark one the seed could escape: a colon, parens, a URL, a code span,
 // " - ", "!", brackets, an HTML-shaped word, a pipe and "3.".

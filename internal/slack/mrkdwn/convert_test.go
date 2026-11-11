@@ -695,6 +695,37 @@ func TestConvert_Blockquote(t *testing.T) {
 	}
 }
 
+// A quote line holding only a list marker ("> -") or a quote marker
+// ("> >") is an empty list item or an empty quote inside the quote. It
+// stays in the quote as the text typed, in the block and the fallback,
+// like any other block inside one.
+func TestConvert_QuoteKeepsEmptyBlockLines(t *testing.T) {
+	for _, tc := range []struct{ in, mrkdwn, text string }{
+		{"> -", "> -", "-"},
+		{"> -\n> a", "> -\n> a", "-\na"},
+		{"> a\n> >", "> a\n> >", "a\n>"},
+		{"> > -\n> a", "> > -\n> a", "> -\na"},
+	} {
+		mr, blk := Convert(tc.in)
+		if mr != tc.mrkdwn {
+			t.Errorf("Convert(%q) mrkdwn = %q, want %q", tc.in, mr, tc.mrkdwn)
+		}
+		var got strings.Builder
+		if blk != nil && len(blk.Elements) == 1 {
+			if q, ok := blk.Elements[0].(*slack.RichTextQuote); ok {
+				for _, e := range q.Elements {
+					if te, ok := e.(*slack.RichTextSectionTextElement); ok {
+						got.WriteString(te.Text)
+					}
+				}
+			}
+		}
+		if got.String() != tc.text {
+			t.Errorf("Convert(%q) block = %s, want one quote reading %q", tc.in, blockJSON(blk), tc.text)
+		}
+	}
+}
+
 func TestConvert_BackslashEscape(t *testing.T) {
 	mr, blk := Convert(`\*not bold\*`)
 	want := "*not bold*"

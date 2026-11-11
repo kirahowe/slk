@@ -62,10 +62,10 @@ func Convert(input string) (string, *slack.RichTextBlock) {
 func newParser() parser.Parser {
 	return parser.NewParser(
 		parser.WithBlockParsers(
-			util.Prioritized(parser.NewListParser(), 300),
-			util.Prioritized(parser.NewListItemParser(), 400),
+			util.Prioritized(placedParser{parser.NewListParser()}, 300),
+			util.Prioritized(placedParser{parser.NewListItemParser()}, 400),
 			util.Prioritized(parser.NewFencedCodeBlockParser(), 700),
-			util.Prioritized(parser.NewBlockquoteParser(), 800),
+			util.Prioritized(placedParser{parser.NewBlockquoteParser()}, 800),
 			util.Prioritized(indentedParagraphParser{parser.NewParagraphParser()}, 1000),
 		),
 		parser.WithInlineParsers(parser.DefaultInlineParsers()...),
@@ -76,6 +76,26 @@ func newParser() parser.Parser {
 		parser.WithInlineParsers(util.Prioritized(newTypedURLLinkify(), 999)),
 	)
 }
+
+// placedParser is a block parser that records on each block it opens
+// the start of the line it opened on (openedLineAttr). goldmark places a
+// block only by its lines of text, and an empty list item ("-") or
+// empty quote (">") has none; the walker places those by this
+// (quotedFirstLine), so a quote holding one keeps the line.
+type placedParser struct{ parser.BlockParser }
+
+func (p placedParser) Open(parent ast.Node, reader text.Reader, pc parser.Context) (ast.Node, parser.State) {
+	_, seg := reader.PeekLine()
+	n, state := p.BlockParser.Open(parent, reader, pc)
+	if n != nil {
+		n.SetAttribute(openedLineAttr, lineStart(reader.Source(), seg.Start))
+	}
+	return n, state
+}
+
+// openedLineAttr is the attribute placedParser records a block's first
+// line under.
+var openedLineAttr = []byte("slk-opened-line")
 
 // indentedParagraphParser is goldmark's paragraph parser with two
 // changes to where a paragraph may start.
