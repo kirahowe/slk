@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gammons/slk/internal/cache"
+	"github.com/gammons/slk/internal/core"
 	slackclient "github.com/gammons/slk/internal/slack"
 	"github.com/gammons/slk/internal/slack/edge"
 	"github.com/gammons/slk/internal/ui"
@@ -531,6 +532,46 @@ func TestSwitchListsShowsCachedPresence(t *testing.T) {
 	}
 	if got := wctx.Channels()[0].Presence; got != "away" {
 		t.Errorf("published snapshot presence = %q; switchLists must not write it", got)
+	}
+}
+
+// The channel finder draws each DM's Presence, so the finder rows a
+// switch hands the UI read it from the cache like the sidebar rows do.
+// Rows that are not DMs, and DMs whose peer is not cached, keep theirs,
+// and the published snapshot keeps its connect-time value.
+func TestSwitchListsShowsCachedPresenceInFinder(t *testing.T) {
+	db := newTestDB(t)
+	if err := db.UpsertUser(cache.User{ID: "U1", WorkspaceID: "T1", Name: "albert", Presence: "away"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpdatePresence("U1", "active"); err != nil { // presence_change
+		t.Fatal(err)
+	}
+	wctx := &WorkspaceContext{TeamID: "T1"}
+	setConversations(wctx, []sidebar.ChannelItem{
+		{ID: "D1", Type: "dm", DMUserID: "U1", Presence: "away"},
+		{ID: "D2", Type: "dm", DMUserID: "U_UNCACHED", Presence: "active"},
+	})
+	wctx.finderItems = []core.ChannelFinderItem{
+		{ID: "C1", Name: "general", Type: "channel", Joined: true},
+		{ID: "D1", Name: "albert", Type: "dm", Presence: "away", Joined: true},
+		{ID: "D2", Name: "kate", Type: "dm", Presence: "active", Joined: true},
+	}
+	wctx.publishFinderItems()
+
+	_, finder := switchLists(db, wctx, map[string]peerstatus.Status{})
+
+	want := []string{"", "active", "active"}
+	if len(finder) != len(want) {
+		t.Fatalf("finder rows = %+v; want %d rows", finder, len(want))
+	}
+	for i, w := range want {
+		if finder[i].Presence != w {
+			t.Errorf("finder row %s presence = %q; want %q", finder[i].ID, finder[i].Presence, w)
+		}
+	}
+	if got := wctx.FinderItems()[1].Presence; got != "away" {
+		t.Errorf("published finder snapshot presence = %q; switchLists must not write it", got)
 	}
 }
 

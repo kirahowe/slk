@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/gammons/slk/internal/cache"
+	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/debuglog"
 	slackclient "github.com/gammons/slk/internal/slack"
 	"github.com/gammons/slk/internal/slack/edge"
@@ -379,6 +380,26 @@ func withCachedPresence(db *cache.DB, channels []sidebar.ChannelItem) []sidebar.
 		}
 	}
 	return outChannels
+}
+
+// withDMPresence returns a copy of finder with each DM row's Presence
+// taken from the sidebar row of the same conversation in channels, so
+// the finder shows the presence the sidebar does. A row with no DM
+// sidebar row keeps its own. Does not modify either input.
+func withDMPresence(finder []core.ChannelFinderItem, channels []sidebar.ChannelItem) []core.ChannelFinderItem {
+	presence := make(map[string]string)
+	for _, ch := range channels {
+		if ch.DMUserID != "" {
+			presence[ch.ID] = ch.Presence
+		}
+	}
+	out := slices.Clone(finder)
+	for i := range out {
+		if p, ok := presence[out[i].ID]; ok {
+			out[i].Presence = p
+		}
+	}
+	return out
 }
 
 func (p *peerStatusRefresher) emit(msg tea.Msg) {

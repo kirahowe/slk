@@ -365,7 +365,9 @@ func lookupConversation(wctx *WorkspaceContext, channelID string) (name, chType 
 // hands the UI. It runs inside a tea.Cmd, off the event owner. Both are
 // the UI's from then on, so neither shares the published snapshot. DM
 // rows take their peers' presence from db, which presence_change events
-// keep current: the snapshot's Presence is from connect time.
+// keep current: the snapshot's Presence is from connect time. The
+// finder's DM rows take the same presence as their sidebar rows.
 func switchLists(db *cache.DB, wctx *WorkspaceContext, statuses map[string]peerstatus.Status) ([]sidebar.ChannelItem, []core.ChannelFinderItem) {
-	return withCachedPresence(db, withPeerStatuses(wctx.Channels(), statuses)), slices.Clone(wctx.FinderItems())
+	channels := withCachedPresence(db, withPeerStatuses(wctx.Channels(), statuses))
+	return channels, withDMPresence(wctx.FinderItems(), channels)
 }
