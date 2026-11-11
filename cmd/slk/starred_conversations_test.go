@@ -3,8 +3,11 @@ package main
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -136,6 +139,82 @@ func TestOnConnectDebouncesStarredReconciliation(t *testing.T) {
 	connect()
 	if calls != 2 {
 		t.Fatalf("starred metadata lookups once the window passed = %d, want 2", calls)
+	}
+}
+
+// A connect whose section refresh fails does not count against
+// sectionRefreshWindow: the next connect, however soon, tries again.
+// One that succeeds still holds back the connects inside its window.
+func TestOnConnectRetriesFailedSectionRefresh(t *testing.T) {
+	var failSections atomic.Bool
+	var sectionCalls atomic.Int32
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		var body string
+		switch r.URL.Path {
+		case "/api/users.channelSections.list":
+			sectionCalls.Add(1)
+			body = `{"ok":true,"channel_sections":[{"channel_section_id":"ST","type":"stars"}],"cursor":""}`
+			if failSections.Load() {
+				body = `{"ok":false,"error":"fatal_error"}`
+			}
+		case "/api/stars.list":
+			body = `{"ok":true,"items":[{"type":"im","channel":"D2"}]}`
+		case "/api/users.getPresence":
+			body = `{"ok":true,"presence":"active"}`
+		case "/api/dnd.info":
+			body = `{"ok":true,"dnd_enabled":false}`
+		default:
+			t.Errorf("fake Slack got an unexpected request to %s", r.URL.Path)
+			http.Error(w, `{"ok":false,"error":"unexpected_path"}`, http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+
+	done := make(chan struct{}, 1)
+	lookups := 0
+	now := time.Unix(1_800_000_000, 0)
+	h := &rtmEventHandler{
+		sectionGate: dedupeGate{window: sectionRefreshWindow},
+		now:         func() time.Time { return now },
+		wsCtx: &WorkspaceContext{
+			Client: newTestClient(t, srv), TeamID: "T1", UserID: "USELF",
+			SectionStore: service.NewSectionStore(),
+		},
+		program: sendFunc(func(msg tea.Msg) {
+			if _, ok := msg.(ui.StatusChangeMsg); ok {
+				done <- struct{}{}
+			}
+		}),
+		resolveConversation: func(context.Context, string) (*slack.Channel, error) {
+			lookups++
+			return nil, errors.New("temporarily unavailable")
+		},
+	}
+	connect := func() {
+		h.OnConnect()
+		<-done // no deadline, a hang is reported by go test -timeout
+	}
+
+	failSections.Store(true)
+	connect()
+	if got := sectionCalls.Load(); got != 1 || lookups != 0 {
+		t.Fatalf("failed refresh: section requests = %d, starred lookups = %d, want 1 and 0", got, lookups)
+	}
+
+	failSections.Store(false)
+	now = now.Add(time.Second)
+	connect()
+	if got := sectionCalls.Load(); got != 2 || lookups != 1 {
+		t.Fatalf("connect after a failed refresh: section requests = %d, starred lookups = %d, want 2 and 1", got, lookups)
+	}
+
+	now = now.Add(sectionRefreshWindow - time.Millisecond)
+	connect()
+	if got := sectionCalls.Load(); got != 2 || lookups != 1 {
+		t.Fatalf("connect inside a successful refresh's window: section requests = %d, starred lookups = %d, want 2 and 1", got, lookups)
 	}
 }
 

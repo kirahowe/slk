@@ -58,6 +58,33 @@ func TestReconnect_DedupeWindow(t *testing.T) {
 	}
 }
 
+// A released pass does not count against the window; a pass admitted
+// later than the released one keeps holding the window.
+func TestDedupeGate_ReleaseForgetsFailedPass(t *testing.T) {
+	gate := &dedupeGate{window: 30 * time.Second}
+
+	failed := time.Unix(1000, 0)
+	if !gate.tryStart(failed) {
+		t.Fatal("first call should be allowed")
+	}
+	gate.release(failed)
+	ok := time.Unix(1001, 0)
+	if !gate.tryStart(ok) {
+		t.Fatal("call after a released pass should be allowed")
+	}
+	if gate.tryStart(time.Unix(1002, 0)) {
+		t.Error("call inside a kept pass's window should be blocked")
+	}
+	// Releasing a pass that is no longer the recorded one changes nothing.
+	gate.release(failed)
+	if gate.tryStart(time.Unix(1003, 0)) {
+		t.Error("releasing an older pass let a call through a newer pass's window")
+	}
+	if !gate.tryStart(time.Unix(1031, 0)) {
+		t.Error("call after the kept pass's window should be allowed")
+	}
+}
+
 // fakeCounts implements the narrow client surface reconnectSync needs
 // and records every call it receives, in order, under the name of the
 // endpoint it maps to. The endpoint names match the ones

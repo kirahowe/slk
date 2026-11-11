@@ -487,6 +487,8 @@ func (h *rtmEventHandler) OnConnect() {
 	// The whole block is debounced to once per 30s so a rapid flap doesn't
 	// repeat missing-row lookups even when MaybeRebootstrap skips its fetch.
 	// A real long-disconnect-then-reconnect refreshes missed section state.
+	// A refresh that fails is released from the gate, so the next connect
+	// tries again instead of waiting out the window.
 	//
 	// Run synchronously on the event owner. This briefly blocks
 	// inbound event delivery during the bootstrap HTTP call, but that
@@ -494,13 +496,14 @@ func (h *rtmEventHandler) OnConnect() {
 	// avoids racing wsCtx.channels mutations against the same loop's
 	// next event (which could be an OnConversationOpened that also
 	// touches wsCtx.channels).
-	if h.wsCtx != nil && h.wsCtx.SectionStore != nil && h.wsCtx.Client != nil &&
-		h.sectionGate.tryStart(h.clock()) {
+	if started := h.clock(); h.wsCtx != nil && h.wsCtx.SectionStore != nil && h.wsCtx.Client != nil &&
+		h.sectionGate.tryStart(started) {
 		// Bound section refresh and missing-row hydration together so a slow
 		// workspace cannot indefinitely stall serialized WebSocket delivery.
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		if err := h.wsCtx.SectionStore.MaybeRebootstrap(ctx, h.wsCtx.Client); err != nil {
 			log.Printf("section store rebootstrap for %s failed: %v", h.wsCtx.TeamName, err)
+			h.sectionGate.release(started)
 		} else {
 			h.reconcileStarredConversations(ctx)
 			h.refreshSectionsForActive()

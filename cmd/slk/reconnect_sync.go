@@ -200,3 +200,17 @@ func (g *dedupeGate) tryStart(now time.Time) bool {
 	g.last = now
 	return true
 }
+
+// release takes back the pass tryStart admitted at `started`, for a pass
+// that failed: the window then holds nothing back, so the next tryStart
+// is admitted at once. The previous admitted pass began at least
+// `window` before `started`, so forgetting both gives the same answer as
+// keeping the earlier one. A pass admitted after `started` stays
+// recorded.
+func (g *dedupeGate) release(started time.Time) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.last.Equal(started) {
+		g.last = time.Time{}
+	}
+}
