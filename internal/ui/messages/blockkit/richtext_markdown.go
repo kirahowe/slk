@@ -20,8 +20,9 @@ import (
 //
 // Bulleted items become "- ", ordered items "N. ", and each indent
 // level is four spaces so the item nests under the one above it; a
-// list right under one of the same kind and level uses "* " or "N) "
-// so it stays a list of its own. Links become the bare URL when the
+// list that would read as more of the last one at its level (the same
+// kind, with only deeper lists between) uses "* " or "N) " so it stays
+// a list of its own (listRuns.absorbs). Links become the bare URL when the
 // label is the URL, else [label](url). Styles become **bold**,
 // _italic_, ~~strike~~ and `code`. Mentions stay in wire form (<@U…>,
 // <#C…>, <!here>, <!subteam^S…>) for the composer to turn into names.
@@ -431,8 +432,7 @@ func layout(rt RichTextBlock) []mdSegment {
 	var segs []mdSegment
 	var b strings.Builder
 	var prev slack.RichTextElement
-	prevList := -1   // indent of the list element just written; -1 after anything else
-	prevAlt := false // whether it used the other markers
+	var runs listRuns // the lists just written, by level; none after anything else
 	for _, e := range rt.Elements {
 		var part []mdSegment
 		list, alt := -1, false
@@ -443,8 +443,8 @@ func layout(rt RichTextBlock) []mdSegment {
 			// A nested level sits directly under its parent list; one
 			// with nothing above it to nest under starts at the margin
 			// (four spaces after a paragraph are paragraph text).
-			list = min(v.Indent, prevList+1)
-			alt = sameList(prev, v) && prevList == list && !prevAlt
+			list = min(v.Indent, len(runs))
+			alt = runs.absorbs(list, v.Style)
 			part = listItems(v, list, alt)
 		case *slack.RichTextPreformatted:
 			part = []mdSegment{{glue: preformattedToMarkdown(v.Elements)}}
@@ -463,9 +463,35 @@ func layout(rt RichTextBlock) []mdSegment {
 		}
 		segs = append(segs, part...)
 		b.WriteString(text)
-		prev, prevList, prevAlt = e, list, alt
+		prev = e
+		if list < 0 {
+			runs = nil
+		} else {
+			runs = append(runs[:list], listRun{style: e.(*slack.RichTextList).Style, alt: alt})
+		}
 	}
 	return segs
+}
+
+// listRun is the last list written at a level: its style and whether
+// it used the other markers ("* ", "N) ").
+type listRun struct {
+	style slack.RichTextListElementType
+	alt   bool
+}
+
+// listRuns holds, for the lists just written, the last one at each
+// level, shallowest first.
+type listRuns []listRun
+
+// absorbs reports whether a list of style written at level with the
+// plain markers would read as more of the last list written there, so
+// it has to use the other markers to stay a list of its own. CommonMark
+// carries a list on at its level until a line there (or shallower)
+// changes the marker, past any deeper lists in between, so it does when
+// that list has this style and the plain markers.
+func (r listRuns) absorbs(level int, style slack.RichTextListElementType) bool {
+	return level < len(r) && r[level].style == style && !r[level].alt
 }
 
 // paragraphs splits a section's elements at its blank lines into one
@@ -1126,14 +1152,6 @@ func preformattedToMarkdown(elements []slack.RichTextSectionElement) string {
 		fence += "`"
 	}
 	return fence + "\n" + body + "\n" + fence
-}
-
-// sameList reports whether l has prev's list style, so that written
-// right under it with the same markers it would read as more of prev:
-// CommonMark starts a new list only where the marker changes.
-func sameList(prev slack.RichTextElement, l *slack.RichTextList) bool {
-	p, ok := prev.(*slack.RichTextList)
-	return ok && p.Style == l.Style
 }
 
 // quote writes a rich_text_quote as "> " lines.
