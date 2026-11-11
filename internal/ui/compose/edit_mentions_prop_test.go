@@ -105,7 +105,7 @@ func TestMentionsForEditNamesWhatItKnows(t *testing.T) {
 		order := rapid.Permutation(tokens).Draw(t, "order")
 		x := strings.Join(order, " ")
 		got := mentionsForEdit(x, names, channels, groups)
-		if wireTokenRe.MatchString(got) {
+		if len(mrkdwn.Tokens(got)) > 0 {
 			t.Fatalf("mentionsForEdit(%q) = %q, still has a token", x, got)
 		}
 	})

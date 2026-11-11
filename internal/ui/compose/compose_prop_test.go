@@ -8,6 +8,7 @@ import (
 
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/proptest"
+	"github.com/gammons/slk/internal/slack/mrkdwn"
 	"pgregory.net/rapid"
 )
 
@@ -177,8 +178,17 @@ func TestTranslateMentionsKeepsWireTokens(t *testing.T) {
 	}
 }
 
-// Every wire token of Slack text survives translation unchanged and in
-// order, whatever names the maps hold.
+// tokenTexts is the text of each token Convert reads in s, in order.
+func tokenTexts(s string) []string {
+	var out []string
+	for _, sp := range mrkdwn.Tokens(s) {
+		out = append(out, s[sp.Start:sp.End])
+	}
+	return out
+}
+
+// Every token Convert reads in Slack text survives translation
+// unchanged and in order, whatever names the maps hold.
 func TestTranslateMentionsWireTokensSurvive(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		names, channels, groups := genMaps(t)
@@ -186,8 +196,8 @@ func TestTranslateMentionsWireTokensSurvive(t *testing.T) {
 		names["eng"] = "UENG"
 		names[rapid.StringMatching(`U[A-Z0-9]{8}`).Draw(t, "idName")] = "UX"
 		text := proptest.SlackText(nil, nil).Draw(t, "text")
-		in := wireTokenRe.FindAllString(text, -1)
-		out := wireTokenRe.FindAllString(translateMentions(text, names, channels, groups), -1)
+		in := tokenTexts(text)
+		out := tokenTexts(translateMentions(text, names, channels, groups))
 		i := 0
 		for _, tok := range out {
 			if i < len(in) && tok == in[i] {
@@ -196,6 +206,57 @@ func TestTranslateMentionsWireTokensSurvive(t *testing.T) {
 		}
 		if i != len(in) {
 			t.Fatalf("tokens %q of %q not all kept: %q", in, text, out)
+		}
+	})
+}
+
+// Text that only looks like a wire token is text, as Convert reads it:
+// a mention in it is translated. Only a token Convert reads (a
+// usergroup or link label, a user token) shields what is inside it.
+func TestTranslateMentionsReadsTokensAsConvert(t *testing.T) {
+	names := map[string]string{"bob": "U1"}
+	for _, tc := range []struct{ in, want string }{
+		{"cc <@bob>", "cc <<@U1>>"},
+		{"<!-- @bob --> hi", "<!-- <@U1> --> hi"},
+		{"a <!b and @bob -> c", "a <!b and <@U1> -> c"},
+		{"x < 5 and <#5 for @bob -> skip", "x < 5 and <#5 for <@U1> -> skip"},
+		{"<mailto:a@b.co|@bob>", "<mailto:a@b.co|<@U1>>"},
+		{"<https://x|@bob>", "<https://x|@bob>"},
+		{"<!subteam^S1|@bob>", "<!subteam^S1|@bob>"},
+	} {
+		if got := translateMentions(tc.in, names, nil, nil); got != tc.want {
+			t.Errorf("translateMentions(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// Text holding no token Convert reads protects nothing: every @name
+// between non-word characters is translated, however many '<', '>',
+// '!' and '#' surround it.
+func TestTranslateMentionsWithoutTokensTranslatesEveryMention(t *testing.T) {
+	filler := rapid.StringMatching(`[a-z0-9 <>!#|^-]{0,8}`)
+	rapid.Check(t, func(t *rapid.T) {
+		names := rapid.MapOfN(rapid.StringMatching(`[a-z]{1,6}`), rapid.StringMatching(`U[A-Z0-9]{4}`), 1, 4).Draw(t, "names")
+		var userNames []string
+		for name := range names {
+			userNames = append(userNames, name)
+		}
+		slices.Sort(userNames)
+		var in, want strings.Builder
+		for range rapid.IntRange(1, 6).Draw(t, "mentions") {
+			f := filler.Draw(t, "filler")
+			before := rapid.SampledFrom([]string{" ", "\n", " <", " (", " <!", " <#", " <!-- "}).Draw(t, "before")
+			name := rapid.SampledFrom(userNames).Draw(t, "name")
+			after := rapid.SampledFrom([]string{" ", "\n", ">", ".", " ->", " -->"}).Draw(t, "after")
+			in.WriteString(f + before + "@" + name + after)
+			want.WriteString(f + before + "<@" + names[name] + ">" + after)
+		}
+		text := in.String()
+		if len(mrkdwn.Tokens(text)) > 0 {
+			t.Skip("the filler made a token")
+		}
+		if got := translateMentions(text, names, nil, nil); got != want.String() {
+			t.Fatalf("translateMentions(%q) = %q, want %q", text, got, want.String())
 		}
 	})
 }

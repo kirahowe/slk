@@ -177,6 +177,35 @@ type Mention struct {
 // text, is listed too.
 func Mentions(s string) []Mention {
 	var out []Mention
+	eachToken(s, func(start int, tok token, n int) {
+		if kind, mention := map[tokenKind]byte{tokUser: '@', tokChannel: '#', tokBroadcast: '!'}[tok.kind]; mention {
+			out = append(out, Mention{Start: start, End: start + n, Kind: kind, ID: tok.id, Label: tok.label})
+		}
+	})
+	return out
+}
+
+// Span is the bytes of a string from Start to End.
+type Span struct{ Start, End int }
+
+// Tokens lists, in order, the span of every token Convert reads in s: a
+// user, channel, broadcast or usergroup mention, a link
+// (<https://…|label>) or an emoji shortcode (:name:). These are the
+// tokens tokenize takes out of the text before the markdown is parsed.
+// Text that only looks like a token is not one: "<@bob>", "<!-- x -->",
+// a labelled user token ("<@U1|x>"), "<mailto:…>". Like Mentions it
+// reads no markdown.
+func Tokens(s string) []Span {
+	var out []Span
+	eachToken(s, func(start int, _ token, n int) {
+		out = append(out, Span{start, start + n})
+	})
+	return out
+}
+
+// eachToken calls fn with the start, contents and length of each token
+// tokenize reads in s, in order, scanning s the way tokenize does.
+func eachToken(s string, fn func(start int, tok token, n int)) {
 	for i := 0; i < len(s); {
 		j := strings.IndexAny(s[i:], "<:")
 		if j < 0 {
@@ -188,12 +217,9 @@ func Mentions(s string) []Mention {
 			i++
 			continue
 		}
-		if kind, mention := map[tokenKind]byte{tokUser: '@', tokChannel: '#', tokBroadcast: '!'}[tok.kind]; mention {
-			out = append(out, Mention{Start: i, End: i + n, Kind: kind, ID: tok.id, Label: tok.label})
-		}
+		fn(i, tok, n)
 		i += n
 	}
-	return out
 }
 
 // parseSentinel inspects s starting at byte offset start. If a
