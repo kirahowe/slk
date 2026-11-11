@@ -156,6 +156,18 @@ func (m *Model) Upsert(item core.ChannelFinderItem) {
 	}
 }
 
+// SetPresence sets the presence dot on the row with the given ID. It
+// leaves the order of the rows, the query and the selection as they
+// are, so an open finder only redraws the dot. No-op for an unknown ID.
+func (m *Model) SetPresence(channelID, presence string) {
+	for i := range m.items {
+		if m.items[i].ID == channelID {
+			m.items[i].Presence = presence
+			return
+		}
+	}
+}
+
 // MarkJoined flips the Joined bit on a channel that the user just joined,
 // so it stops rendering as dimmed and the next Enter on it skips the join
 // step.

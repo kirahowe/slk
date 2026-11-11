@@ -20,6 +20,7 @@ import (
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/ui/peerstatus"
 	"github.com/gammons/slk/internal/ui/presencemenu"
+	"github.com/gammons/slk/internal/ui/sidebar"
 	"github.com/gammons/slk/internal/ui/statusbar"
 )
 
@@ -190,7 +191,12 @@ func (p *presenceController) Handle(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
 	case PresenceChangeMsg:
 		// Per-user presence dot in the DM list; not workspace-scoped.
+		// The sidebar decides which rows take the change; the finder
+		// copies their presence, so the two always show the same dot.
 		a.sidebar.UpdatePresenceByUser(m.UserID, m.Presence)
+		for _, item := range dmRowsOf(a, m.UserID) {
+			a.channelFinder.SetPresence(item.ID, item.Presence)
+		}
 		return nil, true
 
 	case UserStatusChangeMsg:
@@ -321,16 +327,25 @@ func (p *presenceController) claimPeerTick(st peerstatus.Status) tea.Cmd {
 // channel finder row and every window (focused or not) currently
 // showing that DM's header.
 func (p *presenceController) pushDMStatus(a *App, userID string, now time.Time) {
-	for _, item := range a.sidebar.Items() {
-		if item.DMUserID != userID {
-			continue
-		}
+	for _, item := range dmRowsOf(a, userID) {
 		a.channelFinder.SetStatus(item.ID, item.Status)
 		topic := item.Status.Summary(now, dmTopicLayout)
 		for _, mp := range a.modelsForChannel(item.ID) {
 			mp.SetChannelTopic(topic)
 		}
 	}
+}
+
+// dmRowsOf returns the sidebar's DM rows whose peer is userID: the
+// conversations a change to that user's presence or status touches.
+func dmRowsOf(a *App, userID string) []sidebar.ChannelItem {
+	var rows []sidebar.ChannelItem
+	for _, item := range a.sidebar.Items() {
+		if item.DMUserID == userID {
+			rows = append(rows, item)
+		}
+	}
+	return rows
 }
 
 // dmTopicFor is the header topic for channelID: its DM peer's status
