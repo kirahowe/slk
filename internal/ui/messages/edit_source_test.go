@@ -139,6 +139,39 @@ func TestEditSourceQuoteKeepsMarkerOnlyLines(t *testing.T) {
 	}
 }
 
+// roundTripsAsTyped fails the test unless the edit seed of each typed
+// text is the text itself and sends the block it did.
+func roundTripsAsTyped(t *testing.T, typed ...string) {
+	t.Helper()
+	for _, typed := range typed {
+		var msg MessageItem
+		TypedBody(typed).Apply(&msg)
+		seed := EditSource(msg)
+		_, want := mrkdwn.Convert(typed)
+		_, got := mrkdwn.Convert(seed)
+		wj, _ := json.Marshal(want)
+		gj, _ := json.Marshal(got)
+		if seed != typed || string(gj) != string(wj) {
+			t.Errorf("typed %q, seed %q:\n got %s\nwant %s", typed, seed, gj, wj)
+		}
+	}
+}
+
+// A list item's later lines are indented to its text, the column
+// Convert needs to keep them in the item: two spaces after "- ", three
+// after "1. ", four after "10. ", plus the item's own indent.
+func TestEditSourceItemContinuationLines(t *testing.T) {
+	roundTripsAsTyped(t,
+		"- a a\n  a",
+		"- a\n  b\n\n  c",
+		"1. a\n   b",
+		"10. a\n    b",
+		"- a\n    - b\n      c",
+		"- a\n    - b\n        - c\n          d",
+		"1. a\n    1. b\n       c",
+	)
+}
+
 // denseLine is a line of the punctuation a person types in prose, each
 // mark one the seed could escape: a colon, parens, a URL, a code span,
 // " - ", "!", brackets, an HTML-shaped word, a pipe and "3.".

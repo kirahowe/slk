@@ -110,7 +110,8 @@ type mdSegment struct {
 
 // mdUnit is a part of the seed that Convert reads apart from the rest
 // of the message: a paragraph of a section (paragraphs end at a blank
-// line), a list item (from its marker; the indent is glue) or a quote.
+// line), a list item (from its marker; its indent is glue, put before
+// each of its lines) or a quote.
 // CommonMark parses the inline markup of each paragraph, item and quote
 // on its own, and the text between units (separators, indents, blank
 // lines) is glue no choice changes, so short spellings that send a
@@ -139,6 +140,9 @@ type mdUnit struct {
 	text       string
 	n, nb      int
 	form       string // what Convert sends for text, deciding by unit
+	// indent goes before each later line of text in the seed: a list
+	// item's own indent, which text, read alone, does without.
+	indent string
 }
 
 // draw renders u under its choices.
@@ -232,7 +236,7 @@ func segmentsText(segs []mdSegment) string {
 	var b strings.Builder
 	for _, seg := range segs {
 		if seg.unit != nil {
-			b.WriteString(seg.unit.text)
+			b.WriteString(indentLines(seg.unit.text, seg.unit.indent))
 		} else {
 			b.WriteString(seg.glue)
 		}
@@ -510,7 +514,9 @@ func withText(t *slack.RichTextSectionTextElement, text string) *slack.RichTextS
 }
 
 // listItems lays out a list, one item per line, four spaces per indent
-// level. Ordered items are numbered from Offset+1.
+// level. Ordered items are numbered from Offset+1. An item is a unit
+// from its marker; its indent is glue, and also goes before the item's
+// later lines in the seed (mdUnit.indent).
 func listItems(l *slack.RichTextList, indent int, alt bool) []mdSegment {
 	pad := strings.Repeat("    ", indent)
 	var segs []mdSegment
@@ -536,9 +542,31 @@ func listItems(l *slack.RichTextList, indent int, alt bool) []mdSegment {
 		if glue != "" {
 			segs = append(segs, mdSegment{glue: glue})
 		}
-		segs = append(segs, newUnit(func(w *mdWriter) string { return marker + w.inlines(body) }))
+		// The item's later lines start at its text's column, after
+		// the indent and the marker: a line short of it is not in the
+		// item.
+		item := newUnit(func(w *mdWriter) string {
+			return marker + indentLines(w.inlines(body), strings.Repeat(" ", len(marker)))
+		})
+		item.unit.indent = pad
+		segs = append(segs, item)
 	}
 	return segs
+}
+
+// indentLines puts indent before each line of s after the first, except
+// empty ones (a blank line needs none, and spaces on it would be text).
+func indentLines(s, indent string) string {
+	if indent == "" || !strings.Contains(s, "\n") {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	for i := 1; i < len(lines); i++ {
+		if lines[i] != "" {
+			lines[i] = indent + lines[i]
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // separator is the text between two top-level elements. Convert puts
