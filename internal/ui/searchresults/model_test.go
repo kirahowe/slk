@@ -659,3 +659,16 @@ func TestMultiByteBackspace(t *testing.T) {
 		t.Fatalf("query = %q, want %q", m.Query(), "a")
 	}
 }
+
+// The space bar types a space into the query, as Key.String() names it
+// ("space"), so a search can have several terms.
+func TestQueryTakesASpace(t *testing.T) {
+	m := New()
+	m.Open()
+	for _, k := range []string{"a", "space", "b"} {
+		m.HandleKey(k)
+	}
+	if got := m.Query(); got != "a b" {
+		t.Errorf("query = %q, want %q", got, "a b")
+	}
+}

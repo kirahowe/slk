@@ -165,12 +165,8 @@ func handleCommandMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		a.setCmdline(text.DropLastRune(a.cmdline))
 		return nil
 	}
-	s := msg.String()
-	if s == "space" {
-		s = " "
-	}
-	if text.TypedRune(s) {
-		a.setCmdline(a.cmdline + s)
+	if typed, ok := text.Typed(msg.String()); ok {
+		a.setCmdline(a.cmdline + typed)
 	}
 	return nil
 }

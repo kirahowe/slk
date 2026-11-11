@@ -218,9 +218,9 @@ func (m *Model) handleSearchKey(keyStr string) {
 			m.filter()
 		}
 	default:
-		// Single printable rune — append to query.
-		if text.TypedRune(keyStr) {
-			m.query += keyStr
+		// Typed text (see text.Typed) goes into the query.
+		if typed, ok := text.Typed(keyStr); ok {
+			m.query += typed
 			m.selected = 0
 			m.filter()
 		}

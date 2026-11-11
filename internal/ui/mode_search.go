@@ -68,16 +68,12 @@ func handleSearchMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		if a.searchInput != "" {
 			a.searchInput = text.DropLastRune(a.searchInput)
 		}
-	case "space":
-		// Key.String() renders a literal space as "space"; queries
-		// can be multi-term, so map it back.
-		a.searchInput += " "
 	default:
 		// Single-rune filter: accepts ordinary printable input but
 		// drops multi-rune graphemes (emoji ZWJ sequences, some IME
 		// commits arrive as multi-rune strings). Known v1 limitation.
-		if text.TypedRune(s) {
-			a.searchInput += s
+		if typed, ok := text.Typed(s); ok {
+			a.searchInput += typed
 		}
 	}
 	a.statusbar.SetSearch("/" + a.searchInput)

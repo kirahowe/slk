@@ -189,10 +189,11 @@ func (m *Model) HandleKey(keyStr string) *Result {
 		return nil
 	}
 
-	// Single printable rune -> append to query. Space never gets here:
-	// the switch above takes it as toggle-selection.
-	if text.TypedRune(keyStr) {
-		m.query += keyStr
+	// Typed text (see text.Typed) goes into the query. The space bar
+	// never types here: the mode handler passes it as " ", which the
+	// switch above takes as toggle-selection.
+	if typed, ok := text.Typed(keyStr); ok {
+		m.query += typed
 		m.highlight = 0
 		m.filter()
 	}

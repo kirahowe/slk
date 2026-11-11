@@ -105,3 +105,16 @@ func TestHandleKey_NonASCIIQuery(t *testing.T) {
 		t.Errorf("after backspace query = %q, want %q", m.query, "中")
 	}
 }
+
+// The space bar types a space into the query, as Key.String() names it
+// ("space").
+func TestQueryTakesASpace(t *testing.T) {
+	m := New()
+	m.OpenWith("Workspace", "active", false, time.Time{})
+	for _, k := range []string{"a", "space", "b"} {
+		m.HandleKey(k)
+	}
+	if m.query != "a b" {
+		t.Errorf("query = %q, want %q", m.query, "a b")
+	}
+}

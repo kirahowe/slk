@@ -284,10 +284,8 @@ func TestSearchModeKeys(t *testing.T) {
 		},
 		{
 			// Key.String() renders a literal space as "space"
-			// regardless of Key.Text (verified), so the dedicated arm
-			// at mode_search.go:70 is live: without it the 5-rune
-			// "space" would be dropped and multi-term queries would be
-			// impossible to type.
+			// regardless of Key.Text, and text.Typed turns that name
+			// into " ", so a query can have several terms.
 			name:     "space appends a literal space, not the word \"space\"",
 			opts:     searchOpts(),
 			setup:    typeSearch("two"),

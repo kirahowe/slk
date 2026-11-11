@@ -190,9 +190,9 @@ func (m *Model) HandleKey(keyStr string) *ThemeResult {
 		return nil
 	}
 
-	// Single printable rune — add to query
-	if text.TypedRune(keyStr) {
-		m.query += keyStr
+	// Typed text (see text.Typed) goes into the query
+	if typed, ok := text.Typed(keyStr); ok {
+		m.query += typed
 		m.selected = 0
 		m.filter()
 	}

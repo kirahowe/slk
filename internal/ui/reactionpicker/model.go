@@ -306,8 +306,8 @@ func (m *Model) HandleKey(keyStr string) *ReactionResult {
 		return nil
 
 	default:
-		if text.TypedRune(keyStr) {
-			m.query += keyStr
+		if typed, ok := text.Typed(keyStr); ok {
+			m.query += typed
 			m.filter()
 		}
 		return nil

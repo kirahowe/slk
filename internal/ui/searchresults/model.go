@@ -141,8 +141,8 @@ func (m Model) Selected() (Item, bool) {
 }
 
 // HandleKey processes a normalized key string ("enter", "esc", "up",
-// "down", "backspace", "space", or a printable rune) and reports the
-// action.
+// "down", "backspace", or a key that types text, see text.Typed) and
+// reports the action.
 func (m *Model) HandleKey(keyStr string) Action {
 	switch keyStr {
 	case "esc":
@@ -178,14 +178,9 @@ func (m *Model) HandleKey(keyStr string) Action {
 			m.query = text.DropLastRune(m.query)
 			m.st = stateInput
 		}
-	case "space":
-		// bubbletea v2's Key.String() renders a literal space as
-		// "space"; queries can be multi-term, so map it back.
-		m.query += " "
-		m.st = stateInput
 	default:
-		if text.TypedRune(keyStr) {
-			m.query += keyStr
+		if typed, ok := text.Typed(keyStr); ok {
+			m.query += typed
 			m.st = stateInput
 		}
 	}
