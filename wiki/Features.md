@@ -20,7 +20,7 @@
 - ANSI-aware wrapping and truncation (no broken color codes mid-line)
 - Drag-to-copy: drag the mouse across messages to highlight them; release to copy plain text to the system clipboard via OSC 52
 - Copy message text (`y`) and copy permalink (`Y` / `C`) to the system clipboard via OSC 52
-- Forward a message or thread reply (`F`) — the same fuzzy picker as `Ctrl+t`, limited to joined channels and existing DMs in the current workspace. Enter shares the original permalink with Slack preview unfurling enabled; Esc cancels. Keeps your current channel and draft unchanged. Slack controls preview availability and access to the original message. Pressing Enter on the forwarded message navigates to the original.
+- Forward a message or thread reply (`F`): the same fuzzy picker as `Ctrl+t`, limited to joined channels and existing DMs in the current workspace. Enter shares the message the way Slack's own Forward does, so the destination gets a shared message with the original embedded in it; Esc cancels. The forward shows in the destination at once, and your current channel and draft stay as they are. Slack still decides who can see the original: sharing a message from a private channel gives nobody access to it. `o` on a shared message offers the original. Enter on a message that is only a Slack permalink goes to that message.
 
 ## Compose
 
