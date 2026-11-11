@@ -89,23 +89,6 @@ func codeEdgeBreak(typed string) bool {
 	return false
 }
 
-// siblingSections reports whether Convert gives typed two top-level
-// sections in a row.
-func siblingSections(typed string) bool {
-	_, rt := mrkdwn.Convert(typed)
-	if rt == nil {
-		return false
-	}
-	for i := 1; i < len(rt.Elements); i++ {
-		_, a := rt.Elements[i-1].(*slack.RichTextSection)
-		_, b := rt.Elements[i].(*slack.RichTextSection)
-		if a && b {
-			return true
-		}
-	}
-	return false
-}
-
 // tokenLabelRe matches a channel, broadcast or usergroup token with a
 // label, group 1 being the token without it.
 var tokenLabelRe = regexp.MustCompile(`(<(?:#[CG][A-Z0-9]+|![a-z]+(?:\^[A-Za-z0-9]+)?))\|[^>]*>`)
@@ -163,12 +146,6 @@ func TestEditSourceRoundTripsTheBlock(t *testing.T) {
 			// An item with nothing in it ("- " then a bare fence):
 			// not valid rich text, which Slack refuses.
 			t.Skip("empty element")
-		}
-		if siblingSections(typed) {
-			// Two sections in a row (an empty "> " line between two
-			// paragraphs drops out): the seed writes them as one
-			// paragraph, which draws the same.
-			t.Skip("sibling sections")
 		}
 		if codeEdgeBreak(typed) {
 			// A code span starting or ending in a line break ("`\n`",
