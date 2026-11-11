@@ -726,6 +726,27 @@ func TestConvert_QuoteKeepsEmptyBlockLines(t *testing.T) {
 	}
 }
 
+// HTML-shaped text in a link's label is text the user typed: the link
+// goes out with it as its label, as it would outside a link.
+func TestConvert_LinkLabelKeepsRawHTML(t *testing.T) {
+	for _, tc := range []struct{ in, label string }{
+		{"[<a>](https://example.com/)", "<a>"},
+		{"[see <b>this</b> now](https://example.com/)", "see <b>this</b> now"},
+		{"[plain](https://example.com/)", "plain"},
+	} {
+		_, blk := Convert(tc.in)
+		var link *slack.RichTextSectionLinkElement
+		if blk != nil && len(blk.Elements) == 1 {
+			if sec, ok := blk.Elements[0].(*slack.RichTextSection); ok && len(sec.Elements) == 1 {
+				link, _ = sec.Elements[0].(*slack.RichTextSectionLinkElement)
+			}
+		}
+		if link == nil || link.Text != tc.label || link.URL != "https://example.com/" {
+			t.Errorf("Convert(%q) = %s, want one link labelled %q", tc.in, blockJSON(blk), tc.label)
+		}
+	}
+}
+
 func TestConvert_BackslashEscape(t *testing.T) {
 	mr, blk := Convert(`\*not bold\*`)
 	want := "*not bold*"

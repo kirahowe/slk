@@ -197,6 +197,11 @@ func TestEditSourceListAfterNestedLevelStaysApart(t *testing.T) {
 	}
 }
 
+// A link labelled with HTML-shaped text keeps its label on save.
+func TestEditSourceLinkLabelWithRawHTML(t *testing.T) {
+	roundTripsAsTyped(t, "- [<a>](https://example.com/)", "[see <b>this</b> now](https://example.com/)")
+}
+
 // denseLine is a line of the punctuation a person types in prose, each
 // mark one the seed could escape: a colon, parens, a URL, a code span,
 // " - ", "!", brackets, an HTML-shaped word, a pipe and "3.".

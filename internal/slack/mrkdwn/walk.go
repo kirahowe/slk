@@ -367,6 +367,15 @@ func (w *walker) collectInlineText(n ast.Node) string {
 			b.Write(w.source[t.Segment.Start:t.Segment.Stop])
 			return
 		}
+		if h, ok := c.(*ast.RawHTML); ok {
+			// HTML-shaped text is what the user typed, as walkInline
+			// sends it outside a label.
+			for i := 0; i < h.Segments.Len(); i++ {
+				seg := h.Segments.At(i)
+				b.Write(w.source[seg.Start:seg.Stop])
+			}
+			return
+		}
 		for cc := c.FirstChild(); cc != nil; cc = cc.NextSibling() {
 			walk(cc)
 		}
