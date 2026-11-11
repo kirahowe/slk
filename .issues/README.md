@@ -8,6 +8,7 @@
 | ID | Title | Type | Priority |
 | --- | --- | --- | --- |
 | [7](7-confirm-the-chat-sharemessage-request-for-a-thread-reply-a.md) | Confirm the chat.shareMessage request for a thread reply, a DM and a re-forward | chore | P2 |
+| [16](16-decide-what-enter-does-on-a-shared-message.md) | Decide what Enter does on a shared message | chore | P2 |
 | [2](2-cache-canvases-so-the-viewer-opens-instantly.md) | Cache canvases so the viewer opens instantly | feature | P3 |
 | [3](3-mark-conversations-that-have-a-canvas.md) | Mark conversations that have a canvas | feature | P3 |
 | [4](4-check-canvas-numbered-lists-split-across-sections.md) | Check canvas numbered lists split across sections | bug | P3 |
@@ -20,6 +21,7 @@
 | [12](12-keep-the-emoji-history-per-workspace.md) | Keep the emoji history per workspace | idea | P3 |
 | [13](13-place-nested-quote-links-without-reading-slice-capacity.md) | Place nested-quote links without reading slice capacity | chore | P3 |
 | [14](14-small-cleanups-left-by-the-november-upstream-review.md) | Small cleanups left by the November upstream review | chore | P3 |
+| [15](15-translate-typed-mentions-after-the-draft-is-parsed-not-on.md) | Translate typed mentions after the draft is parsed, not on its raw text | bug | P3 |
 
 ## Done
 

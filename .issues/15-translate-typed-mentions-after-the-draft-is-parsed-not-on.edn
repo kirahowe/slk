@@ -1,0 +1,11 @@
+{:id 15
+ :title "Translate typed mentions after the draft is parsed, not on its raw text"
+ :status :inbox
+ :type :bug
+ :priority :p3
+ :created "2026-11-11"
+ :updated "2026-11-11"
+ :tags #{}
+ :blocked-by #{}
+ :related #{"slk#11"}
+ :details "15-translate-typed-mentions-after-the-draft-is-parsed-not-on.md"}

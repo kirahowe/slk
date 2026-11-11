@@ -1,0 +1,11 @@
+{:id 16
+ :title "Decide what Enter does on a shared message"
+ :status :inbox
+ :type :chore
+ :priority :p2
+ :created "2026-11-11"
+ :updated "2026-11-11"
+ :tags #{}
+ :blocked-by #{}
+ :related #{}
+ :details "16-decide-what-enter-does-on-a-shared-message.md"}
