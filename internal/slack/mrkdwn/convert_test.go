@@ -768,6 +768,41 @@ func TestConvert_LinkLabelKeepsAngleAutolink(t *testing.T) {
 	}
 }
 
+// A list item's paragraph after its nested list is in the item, like
+// one before the list: its text, styles, links and mentions go into the
+// item's section, and the nested list still follows the parent list.
+func TestConvert_ItemParagraphAfterNestedList(t *testing.T) {
+	text := func(s string) string { return `{"type":"text","text":"` + s + `"}` }
+	item := func(els ...string) string {
+		return `{"type":"rich_text_section","elements":[` + strings.Join(els, ",") + `]}`
+	}
+	list := func(style string, indent int, items ...string) string {
+		return `{"type":"rich_text_list","elements":[` + strings.Join(items, ",") + `],"style":"` + style +
+			`","indent":` + string(rune('0'+indent)) + `,"border":0,"offset":0}`
+	}
+	block := func(els ...string) string {
+		return `{"type":"rich_text","elements":[` + strings.Join(els, ",") + `]}`
+	}
+	for _, tc := range []struct{ in, want string }{
+		{"- a\n    - b\n  more about a",
+			block(list("bullet", 0, item(text(`a\nmore about a`))), list("bullet", 1, item(text("b"))))},
+		{"- a\n    - b\n\n  more about a",
+			block(list("bullet", 0, item(text(`a\n\nmore about a`))), list("bullet", 1, item(text("b"))))},
+		{"1. a\n    - b\n   more",
+			block(list("ordered", 0, item(text(`a\nmore`))), list("bullet", 1, item(text("b"))))},
+		{"- a\n    - b\n        - c\n      more about b",
+			block(list("bullet", 0, item(text("a"))), list("bullet", 1, item(text(`b\nmore about b`))), list("bullet", 2, item(text("c"))))},
+		{"- a\n    - b\n  **more** [x](https://example.com/) <@U1>",
+			block(list("bullet", 0, item(text(`a\n`), `{"type":"text","text":"more","style":{"bold":true}}`, text(" "),
+				`{"type":"link","url":"https://example.com/","text":"x"}`, text(" "), `{"type":"user","user_id":"U1"}`)),
+				list("bullet", 1, item(text("b"))))},
+	} {
+		if _, blk := Convert(tc.in); blockJSON(blk) != tc.want {
+			t.Errorf("Convert(%q)\n got %s\nwant %s", tc.in, blockJSON(blk), tc.want)
+		}
+	}
+}
+
 func TestConvert_BackslashEscape(t *testing.T) {
 	mr, blk := Convert(`\*not bold\*`)
 	want := "*not bold*"

@@ -208,6 +208,36 @@ func TestEditSourceLinkLabelWithAngleAutolink(t *testing.T) {
 	roundTripsAsTyped(t, "- [<aa:>](https://example.com/)", "[x <a@b.com>](https://example.com/)")
 }
 
+// sendsSameBlock fails the test unless saving the edit seed of each
+// typed text sends the block the typed text did.
+func sendsSameBlock(t *testing.T, typed ...string) {
+	t.Helper()
+	for _, typed := range typed {
+		var msg MessageItem
+		TypedBody(typed).Apply(&msg)
+		seed := EditSource(msg)
+		_, want := mrkdwn.Convert(typed)
+		_, got := mrkdwn.Convert(seed)
+		wj, _ := json.Marshal(want)
+		gj, _ := json.Marshal(got)
+		if string(gj) != string(wj) {
+			t.Errorf("typed %q, seed %q:\n got %s\nwant %s", typed, seed, gj, wj)
+		}
+	}
+}
+
+// An item's paragraph after its nested list is kept on save. The block
+// has it in the item, ahead of the nested list, and so does the seed.
+func TestEditSourceItemParagraphAfterNestedList(t *testing.T) {
+	sendsSameBlock(t,
+		"- a\n    - b\n  more about a",
+		"- a\n    - b\n\n  more about a",
+		"1. a\n    - b\n   more",
+		"- a\n    - b\n        - c\n      more about b",
+		"- a\n    - b\n  **more** [x](https://example.com/) <@U1>",
+	)
+}
+
 // denseLine is a line of the punctuation a person types in prose, each
 // mark one the seed could escape: a colon, parens, a URL, a code span,
 // " - ", "!", brackets, an HTML-shaped word, a pipe and "3.".
