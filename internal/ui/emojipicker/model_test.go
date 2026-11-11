@@ -249,8 +249,8 @@ func TestDropdown_ResolvesCustomEmojiURL_AfterSetEmojiCustoms(t *testing.T) {
 func TestFrecentMatchesComeFirst(t *testing.T) {
 	m := New()
 	m.SetEntries(sampleEntries())
-	m.Open("ro")
 	m.SetFrecency(emoji.NewFrecency([]string{"rose", "rocket"}))
+	m.Open("ro")
 
 	var got []string
 	for _, e := range m.Filtered() {
@@ -285,4 +285,39 @@ func TestRowPreviewGoesThroughTheVS16Gate(t *testing.T) {
 	if strings.Contains(view, "\u200d") {
 		t.Errorf("view draws a ZWJ sequence:\n%s", view)
 	}
+}
+
+// A history or entry list arriving while the dropdown is open reorders
+// it but keeps the highlight on the emoji the user moved to, so Enter
+// or Tab inserts that emoji; one no longer listed clamps the index.
+func TestRefilterKeepsTheHighlightedEmoji(t *testing.T) {
+	m := New()
+	m.SetEntries(sampleEntries())
+	m.Open("ro")
+	m.MoveDown() // rock, rocket, rose: on rocket
+	m.SetFrecency(emoji.NewFrecency([]string{"rose"}))
+	if got := names(m.Filtered()); got != "rose rock rocket" {
+		t.Fatalf("precondition: filtered = %s, want rose first", got)
+	}
+	if e, ok := m.SelectedEntry(); !ok || e.Name != "rocket" {
+		t.Errorf("after a new history, selected = %v, want rocket", e)
+	}
+
+	m.SetEntries(append([]emoji.EmojiEntry{{Name: "roast", Display: "🍖"}}, sampleEntries()...))
+	if e, ok := m.SelectedEntry(); !ok || e.Name != "rocket" {
+		t.Errorf("after new entries, selected = %v (in %s), want rocket", e, names(m.Filtered()))
+	}
+
+	m.SetEntries([]emoji.EmojiEntry{{Name: "rock"}, {Name: "rose"}})
+	if got := m.Selected(); got != 1 {
+		t.Errorf("rocket gone: selected = %d, want the index clamped to 1", got)
+	}
+}
+
+func names(es []emoji.EmojiEntry) string {
+	var out []string
+	for _, e := range es {
+		out = append(out, e.Name)
+	}
+	return strings.Join(out, " ")
 }

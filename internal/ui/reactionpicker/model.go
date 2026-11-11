@@ -117,9 +117,8 @@ func (m *Model) SetCustomEmoji(customs map[string]string) {
 			Unicode: e.Display,
 		})
 	}
-	// Re-run the filter so visible results reflect the new list.
 	if m.visible {
-		m.filter()
+		m.refilter()
 	}
 }
 
@@ -148,11 +147,12 @@ func (m *Model) IsVisible() bool {
 
 // SetFrecency sets the user's emoji history. The emoji in it lead the
 // list, with no query and among the matches for one. If the picker is
-// visible, the list is recomputed.
+// visible, the list is recomputed and the highlight stays on the same
+// emoji (see refilter).
 func (m *Model) SetFrecency(f slkemoji.Frecency) {
 	m.frecency = f
 	if m.visible {
-		m.filter()
+		m.refilter()
 	}
 }
 
@@ -226,7 +226,9 @@ func (m *Model) displayedList() []core.EmojiEntry {
 const maxResults = 50
 
 // filter lists the emoji matching the query (every emoji when it is
-// empty), the user's frecent ones first: see slkemoji.Match.
+// empty), the user's frecent ones first (see slkemoji.Match), and
+// highlights the first. It is for a new query; a list change the user
+// did not type goes through refilter.
 func (m *Model) filter() {
 	m.filtered = slkemoji.Match(m.allEmoji, func(e core.EmojiEntry) string { return e.Name }, m.query,
 		slkemoji.MatchOptions{
@@ -236,6 +238,17 @@ func (m *Model) filter() {
 			Customs:   m.emojiCtx.Customs,
 		})
 	m.selected = 0
+}
+
+// refilter recomputes the list for a change the user did not type (new
+// history, new custom emoji) and keeps the highlight on the emoji it
+// was on, so Enter commits the emoji the user chose; the scroll window
+// follows, as it is computed from the selection. If that emoji is no
+// longer listed the index is clamped.
+func (m *Model) refilter() {
+	before, selected := m.filtered, m.selected
+	m.filter()
+	m.selected = slkemoji.FollowSelection(before, selected, m.filtered, func(e core.EmojiEntry) string { return e.Name })
 }
 
 func (m *Model) isExistingReaction(emojiName string) bool {

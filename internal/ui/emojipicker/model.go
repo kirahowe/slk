@@ -71,11 +71,12 @@ func (m *Model) HandleEmojiImageReady(_ string) {}
 func New() Model { return Model{} }
 
 // SetEntries replaces the full entry list. If the picker is visible, the
-// filtered list and selection are recomputed against the current query.
+// list is recomputed against the current query and the highlight stays
+// on the same emoji (see refilter).
 func (m *Model) SetEntries(entries []emoji.EmojiEntry) {
 	m.entries = entries
 	if m.visible {
-		m.filter()
+		m.refilter()
 	}
 }
 
@@ -133,11 +134,11 @@ func (m *Model) SelectedEntry() (emoji.EmojiEntry, bool) {
 
 // SetFrecency sets the user's emoji history, whose emoji lead the
 // matches for a query. If the picker is visible, the list is
-// recomputed.
+// recomputed and the highlight stays on the same emoji (see refilter).
 func (m *Model) SetFrecency(f emoji.Frecency) {
 	m.frecency = f
 	if m.visible {
-		m.filter()
+		m.refilter()
 	}
 }
 
@@ -154,6 +155,16 @@ func (m *Model) filter() {
 			m.selected = len(m.filtered) - 1
 		}
 	}
+}
+
+// refilter recomputes the list for a change the user did not type (new
+// history, new entries) and keeps the highlight on the emoji it was on,
+// so Enter or Tab inserts the emoji the user chose. If that emoji is no
+// longer listed the index is clamped.
+func (m *Model) refilter() {
+	before, selected := m.filtered, m.selected
+	m.filter()
+	m.selected = emoji.FollowSelection(before, selected, m.filtered, func(e emoji.EmojiEntry) string { return e.Name })
 }
 
 // View renders the bordered dropdown. Returns "" when not visible OR when

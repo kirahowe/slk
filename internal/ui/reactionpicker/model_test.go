@@ -385,3 +385,69 @@ func TestHandleKey_NonASCIIQuery(t *testing.T) {
 		t.Errorf("after backspace query = %q, want %q", m.query, "中")
 	}
 }
+
+// A history or custom emoji list arriving while the picker is open
+// reorders it but keeps the highlight on the emoji the user moved to,
+// so Enter reacts with that emoji; one no longer listed clamps the
+// index.
+func TestRefilterKeepsTheHighlightedEmoji(t *testing.T) {
+	m := New()
+	m.Open("C1", "1.2", nil)
+	for range 3 {
+		m.HandleKey("down")
+	}
+	want := m.displayedList()[3].Name
+	m.SetFrecency(slkemoji.NewFrecency([]string{"zap", "rocket"}))
+	if got := m.displayedList()[0].Name; got != "zap" {
+		t.Fatalf("precondition: list starts with %q, want zap", got)
+	}
+	if got := m.displayedList()[m.selected].Name; got != want {
+		t.Errorf("after a new history, highlighted %q, want %q", got, want)
+	}
+	if r := m.HandleKey("enter"); r == nil || r.Emoji != slkemoji.CanonicalSlackName(want, nil) {
+		t.Errorf("enter = %+v, want %q", r, want)
+	}
+
+	m.SetCustomEmoji(map[string]string{"aaa_custom": "https://e/a.png"})
+	if got := m.displayedList()[m.selected].Name; got != want {
+		t.Errorf("after new custom emoji, highlighted %q, want %q", got, want)
+	}
+	if start, end := m.visibleWindow(); m.selected < start || m.selected >= end {
+		t.Errorf("highlight %d outside the window [%d, %d)", m.selected, start, end)
+	}
+}
+
+// The highlight follows its emoji past the rows on screen, and the
+// window scrolls to it.
+func TestRefilterScrollsToTheHighlightedEmoji(t *testing.T) {
+	m := withEmoji("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l")
+	m.Open("C1", "1.2", nil)
+	m.HandleKey("down") // on b
+	m.SetFrecency(slkemoji.NewFrecency([]string{"c", "d", "e", "f", "g", "h", "i", "j", "k", "l"}))
+	if got := m.displayedList()[m.selected].Name; got != "b" {
+		t.Fatalf("highlighted %q, want b", got)
+	}
+	if start, end := m.visibleWindow(); m.selected < start || m.selected >= end {
+		t.Errorf("highlight %d outside the window [%d, %d)", m.selected, start, end)
+	}
+}
+
+// A highlighted custom emoji that disappears clamps the index.
+func TestRefilterClampsWhenTheEmojiIsGone(t *testing.T) {
+	m := New()
+	m.SetCustomEmoji(map[string]string{"zz_custom": "https://e/z.png"})
+	m.Open("C1", "1.2", nil)
+	m.HandleKey("z")
+	m.HandleKey("z")
+	m.HandleKey("_")
+	if list := m.displayedList(); len(list) != 1 || list[0].Name != "zz_custom" {
+		t.Fatalf("precondition: list = %v, want only zz_custom", list)
+	}
+	m.SetCustomEmoji(nil)
+	if m.selected != 0 {
+		t.Errorf("selected = %d with an empty list, want 0", m.selected)
+	}
+	if r := m.HandleKey("enter"); r != nil {
+		t.Errorf("enter on an empty list = %+v, want nothing", r)
+	}
+}
