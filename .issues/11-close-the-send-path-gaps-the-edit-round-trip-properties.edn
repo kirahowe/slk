@@ -4,8 +4,8 @@
  :type :bug
  :priority :p3
  :created "2026-11-10"
- :updated "2026-11-10"
+ :updated "2026-11-12"
  :tags #{}
  :blocked-by #{}
- :related #{}
+ :related #{"slk#20"}
  :details "11-close-the-send-path-gaps-the-edit-round-trip-properties.md"}

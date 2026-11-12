@@ -10,6 +10,7 @@
 | [7](7-confirm-the-chat-sharemessage-request-for-a-thread-reply-a.md) | Confirm the chat.shareMessage request for a thread reply, a DM and a re-forward | chore | P2 |
 | [16](16-decide-what-enter-does-on-a-shared-message.md) | Decide what Enter does on a shared message | chore | P2 |
 | [17](17-j-and-k-cannot-be-typed-into-the-theme-switcher-and.md) | j and k cannot be typed into the theme switcher and presence menu filters | bug | P2 |
+| [20](20-a-nested-list-in-the-middle-of-a-list-is-drawn-after-the.md) | A nested list in the middle of a list is drawn after the whole list | bug | P2 |
 | [2](2-cache-canvases-so-the-viewer-opens-instantly.md) | Cache canvases so the viewer opens instantly | feature | P3 |
 | [3](3-mark-conversations-that-have-a-canvas.md) | Mark conversations that have a canvas | feature | P3 |
 | [4](4-check-canvas-numbered-lists-split-across-sections.md) | Check canvas numbered lists split across sections | bug | P3 |

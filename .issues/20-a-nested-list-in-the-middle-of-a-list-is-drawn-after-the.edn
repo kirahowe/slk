@@ -1,0 +1,11 @@
+{:id 20
+ :title "A nested list in the middle of a list is drawn after the whole list"
+ :status :inbox
+ :type :bug
+ :priority :p2
+ :created "2026-11-12"
+ :updated "2026-11-12"
+ :tags #{}
+ :blocked-by #{}
+ :related #{}
+ :details "20-a-nested-list-in-the-middle-of-a-list-is-drawn-after-the.md"}

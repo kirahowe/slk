@@ -7,9 +7,11 @@ The round-trip properties written for the edit seed
 few inputs because `mrkdwn.Convert` itself sends something other than
 what was typed:
 
-- `walkList` writes every nested list after its whole parent list, so
-  the mrkdwn text has the sub-items in the wrong place (the block is
-  right). Pinned by `TestEditSourceNestedListOrder`.
+- `walkList` writes every nested list after its whole parent list in
+  the block, so a nested list in the middle of a list is drawn after
+  it (the mrkdwn text is in the typed order). Pinned by
+  `TestEditSourceNestedListOrder`. This one is slk#20, which also
+  points at a fix that was written and not landed.
 - `emphasisDelimiter` falls back to italic when the emphasis starts
   with a node that is not text, so `` *`x` y* `` is sent as italic.
 - A broadcast (`@here`) typed inside a code span loses the code style.
