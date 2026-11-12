@@ -8,6 +8,8 @@ Earlier history, up to v0.26.2, is in [upstream's releases](https://github.com/g
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-11-12
+
 ### Added
 
 - A draft preview. `Ctrl+R` while typing shows the draft above the
@@ -431,6 +433,7 @@ v0.26.2.
   last-viewed channel drops its `▌` marker while Threads or Activity is the
   view on screen.
 
+[0.32.0]: https://github.com/kirahowe/slk/releases/tag/v0.32.0
 [0.31.0]: https://github.com/kirahowe/slk/releases/tag/v0.31.0
 [0.30.0]: https://github.com/kirahowe/slk/releases/tag/v0.30.0
 [0.29.2]: https://github.com/kirahowe/slk/releases/tag/v0.29.2
