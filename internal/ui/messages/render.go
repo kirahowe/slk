@@ -105,6 +105,11 @@ func codeBlockStyle() lipgloss.Style {
 		Background(styles.Surface).
 		Padding(0, 1)
 }
+
+// codeTabWidth is how many columns a tab in a fenced code block is
+// drawn in.
+const codeTabWidth = 4
+
 func linkStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
 		Foreground(styles.Primary).
@@ -693,6 +698,12 @@ func RenderSlackMarkdownWith(text string, opts RenderSlackMarkdownOpts) string {
 		// prose. Width includes one padding column on each side; setting
 		// it on the style extends the surface background across the line.
 		// Breaking at word boundaries would move code tokens.
+		//
+		// Tabs become spaces first, so the wrap measures what is drawn.
+		// Hardwrap counts a tab as no columns and the style would then
+		// draw it as four, so a tab-indented line could overflow after
+		// the wrap and be cut again by the style, at a word boundary.
+		inner = strings.ReplaceAll(inner, "\t", strings.Repeat(" ", codeTabWidth))
 		if w := opts.Width; w > 2 {
 			inner = ansi.Hardwrap(inner, w-2, false)
 			return "\n" + codeBlockStyle().Width(w).Render(inner) + "\n"

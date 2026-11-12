@@ -3,6 +3,7 @@
 package messages
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -65,6 +66,30 @@ func TestCodeBlock_LongLineHardWrapsWithinWidth(t *testing.T) {
 		if w := ansi.StringWidth(l); w > width {
 			t.Errorf("line %d width = %d, exceeds %d: %q", i, w, width, ansi.Strip(l))
 		}
+	}
+}
+
+// A tab is drawn as four columns, so the hard wrap has to count it as
+// four. Counted as none, a tab-indented line that only just overflowed
+// was cut at the column and then again at a word boundary by the
+// style's own wrap: three rows for a line that needs two.
+func TestCodeBlock_TabIndentedLineIsCutOnce(t *testing.T) {
+	const width = 39
+	lines := renderBody(t, "```\n\treturn ay == by && am == bm && ad == bd\n```", width)
+
+	var body []string
+	for _, l := range lines {
+		if w := ansi.StringWidth(l); w > width {
+			t.Errorf("row width = %d, exceeds %d: %q", w, width, ansi.Strip(l))
+		}
+		if s := strings.TrimRight(ansi.Strip(l), " "); s != "" {
+			body = append(body, s)
+		}
+	}
+	// One column of style padding, the tab's four, then the code.
+	want := []string{"     return ay == by && am == bm && ad", " == bd"}
+	if !slices.Equal(body, want) {
+		t.Errorf("rows = %q, want %q", body, want)
 	}
 }
 

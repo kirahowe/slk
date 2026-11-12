@@ -8,6 +8,13 @@ Earlier history, up to v0.26.2, is in [upstream's releases](https://github.com/g
 
 ## [Unreleased]
 
+### Fixed
+
+- A tab-indented line in a code block that is a little too long for the
+  pane is cut once, at the pane's edge. It was cut twice, the second
+  time at a space, which left a few stray characters on a row of their
+  own. Pasted Go code showed it most.
+
 ## [0.32.0] - 2026-11-12
 
 ### Added
