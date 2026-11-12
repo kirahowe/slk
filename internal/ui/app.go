@@ -2167,10 +2167,11 @@ func (a *App) threadComposeChannelName(channelID string) string {
 }
 
 // applyThreadBreadcrumb names the open thread's channel in the thread
-// header. The name is the one the thread compose placeholder shows.
-// channelType may be "" when the caller has none, in which case the
-// sidebar's entry for channelID supplies it; an unknown channel falls
-// back to the default "#" glyph.
+// header. The name is the one the thread compose placeholder shows,
+// and the thread compose is told the channel's type here too, so both
+// draw a DM without a "#". channelType may be "" when the caller has
+// none, in which case the sidebar's entry for channelID supplies it; an
+// unknown channel falls back to the default "#" glyph.
 func (a *App) applyThreadBreadcrumb(channelID, channelType string) {
 	if channelType == "" {
 		for _, it := range a.sidebar.Items() {
@@ -2181,6 +2182,7 @@ func (a *App) applyThreadBreadcrumb(channelID, channelType string) {
 		}
 	}
 	a.threadPanel.SetBreadcrumb(a.threadComposeChannelName(channelID), channelType)
+	a.threadCompose.SetChannelType(channelType)
 }
 
 // openThreadPanel makes the thread panel visible for (channelID,

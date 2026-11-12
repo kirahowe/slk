@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/gammons/slk/internal/core"
+	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/peerstatus"
 	"github.com/gammons/slk/internal/ui/sidebar"
 	"github.com/gammons/slk/internal/ui/wintree"
@@ -240,5 +241,47 @@ func TestSetPeers_StartsTickOnlyForExpiringStatuses(t *testing.T) {
 	}
 	if _, ok := a.presence.peers["U1"]; ok {
 		t.Error("SetPeers kept a previous workspace's peer")
+	}
+}
+
+// The composer names a DM by the person, with no "#", and gets the "#"
+// back on the next channel.
+func TestComposerNamesADMWithoutAHash(t *testing.T) {
+	a := newPeerStatusTestApp(t)
+	a.activeTeamID = "T1"
+
+	_, _ = a.Update(ChannelSelectedMsg{ID: "D1", Name: "alice", Type: "dm"})
+	if got := a.compose.View(60, false); !strings.Contains(got, "Message alice...") {
+		t.Errorf("DM placeholder: want \"Message alice...\", got:\n%s", got)
+	}
+
+	_, _ = a.Update(ChannelSelectedMsg{ID: "C1", Name: "general", Type: "channel"})
+	if got := a.compose.View(60, false); !strings.Contains(got, "Message #general...") {
+		t.Errorf("channel placeholder: want \"Message #general...\", got:\n%s", got)
+	}
+}
+
+// A thread in a DM: its composer and its "also send to" hint name the
+// person the same way, the type coming from the sidebar's row.
+func TestThreadComposerNamesADMWithoutAHash(t *testing.T) {
+	a := newPeerStatusTestApp(t)
+	a.activeTeamID = "T1"
+	a.channelNames = map[string]string{"D1": "alice", "C1": "general"}
+	_, _ = a.Update(ChannelSelectedMsg{ID: "D1", Name: "alice", Type: "dm"})
+
+	_ = a.openThreadPanel(messages.MessageItem{TS: "1700000099.000001"}, "D1", "1700000099.000001")
+	if got := a.threadCompose.View(60, false); !strings.Contains(got, "Message alice...") {
+		t.Errorf("thread placeholder in a DM: want \"Message alice...\", got:\n%s", got)
+	}
+	a.threadCompose.SetBroadcast(true)
+	if got := a.threadCompose.View(60, true); !strings.Contains(got, "also send to alice  (") {
+		t.Errorf("broadcast hint in a DM: want \"also send to alice\", got:\n%s", got)
+	}
+
+	// The next thread, in a channel, gets the "#" back.
+	_ = a.openThreadPanel(messages.MessageItem{TS: "1700000100.000001"}, "C1", "1700000100.000001")
+	a.threadCompose.SetBroadcast(true)
+	if got := a.threadCompose.View(60, true); !strings.Contains(got, "also send to #general  (") {
+		t.Errorf("broadcast hint in a channel: want \"also send to #general\", got:\n%s", got)
 	}
 }

@@ -47,7 +47,8 @@ func (d draft) isEmpty() bool {
 type Model struct {
 	input       textarea.Model
 	channelName string
-	width       int // display width, set by SetWidth
+	channelType string // SetChannelType; "" is a channel
+	width       int    // display width, set by SetWidth
 
 	// Mention picker state
 	mentionPicker   mentionpicker.Model
@@ -154,7 +155,18 @@ func (m *Model) dirty() { m.version++ }
 
 // defaultPlaceholder returns the default channel-aware placeholder text.
 func (m *Model) defaultPlaceholder() string {
-	return "Message #" + m.channelName + "... (i to insert)"
+	return "Message " + m.target() + "... (i to insert)"
+}
+
+// target names the conversation the box writes to, as the placeholder
+// and the broadcast hint show it: a DM or group DM by its people alone,
+// anything else as #name.
+func (m *Model) target() string {
+	switch m.channelType {
+	case "dm", "group_dm":
+		return m.channelName
+	}
+	return "#" + m.channelName
 }
 
 // effectivePlaceholder returns the override if set, else the default.
@@ -242,6 +254,20 @@ func (m *Model) RefreshStyles() {
 func (m *Model) SetChannel(name string) {
 	if m.channelName != name {
 		m.channelName = name
+		if m.placeholderOverride == "" {
+			m.input.Placeholder = m.defaultPlaceholder()
+		}
+		m.dirty()
+	}
+}
+
+// SetChannelType sets the type of the conversation SetChannel named
+// ("channel", "private", "dm", "group_dm"; "" counts as a channel). It
+// decides whether the placeholder and the broadcast hint put a "#"
+// before the name (see target).
+func (m *Model) SetChannelType(chType string) {
+	if m.channelType != chType {
+		m.channelType = chType
 		if m.placeholderOverride == "" {
 			m.input.Placeholder = m.defaultPlaceholder()
 		}
@@ -1767,7 +1793,7 @@ func (m Model) renderBroadcastHint(width int, innerBG color.Color) string {
 		Foreground(styles.Accent).
 		Background(innerBG).
 		Width(width).
-		Render(fmt.Sprintf("↪ also send to #%s  (ctrl+o to cancel)", m.channelName))
+		Render(fmt.Sprintf("↪ also send to %s  (ctrl+o to cancel)", m.target()))
 }
 
 func (m Model) View(width int, focused bool) string {

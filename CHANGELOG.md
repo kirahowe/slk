@@ -14,6 +14,9 @@ Earlier history, up to v0.26.2, is in [upstream's releases](https://github.com/g
   pane is cut once, at the pane's edge. It was cut twice, the second
   time at a space, which left a few stray characters on a row of their
   own. Pasted Go code showed it most.
+- The compose box in a DM or group DM reads `Message Sam Okafor...`
+  where it read `Message #Sam Okafor...`, and a thread there offers
+  `also send to Sam Okafor`. Channels keep the `#`.
 
 ## [0.32.0] - 2026-11-12
 

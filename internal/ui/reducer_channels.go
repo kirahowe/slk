@@ -343,6 +343,7 @@ func (a *App) retargetActiveChannel(id, name, chType string) {
 	a.activeChannelID = id
 	a.typingOut.ResetThrottle() // reset typing throttle for new channel
 	a.compose.SetChannel(name)
+	a.compose.SetChannelType(chType)
 	a.compose.SetActiveChannel(id)
 	a.compose.SetDraftContext(a.activeTeamID, id, "")
 	// Fire the membership fetcher on a fresh goroutine so it can't

@@ -683,6 +683,62 @@ func TestSetPlaceholderOverride(t *testing.T) {
 	}
 }
 
+// A DM or group DM is named by its people alone. Only a channel gets
+// the "#": there is no channel called #Sam Okafor.
+func TestPlaceholderAndBroadcastHintNameAConversationByItsType(t *testing.T) {
+	for _, tc := range []struct{ chType, name, want string }{
+		{"", "general", "#general"},
+		{"channel", "general", "#general"},
+		{"private", "plans", "#plans"},
+		{"dm", "Sam Okafor", "Sam Okafor"},
+		{"group_dm", "Priya, Sam", "Priya, Sam"},
+	} {
+		t.Run(tc.chType, func(t *testing.T) {
+			m := New("old")
+			m.SetChannel(tc.name)
+			m.SetChannelType(tc.chType)
+			m.Blur()
+			if got, want := m.View(60, false), "Message "+tc.want+"... (i to insert)"; !strings.Contains(got, want) {
+				t.Errorf("placeholder: want %q in:\n%s", want, got)
+			}
+			m.SetBroadcast(true)
+			if got, want := m.View(60, true), "also send to "+tc.want+"  ("; !strings.Contains(got, want) {
+				t.Errorf("broadcast hint: want %q in:\n%s", want, got)
+			}
+		})
+	}
+}
+
+// The type can arrive after the name, and a change of type alone
+// redraws the placeholder.
+func TestSetChannelTypeAloneChangesThePlaceholder(t *testing.T) {
+	m := New("Sam Okafor")
+	m.Blur()
+	before := m.Version()
+	m.SetChannelType("dm")
+	if m.Version() == before {
+		t.Error("a change of type did not mark the box for redraw")
+	}
+	if got := m.View(60, false); !strings.Contains(got, "Message Sam Okafor...") {
+		t.Errorf("want the DM's name without a #, got:\n%s", got)
+	}
+	m.SetChannelType("channel")
+	if got := m.View(60, false); !strings.Contains(got, "Message #Sam Okafor...") {
+		t.Errorf("want the # back for a channel, got:\n%s", got)
+	}
+}
+
+// An override (an edit in progress) stays up through a change of type.
+func TestSetPlaceholderOverride_SetChannelTypeDoesNotOverwrite(t *testing.T) {
+	m := New("Sam Okafor")
+	m.SetPlaceholderOverride("Editing message")
+	m.SetChannelType("dm")
+	m.Blur()
+	if got := m.View(60, false); !strings.Contains(got, "Editing message") {
+		t.Errorf("a change of type replaced the override:\n%s", got)
+	}
+}
+
 func TestSetPlaceholderOverride_SetChannelDoesNotOverwrite(t *testing.T) {
 	m := New("old")
 	m.SetPlaceholderOverride("Editing message")
