@@ -7,6 +7,11 @@
 # a `Set` that comes after an action, and `Env` counts as one.
 Set Sixel true
 Set Shell "bash"
+# The cell size below is JetBrains Mono's. VHS asks for that family by
+# default, but a Nerd Font install has it under another name, and VHS
+# then falls back to a font with other metrics (Menlo on macOS, whose
+# rows are 21 px where slk is told 23 below).
+Set FontFamily "JetBrains Mono,JetBrainsMono Nerd Font,monospace"
 Set FontSize 18
 Set Width 1600
 Set Height 900
@@ -16,7 +21,8 @@ Set TypingSpeed 90ms
 Env COLORTERM "truecolor"
 Env SLK_DEMO_IMAGES "sixel"
 # ttyd reports no pixel size, so tell slk its cells are 11x23 px: xterm.js
-# draws FontSize 18 cells at about 11.65x23.4. Rounded down so images never
-# spill past the cells slk reserves. Recompute if FontSize changes.
+# draws FontSize 18 cells at about 11.65x23.4 (about 11.2x23.4, a 141x37
+# grid, in Chrome on macOS). Rounded down so images never spill past the
+# cells slk reserves. Recompute if FontSize or the font changes.
 Env COLORTERM_CELL_WIDTH "11"
 Env COLORTERM_CELL_HEIGHT "23"
