@@ -1,117 +1,68 @@
-# Upstream review 2026-11-09
+# Upstream review 2026-11-16
 
-Range: `4428adf0..cd6ca030`. That covers 18 upstream units: 17 merged PRs plus one direct commit (`88558eb7`, Renovate action bumps). #446 is a one-line build fix for #440 and is listed under #440. There are 66 non-merge commits in all. None is already in the fork by patch (`git cherry`), and the ledger lists none of them. The ledger still says "reviewed through `07bdfab0`". Counts: 7 take, 5 maybe, 6 skip.
-
-The most important item is #444. On Enterprise Grid, `Y`/`C` (copy permalink) fails with `enterprise_is_restricted`, and so does the permalink in forward's local echo. The fork has had a Grid user before (#5 in `cmd/slk/main.go`). #444 builds on #424, which makes forward call `chat.shareMessage`, so the recipient gets a real shared message instead of a pasted permalink. Take the two together.
-
-The fork's mrkdwn converter is its own rewrite, so none of upstream's mrkdwn changes apply as patches. Probing the fork's `mrkdwn.Convert` showed three real bugs:
-- `see:https://x.y` and `call:tel:+1555` go out with an `emoji` element named `https` or `tel`.
-- A URL inside quotes (`"https://x.y"`) is not linked.
-- `http://localhost:8080` and IP-host URLs are not linked.
-
-#442 and #425 fix these upstream and need hand-ports onto the fork's `walk.go`/`tokens.go`.
+Reviewed upstream `13f3bd0f..7d4f9b79` (the ledger's reviewed-through commit is later than the last report's `cd6ca030`). That covers 20 merged PRs and 77 non-merge commits. None of them were already in the fork, and none were in the ledger. The verdicts are 2 take, 7 maybe and 11 skip. The most important item is the read-mark fix from #459 (`7ddadce9`, `9dc0507d`). The fork has the same bug in its narrow stacked layout: a message that arrives in the channel or thread pane while the other pane is in front gets marked read. Slack's cursor moves and the unread badge is lost, even though the user never saw the message. That fix needs to be reworked onto the fork's held-mark design; it does not cherry-pick.
 
 ## Take
 
-- **#444: fix: build permalinks locally where Grid restricts chat.getPermalink** ([PR](https://github.com/gammons/slk/pull/444))
-  - What: `GetPermalink` asks Slack first. On `enterprise_is_restricted` alone, it builds the link itself with the new `slackurl.Build` (the inverse of `slackurl.Parse`) from auth.test's URL. A reply's link needs its thread, so `GetPermalink`, `ForwardMessage` and the core `Permalink`/`Forward` methods now take the thread ts.
-  - Why: copy-permalink is broken on Grid, while Slack's own client works there. This keeps slk working on a workspace type the fork has users on.
-  - Conflict: high. It depends on #424's `forward.go`. Applied after #424's first commit, it conflicts in `internal/slack/client.go`, `internal/slackurl/slackurl.go` (and its test), `internal/ui/forward_message_test.go`, AGENTS.md and `wiki/Features.md`.
-  - Cherry-pick: conflicts both alone and after #424. Hand-port.
-  - Fit:
-    - `slackurl.Build` is pure. Add a rapid round-trip property, `Parse(Build(x)) == x`, using `proptest.ID`/`proptest.TS`.
-    - Add `slackurl.Build` to the AGENTS.md table next to `slackurl.Parse`.
+- **[#459](https://github.com/gammons/slk/pull/459): f toggles full screen for the focused pane (take in part: `7ddadce9`, `9dc0507d`)**
+  - What: `contentPanesDrawn()` reports which content panes the current frame draws. A message arriving in an open pane that is not drawn now stages no read mark and re-reads read state. `dropMarksForHiddenPanes` also drops marks staged while the terminal was blurred if the pane is hidden when focus returns.
+  - Why: this is a correctness bug in the fork. In `reduceNewMessage`, `threadShown` is `inOpenThreadPanel && CursorAtEnd()`, and the channel branch only checks `CursorAtEnd()`. In the stacked layout, the pane that is not in front still has its cursor at the end, so the arrival is staged with `shown=true` and marked read. Upstream's commit message says this predates full screen.
+  - Rework: don't drop the mark the way upstream does. Stage it held (`shown=false`) when the pane is not drawn, so `releaseShownMarks` issues it once the pane comes to the front. Check that `Shows(ts)` is false for an undrawn pane; entrylist's last frame may be stale there. The fork's `Compute` has no `compact` argument and there is no `a.fullscreen`, so `frameInto`/`contentPanesDrawn` reduce to `Compute(... a.threadInFront())` into a scratch `panelLayout`.
+  - The rest of the PR (`c6a32443` and others, the `f` full-screen mode, about 600 lines) is a product call: the fork's narrow layout already stacks panes. Lean skip.
+  - Conflict: high. `internal/ui/app.go`, `internal/ui/reducer_send.go` and `internal/ui/reducer_focus_test.go` diverge from the fork's held marks (`recordChannelMark(…, shown)`).
+  - Cherry-pick: conflicts (`7ddadce9` alone). Tests use no wall-clock waits.
 
-- **#424: fix(forward): share the message with chat.shareMessage** ([PR](https://github.com/gammons/slk/pull/424))
-  - What: forward makes the web client's `chat.shareMessage` call (checked against a scrubbed capture in `testdata/chat_share_message.json`) instead of posting a permalink. The permalink is now fetched only for the local stand-in. Forwarded TSes are remembered (capped), so the share's real echo, which carries the shared attachment, replaces the stand-in.
-  - Why: the recipient sees the forward the way Slack shows one, not as a pasted link with an unfurl. It is also the prerequisite for #444.
-  - Conflict: high in `internal/ui/reducer_send.go`. Upstream swaps the echo in with `UpsertSelfSent`, exempt from the self-send guard. In the fork, `reduceNewMessage` goes through `pendingOps.HoldEcho`, and rows must go through `messages.Insert`/`Upsert`. AGENTS.md also conflicts.
-  - Cherry-pick: `a5a4418a` is clean. `d7b9cb32` conflicts in `reducer_send.go` and AGENTS.md.
-  - Fit:
-    - Express the echo swap with `messages.Upsert` through the panes' `rowSink`, not a pane-specific upsert.
-    - Check the interaction with `HoldEcho`: a forward is not a `pendingInsert`, but another send pending in the destination would hold the echo.
-    - Use `assertFormMatchesCapture` for the request test if upstream's test does not already.
-
-- **#442: fix(mrkdwn): link typed URLs in quotes, headings and after punctuation** ([PR](https://github.com/gammons/slk/pull/442))
-  - What: a quote or colon before a typed URL is taken as text, so Linkify sees the URL. The tokenizer no longer reads `:https:` or `:tel:` as an emoji when a typed URL starts at its name. Headings link their URLs. Blockquotes become a `rich_text_quote` walked inline, and a nested quote keeps its line breaks.
-  - Why: the fork sends `see:https://x.y` as text `see` + emoji `https` + text `//x.y`, so the message arrives without a link. It does the same with `call:tel:…`. `"https://x.y"` is not linked either.
-  - Conflict: high. The fork's `internal/slack/mrkdwn/walk.go` is its own rewrite (about 385 lines differ from upstream's base). `convert_test.go` and AGENTS.md also conflict.
-  - Cherry-pick: `c35c609b` conflicts in `walk.go`, `convert_test.go` and AGENTS.md. Hand-port.
-  - Fit:
-    - Port only the gaps the fork has: the punctuation and colon case, and the tokenizer's emoji guard. The fork already links URLs in headings and in single-level quotes, and keeps quote line breaks. Nested quotes (`> > https://…`) still go out as text.
-    - The port depends on #425's `typedURLRegexp`, or a fork-local equivalent.
-    - Add cases to the fork's `mrkdwn_prop_test.go`, for example "a typed URL from `typedURLRegexp` always comes out as exactly one link element", rather than examples only.
-
-- **#440: fix(ui): close a modal when its mode is left** (with **#446**, its import fix) ([PR](https://github.com/gammons/slk/pull/440), [#446](https://github.com/gammons/slk/pull/446))
-  - What: `SetMode` calls a new `closeModal(oldMode)`, which closes whichever modal the old mode owned, the way Esc does. It generalises the existing ModeMarks special case. The link picker and new-message picker clean-up moves into `closeModal`. `TestQuitPromptClosesEveryModal` fails on any modal mode missing from it.
-  - Why: ctrl+c from any modal other than marks leaves the modal drawn over the screen and over the quit prompt.
-  - Conflict: low. `internal/ui/app.go` conflicts only beside the fork's `exitInsertAfterSend` comment and its inline `cmdline` clear, and `mode_linkpicker.go` conflicts slightly.
-  - Cherry-pick: `1a32e378` conflicts in `app.go` and `mode_linkpicker.go`, both mechanical. `b96b1be0` (#446) points the test at `internal/bubbles/linkpicker`. Do not take it unless #434 is taken; the fork still has `internal/ui/linkpicker`.
-  - Fit:
-    - Add `ModeCanvas` (the fork's canvas viewer) to `closeModal`. Upstream has no such mode, and the test enumerates the modal modes, so check that it covers ModeCanvas.
-    - Keep the fork's `cmdline` clear as it is.
-
-- **#418: fix(emoji): render message and status emoji consistently** ([PR](https://github.com/gammons/slk/pull/418))
-  - What: expands `:shortcodes:` in Block Kit headers, buttons and accessory labels without reading them as mrkdwn. Draws author-status emoji through the image path. Makes workspace custom emoji shadow built-ins at every alias hop (`emoji.BuildCustomEmojiURL`). `truncateToWidth` becomes `ansi.Truncate`.
-  - Why: today app headers and buttons show literal `:shortcode:`. A custom emoji aliased to a name that is also a built-in shows the built-in. A long header can be cut through an escape sequence.
-  - Conflict: high. It conflicts in `internal/ui/messages/render_message.go`, `internal/ui/thread/model.go`, two test files, AGENTS.md and `wiki/Features.md`. It touches the same header code as #417 (a take in the last report).
-  - Cherry-pick: `9eae8701` conflicts in those six files. Hand-port. The `emoji/url.go` and `blockkit` parts are separable and probably apply alone.
-  - Fit:
-    - The plain-text path uses `ResolveShortcodesInText`, which keeps the fork's VS16 gate (#301). Confirm that headers and buttons, which are width-sensitive, never reach `emoji.Sprint`.
-    - Its test in `internal/ui/messages` uses `select { case <-ready: case <-time.After(2s) }`. Change it to a bare `<-ready`.
-    - The alias-shadowing fix in `BuildCustomEmojiURL` is a pure function. Add a property for it.
-
-- **#403: fix(compose): draw the cursor in the theme's text colour** ([PR](https://github.com/gammons/slk/pull/403))
-  - What: sets `s.Cursor.Color = styles.TextPrimary` in `compose.New` and `RefreshStyles`.
-  - Why: the cursor is drawn in the terminal's default colour, which can be invisible on a light theme. It is a two-line fix.
-  - Conflict: low. Only `internal/ui/compose/model_test.go` conflicts, at the end of the file, and three popup goldens change.
-  - Cherry-pick: `a9570ada` conflicts only in `model_test.go`. Keep both tests.
-  - Fit: re-bless the popup goldens with `go test ./internal/ui -run TestGolden -update`, then check them with `cellDiff`.
-
-- **#423: fix(ui): route the activity view through handleGoToTop** ([PR](https://github.com/gammons/slk/pull/423))
-  - What: adds the missing `ViewActivity` arm to `handleGoToTop`, so `gg` works in the Activity feed.
-  - Why: `G` works there but `gg` does nothing. Four lines.
-  - Conflict: none.
-  - Cherry-pick: `a4edcab8` is clean. Build passes and the new test passes.
-  - Fit: nothing.
+- **[#458](https://github.com/gammons/slk/pull/458): leave the current user out of group DM names**
+  - What: `slackfmt.FormatMPDMName(name, self, lookup)` drops the user's own handle (auth.test `user`, new `Client.UserName()` and `WorkspaceContext.UserHandle`). Every group DM then reads as the other people, unless the user is the only one left.
+  - Why: a small, clear UX fix. The user is in every group DM they can see, so listing them is noise in the sidebar, the finder and the compose placeholder. It fits the fork's recent `5b114641` (name a DM without `#` in the compose box).
+  - Conflict: low. `cmd/slk/workspace.go` conflicts only in the struct-field block, because the fork made `channels`/`finderItems` unexported with snapshots. Add the `UserHandle` field by hand. `AGENTS.md` row for `FormatMPDMName` needs the new signature.
+  - Cherry-pick: conflicts (trivial, `cmd/slk/workspace.go`). `FormatMPDMName` is pure but only has example tests. AGENTS.md wants a rapid property here, for example: self never appears unless it is the only handle, and the order of the others is kept.
 
 ## Maybe
 
-- **#425: fix: link more URL schemes, and confirm before opening the unusual ones** ([PR](https://github.com/gammons/slk/pull/425))
-  - What: new `internal/linkscheme` with one allowlist (http(s), ftp(s), sftp, ssh, file, mailto, tel), used by the renderer, `slackfmt`, `ExtractLinks` and the mrkdwn tokenizer. `typedURLRegexp` makes Linkify link URLs with no TLD (localhost, IP hosts, file:). `OpenLinkMsg` to anything other than http(s), mailto or tel opens a confirm prompt first. The prompt shows an escaped, elided target, and `confirmprompt.BodyRoom` sizes it.
-  - Judgement: there are two parts. (a) Linking localhost and IP URLs as you type is a plain bug fix; the fork sends them as text today. #442 needs that regexp. (b) Rendering and opening `file:`/`ssh:`/`ftp:` links needs a confirm prompt and about 110 lines of display-safety code. That surface only pays off if such links show up in Kira's workspaces. A reasonable split is to take (a) as part of the #442 port and decline (b).
-  - Conflict: high. It conflicts at the first commit in AGENTS.md, `internal/slackfmt/slackfmt.go` and `internal/ui/messages/render.go`. The fork's `walk.go`/`convert.go` differ. Several commits touch `edit_source.go` and `blockkit/richtext_markdown.go`, which exist only if #395 (a take last week) has been ported.
-  - Fit: `displayTarget` and `TypesAsBareURL` are pure and have example tests only, so add properties. Their link regexps should come from `linkscheme`, not a fork-local copy.
-
-- **#426: hide deactivated users** ([PR](https://github.com/gammons/slk/pull/426))
-  - What: `general.hide_deactivated_users`, on by default. It caches a deactivated flag on users, and hides deactivated users' DMs from the sidebar, finder and pickers. Their DMs stay findable in the channel finder, with the composer blocked. It also recovers open DMs that `users.conversations` leaves out, and has 15 commits of follow-up fixes (unread counts, reactivation races, window title).
-  - Judgement: about 2,900 lines across 47 files for an annoyance that matters only in a large, churning workspace. Last week's ledger declined #317 as "large surface for small gain", and this is the same shape. `0ec19e3e` (recover open DMs that users.conversations leaves out) may be worth taking alone, if Kira has seen missing DMs.
-  - Conflict: high in `internal/ui/sidebar/model.go` (the fork's Unreads section and `InUnreads`), `internal/ui/app.go`, the channel finder and `cmd/slk`. It conflicts at the fourth commit.
-  - Fit: the snapshot handling must follow the owner-slice and map rules in AGENTS.md (`publishChannels`, no shared map writes).
-
-- **#435: feat(emoji): cache the custom emoji list in SQLite and apply emoji_changed** ([PR](https://github.com/gammons/slk/pull/435))
-  - What: persists each workspace's custom emoji list in a new cache table and handles the `emoji_changed` socket event. Refetches are coalesced, and an in-flight list is discarded on change or reconnect.
-  - Judgement: the fork does not handle `emoji_changed` at all, so a newly added custom emoji shows as `:name:` until restart. That is a real but minor staleness. Against it: about 1,000 lines, three follow-up race fixes in the same PR, and a new SQLite table. Take it if new custom emoji show up often enough to notice.
-  - Conflict: high at the first commit, in `internal/slack/events.go`. `cmd/slk/connect.go`, `main.go` and `workspace.go` are touched too.
-  - Fit: `cmd/slk/customemoji_test.go` has six `time.Sleep` calls, including a 20ms "room for an unwanted call" quiet period. AGENTS.md forbids all of them. Rewrite them with synctest or done-signal draining. The published emoji map must stay swapped whole via `atomic.Pointer` (`WorkspaceContext.CustomEmoji`).
-
-- **#438: compact style** ([PR](https://github.com/gammons/slk/pull/438))
-  - What: `appearance.compact` and a `:compact` command. Together they reduce layout padding, ComposeBox padding (now configurable in `styles`) and message spacing.
-  - Judgement: a taste call about density. It adds a config key, a command and a renderer flag to every pane, about 315 lines. Worth it only if Kira wants denser panes. The fork's narrow-terminal layout already handles cramped widths.
-  - Conflict: high at the first commit, in `internal/config/config.go`. Layout and goldens conflict with the narrow-terminal work too.
-  - Fit: the renderer flag would be a `RenderOptions` field, not a per-pane branch.
-
-- **#432: feat(sidebar): Threads and Activity counts as right-aligned badges** ([PR](https://github.com/gammons/slk/pull/432))
-  - What: `[sidebar] right_align_badges` draws the Threads and Activity counts as mention badges at the right end of the row, capped at 99+, as Slack does.
-  - Judgement: a cosmetic option, about 60 lines. The fork moved DMs and mentions into an Unreads section with a status-bar pill, so check whether the badges still fit that design.
-  - Conflict: high, in `internal/config/config.go`, `internal/ui/sidebar/model.go` and `wiki/Configuration.md`.
-  - Fit: none beyond the conflict.
+- **[#419](https://github.com/gammons/slk/pull/419): resolve channel names outside the sidebar**
+  - What: adds a `channelResolver` per workspace (cache first, then a rate-limited `conversations.info` with a 30s cooldown per failed ID). It names bare `<#C…>` mentions of channels the user has not joined, in fetched, cached, live and thread messages, without adding sidebar rows.
+  - Judgement: today such mentions show as raw IDs. Is that worth about 1100 lines (450 of them `cmd/slk` code and ports) and a second map type layered on `userNameStore`?
+  - Fork fit: it should follow the fork's resolver rules: the `isMissing`/`markMissing` ask-once set rather than a timed cooldown, and an injected clock. `channel_mentions_test.go` has a `select` with `time.After(2 * time.Second)` and a `time.Sleep(25ms)`, which the no-wall-clock rule forbids.
+  - Conflict: high. `cmd/slk/connect.go`, `message_mentions.go`, `internal/ui/app.go` (`SetChannels`), `reducer_workspace.go`, AGENTS.md.
+- **[#452](https://github.com/gammons/slk/pull/452): show "Downloading X…" while a file downloads; queue failures**
+  - What: `d` now shows a progress toast and a result toast. Overlapping downloads and failures are queued so one does not overwrite another.
+  - Judgement: a useful small cue, but 80 lines of queueing state on `App` (`pendingDownloads`, `pendingDownloadFailures`, its own clear message) for a corner case.
+  - Fork fit: if taken, the simple progress-then-result part is probably enough. Upstream's `toastTick` is `tea.Tick`; in the fork, use `tick`.
+  - Conflict: low (`internal/ui/msgs.go`).
+- **[#454](https://github.com/gammons/slk/pull/454): sidebar `start_collapsed`, `show_unread_in_collapsed`; reveal the opened channel without expanding its section**
+  - What: two config options, plus a behaviour change: opening a channel in a collapsed section shows it alone under the header instead of expanding the section. `8788dfc5` keeps the cursor on the section header when its row is hidden by a collapse, instead of jumping to Threads.
+  - Judgement: do you want the reveal-without-expand behaviour? The two options are sidebar option creep, like #407. The cursor fallback alone is a small nicety.
+  - Conflict: high (`internal/ui/sidebar/model.go`; `8788dfc5` depends on `411bd8c9`).
+- **[#469](https://github.com/gammons/slk/pull/469): hide the workspace rail when only one workspace is configured**
+  - What: the rail gets zero width with a single workspace and keeps its width until workspaces load.
+  - Judgement: only matters if you run slk with one workspace. It saves 6 columns, which helps the narrow layout.
+  - Conflict: medium (`internal/ui/app.go`, `internal/ui/windows.go`, near the fork's narrow-layout code). Cherry-pick: conflicts.
+- **[#463](https://github.com/gammons/slk/pull/463): space thread replies like channel messages; thread avatars on by default**
+  - What: `7007853e` replaces the gray rule between thread replies with a blank row (a 10-line change in `thread/model.go`). `2a93b360` defaults `thread_avatars` to true; that part does not apply, because the fork has no `thread_avatars` option (#391 declined).
+  - Judgement: purely visual.
+  - Conflict: low in code; the goldens need re-blessing.
+  - Cherry-pick: conflicts (goldens only).
+- **[#468](https://github.com/gammons/slk/pull/468): insert-mode highlight changes**
+  - What: hides the selected-message highlight while composing, uses the compose box's left bar as the insert-mode cue, and switches the selection tints.
+  - Judgement: an upstream taste change across 36 files and many goldens, and it touches compose styling the fork's draft preview depends on. Lean skip unless the current insert-mode look bothers you.
+  - Conflict: high (`internal/ui/compose/model.go`, `messages/model.go`, `thread/model.go`, `styles/tint.go`, draft-preview goldens).
+- **[#427](https://github.com/gammons/slk/pull/427): sidebar section-header, DM status and finder status emoji as images**
+  - What: in image emoji mode, sidebar section emoji, DM status emoji, the finder and the DM header draw images instead of glyphs. It also fixes section headers (one line, bold when selected, one space after the emoji).
+  - Judgement: cosmetic, about 2900 lines. The author-status part overlaps what the fork took with #418 (`AuthorStatusSuffix` with opts). Lean skip.
+  - Fork fit: if taken, check against the fork's VS16 width gate (#301) in the sidebar.
+  - Conflict: high (`internal/ui/sidebar`, `messages`, `channelfinder`, `bubbles/ansi`).
 
 ## Skip
 
-- **#439: Fix sending/editing multi-paragraph msgs** ([PR](https://github.com/gammons/slk/pull/439)): fixes upstream's walker. The fork's rewritten converter already sends `a\n\nb` as one section with the blank line kept (probed).
-- **#434: refactor(bubbles): move linkpicker into internal/bubbles** ([PR](https://github.com/gammons/slk/pull/434)): a widget move plus windowing for a small modal, with no felt payoff. Taking it would also require #446's import fix.
-- **#436: refactor(core): one list of system-notice subtypes** ([PR](https://github.com/gammons/slk/pull/436)): a no-behaviour refactor that mostly names the huddle subtype. Fine in principle, but low value for the fork.
-- **#443: feat(image): sixel and real cell size on Windows Terminal** ([PR](https://github.com/gammons/slk/pull/443)): Windows-only console probing. The fork's owner is not on Windows.
-- **#447: add star history** ([PR](https://github.com/gammons/slk/pull/447)): an upstream README change.
-- **88558eb7: chore(deps): update github actions** ([commit](https://github.com/gammons/slk/commit/88558eb7)): Renovate pin bumps in upstream's workflows.
+- **[#455](https://github.com/gammons/slk/pull/455): emoji and kitty images on WezTerm via emulated placement**: about 2200 lines for one terminal; take only if you use WezTerm (compare #443, declined).
+- **[#460](https://github.com/gammons/slk/pull/460): `transparent_background` theme option**: a cosmetic option across 48 files.
+- **[#465](https://github.com/gammons/slk/pull/465): reload custom themes on SIGUSR1**: for theme authors running a palette generator; no payoff for the fork.
+- **[#471](https://github.com/gammons/slk/pull/471): unread dots in `:ws`, h/l into the workspace rail**: navigation changes to a rail the fork does not use this way; key conflicts possible.
+- **[#472](https://github.com/gammons/slk/pull/472): `workspace_picker_vim_keys`, `enter_keeps_focus` options**: config option sprawl.
+- **[#461](https://github.com/gammons/slk/pull/461): detect the Nash terminal as kitty**: sets `KITTY_WINDOW_ID` from two `init()` functions, which is a hack, for a terminal not in use.
+- **[#462](https://github.com/gammons/slk/pull/462): skip huddle room work on ordinary pages**: a perf fix to upstream's huddle room code (`huddle_room.go`), which the fork does not have.
+- **[#449](https://github.com/gammons/slk/pull/449): Homebrew cask `postflight_steps`, goreleaser check in CI**: upstream's distribution; the fork has its own release config.
+- **[#457](https://github.com/gammons/slk/pull/457): Alacritty termimg docs**: upstream docs.
+- **[#450](https://github.com/gammons/slk/pull/450): move channelpicker into `internal/bubbles`**: a widget move like #434 (declined). The perf commit `68521f0f` only helps very large channel lists.
+- **[#456](https://github.com/gammons/slk/pull/456): fix the channelpicker import in compose tests**: only needed after #450.
